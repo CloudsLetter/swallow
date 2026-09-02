@@ -1,0 +1,150 @@
+name: Release
+
+# 触发方式：
+#   1. 推送形如 v0.1.0 的 tag：git tag v0.1.0 && git push origin v0.1.0
+#   2. GitHub 页面手动触发（Actions → Release → Run workflow）
+# 产物：
+#   Windows —— NSIS 安装包、MSI、绿色 exe（tauri-action 上传），另加「-full」NSIS
+#              （内嵌 WebView2 离线安装器，供未预装 WebView2 的机器离线安装）
+#   macOS   —— dmg（aarch64 + x86_64）
+#   Linux   —— deb / AppImage（ubuntu-22.04）
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      releaseId: ${{ steps.create.outputs.id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get version from package.json
+        id: version
+        run: echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Create release
+        id: create
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Swallow ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+
+  build:
+    needs: [create-release]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
+          - platform: 'ubuntu-22.04'
+            args: ''
+          - platform: 'windows-latest'
+            args: ''
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Setup Node & pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm exec tsc --noEmit
+
+      - name: Install Linux system deps
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libdbus-1-dev
+
+      - name: Build & upload (tauri-action)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 无开发者证书时跳过签名查找，避免 mac/win 打包失败
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        with:
+          projectPath: src-tauri
+          releaseId: ${{ needs.create-release.outputs.releaseId }}
+          args: ${{ matrix.args }}
+
+  # Windows -full：NSIS 内嵌 WebView2 离线安装器（~150MB），供无网/未装 WebView2 的机器
+  build-full-windows:
+    needs: [create-release]
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Setup Node & pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Switch to offline WebView2 installer mode
+        run: node -e "const fs=require('fs');const f='src-tauri/tauri.conf.json';const c=JSON.parse(fs.readFileSync(f,'utf8'));c.bundle.windows={webviewInstallMode:{type:'offlineInstaller'}};fs.writeFileSync(f,JSON.stringify(c,null,2)+'\n')"
+
+      - name: Build full bundle
+        run: pnpm tauri build
+
+      - name: Upload -full installer to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          ver=$(node -p "require('./package.json').version")
+          cd src-tauri/target/release/bundle/nsis
+          mv swallow_${ver}_x64-setup.exe swallow_${ver}_x64-full-setup.exe
+          gh release upload "v${ver}" swallow_${ver}_x64-full-setup.exe --clobber

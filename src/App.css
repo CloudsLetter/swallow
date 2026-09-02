@@ -1,0 +1,133 @@
+:root {
+  --transition-fast: 150ms ease;
+  --transition-base: 220ms ease;
+  --transition-slow: 320ms ease;
+
+  --color-btn-primary-active: var(--color-primary-dark, var(--color-btn-primary-hover));
+  --color-btn-secondary-hover: var(--color-hover-bg);
+  --color-btn-secondary-active: var(--color-active-bg);
+  --color-btn-danger-hover: color-mix(in srgb, var(--color-error) 88%, black);
+  --color-btn-danger-active: color-mix(in srgb, var(--color-error) 72%, black);
+  --color-btn-success-bg: var(--color-success);
+  --color-btn-success-hover: color-mix(in srgb, var(--color-success) 88%, black);
+  --color-btn-success-active: color-mix(in srgb, var(--color-success) 72%, black);
+  --color-btn-success-text: var(--color-btn-primary-text);
+
+  --color-bg-secondary: var(--color-surface);
+  --color-bg-tertiary: var(--color-surface-elevated);
+  --color-bg-hover: var(--color-hover-bg);
+  --color-bg-active: var(--color-active-bg);
+
+  --color-input-border: var(--color-border-primary);
+  --color-input-border-hover: var(--color-border-focus);
+  --color-input-border-focus: var(--color-border-focus);
+  --color-input-disabled-bg: var(--color-control-disabled-bg);
+  --color-input-disabled-text: var(--color-control-disabled-text);
+
+  --color-card-bg: var(--color-panel-bg);
+  --color-card-border: var(--color-panel-border);
+  --color-card-bg-hover: var(--color-hover-bg);
+  --color-card-shadow: var(--color-shadow-md);
+
+  --color-backdrop-bg: var(--color-overlay);
+
+  --color-menubar-bg: var(--color-sidemenu-bg);
+  --color-menubar-select: var(--color-active-bg);
+  --color-menubar-select-icon: var(--color-primary);
+  --color-menubar-icon: var(--color-tab-icon-color);
+  --color-content-bg: var(--color-panel-bg);
+
+  --color-tabar-home-icon: var(--color-tab-icon-color);
+  --color-tabar-home-bg: var(--color-topbar-bg);
+  --color-tabar-home-bg-hover: var(--color-hover-bg);
+  --color-tabar-bg: var(--color-topbar-bg);
+  --color-tab-hover: var(--color-hover-bg);
+}
+
+.topbar {
+  box-shadow: 0 10px 30px -28px color-mix(in srgb, black 65%, transparent);
+}
+
+.terminal-view {
+  overflow: hidden !important;
+}
+
+.terminal-view .xterm {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.terminal-view .xterm-viewport {
+  /* 只控制垂直滚动。水平方向保持 xterm 默认 visible（不设 overflow-x）：
+     设 overflow-x: auto/overlay 会让「最后一列因字体测量亚像素偏差而横向溢出」的
+     文字被裁成半个字符（用户「文字被剪裁而不是换行」），且水平滚动条会占掉底部高度。
+     overflow-y: scroll 而非 auto/overlay——xterm 5.5 FitAddon 的
+     `scrollBarWidth = viewport.offsetWidth - scrollArea.offsetWidth || 15`：
+     auto/overlay + 内容少时差为 0 → fallback 15 → 永远预留 15px 宽度（右侧留白 15px）。
+     scroll 模式滚动条始终占位（透明轨道视觉不可见），offsetWidth 差 = 实际滚动条宽
+     （由 --scrollbar-width 驱动，4px），fit 准确预留 4px，右侧留白收敛到极小。 */
+  overflow-y: scroll !important;
+  /* WebView 的覆盖式 scrollbar 不一定参与 clientWidth，强制为终端内容预留槽位，
+     避免最后一列文字绘制到滚动条下面。 */
+  scrollbar-gutter: stable;
+  scrollbar-width: thin; /* Firefox：细滚动条 */
+  scrollbar-color: var(--color-scrollbar-thumb, rgba(128, 128, 128, 0.4)) transparent;
+}
+
+/* 终端滚动条：滚动条占位稳定（overflow-y: scroll 常驻，FitAddon 依赖该占位宽度做精确 fit）。
+   - 轨道全透明，避免内容未超出时出现空白竖条；
+   - thumb 半透明胶囊 + 透明 border 制造槽位留白，内容不与其交叠。 */
+.terminal-view .xterm-viewport::-webkit-scrollbar {
+  width: var(--scrollbar-width, 10px);
+  height: var(--scrollbar-width, 10px);
+}
+
+.terminal-view .xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.terminal-view .xterm-viewport::-webkit-scrollbar-thumb {
+  /* 与主题一致：直接用主题色板滑块色（去掉淡化层），细胶囊形态保留 */
+  background-color: var(--color-scrollbar-thumb, rgba(128, 128, 128, 0.45));
+  background-clip: padding-box;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  min-height: 24px;
+  min-width: 24px;
+}
+
+.terminal-view .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-scrollbar-thumb-hover, rgba(128, 128, 128, 0.7));
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+.terminal-view .xterm-viewport::-webkit-scrollbar-thumb:active {
+  background-color: var(--color-scrollbar-thumb-hover, rgba(128, 128, 128, 0.9));
+  border: 2px solid transparent;
+}
+
+.terminal-view .xterm-viewport::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 不要覆盖 xterm 自己给 .xterm-screen 写入的 canvas 高度。
+   xterm 会按「行数 × cell 高度」动态更新这个 inline style；强制 100% 会让
+   screen 的布局高度脱离实际行高，导致选区/光标/滚动区域与内容坐标不一致。 */
+
+/* 终端响铃（bell）视觉提示：短暂反色闪烁 */
+.xterm-bell-flash {
+  animation: xterm-bell-flash 0.3s ease-out;
+}
+
+@keyframes xterm-bell-flash {
+  0% {
+    filter: invert(0);
+  }
+  40% {
+    filter: invert(0.85);
+  }
+  100% {
+    filter: invert(0);
+  }
+}

@@ -1,0 +1,1088 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@fontsource-variable/geist";
+
+/* ============================================================
+   Swallow
+   Tailwind CSS v4
+   ============================================================ */
+
+@custom-variant dark (&:is(.dark *));
+
+/* ============================================================
+   Tailwind Theme
+   ============================================================ */
+
+@theme inline {
+  /* -------------------- Colors -------------------- */
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-destructive: var(--destructive);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* -------------------- Radius -------------------- */
+
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+  --radius: 0.5rem;
+
+  /* -------------------- Fonts -------------------- */
+
+  --font-sans:
+    "Geist Variable",
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+
+  --font-heading:
+    "Geist Variable",
+    system-ui,
+    sans-serif;
+
+  /* -------------------- Font sizes -------------------- */
+
+  --font-size-2xs: 0.6875rem;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.5rem;
+  --font-size-3xl: 1.875rem;
+
+  /* -------------------- Font weights -------------------- */
+
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* -------------------- Scale -------------------- */
+
+  --scale-102: 1.02;
+  --scale-105: 1.05;
+
+  /* -------------------- Spacing -------------------- */
+
+  --spacing-unit: 0.25rem;
+
+  /* -------------------- Shadows -------------------- */
+
+  --shadow-xs:
+    0 1px 2px 0 rgb(0 0 0 / 0.05);
+
+  --shadow-sm:
+    0 1px 3px 0 rgb(0 0 0 / 0.1),
+    0 1px 2px -1px rgb(0 0 0 / 0.1);
+
+  --shadow-md:
+    0 4px 6px -1px rgb(0 0 0 / 0.1),
+    0 2px 4px -2px rgb(0 0 0 / 0.1);
+
+  --shadow-lg:
+    0 10px 15px -3px rgb(0 0 0 / 0.1),
+    0 4px 6px -4px rgb(0 0 0 / 0.1);
+
+  --shadow-xl:
+    0 20px 25px -5px rgb(0 0 0 / 0.1),
+    0 8px 10px -6px rgb(0 0 0 / 0.1);
+
+  /* -------------------- Custom scale -------------------- */
+
+  --animate-slide-in: slideIn 0.3s ease-out;
+  --animate-slide-out: slideOut 0.3s ease-out;
+  --animate-fade-in: fadeIn 0.2s ease-in;
+  --animate-fade-in-up: fadeInUp 0.2s ease-out;
+
+  /* -------------------- Keyframes -------------------- */
+
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateX(-10px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes slideOut {
+    from {
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    to {
+      opacity: 0;
+      transform: translateX(-10px);
+    }
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* ============================================================
+   Global theme variables
+   ============================================================ */
+
+@layer base {
+  :root {
+    /* -------------------- Layout -------------------- */
+
+    --menu-width: 240px;
+    --menu-width-collapsed: 64px;
+    --topbar-height: 44px;
+    --header-height: 44px;
+
+    /* -------------------- Application font -------------------- */
+
+    --app-font-family:
+      "Geist Variable",
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif;
+
+    --app-font-size: 14px;
+
+    /* -------------------- Semantic colors -------------------- */
+
+    --background:
+      var(--color-bg-primary, oklch(1 0 0));
+
+    --foreground:
+      var(--color-text-primary, oklch(0.145 0 0));
+
+    --card:
+      var(--color-panel-bg, oklch(1 0 0));
+
+    --card-foreground:
+      var(--color-text-primary, oklch(0.145 0 0));
+
+    --popover:
+      var(--color-context-menu-bg, oklch(1 0 0));
+
+    --popover-foreground:
+      var(--color-context-menu-item-text, oklch(0.145 0 0));
+
+    --primary:
+      var(--color-primary, oklch(0.205 0 0));
+
+    --primary-foreground:
+      var(--color-btn-primary-text, oklch(0.985 0 0));
+
+    --secondary:
+      var(--color-btn-secondary-bg, oklch(0.97 0 0));
+
+    --secondary-foreground:
+      var(--color-btn-secondary-text, oklch(0.205 0 0));
+
+    --muted:
+      var(--color-surface, oklch(0.97 0 0));
+
+    --muted-foreground:
+      var(--color-text-muted, oklch(0.556 0 0));
+
+    --accent:
+      var(--color-hover-bg, oklch(0.97 0 0));
+
+    --accent-foreground:
+      var(--color-text-primary, oklch(0.205 0 0));
+
+    --destructive:
+      var(--color-error, oklch(0.577 0.245 27.325));
+
+    --border:
+      var(--color-border-primary, oklch(0.922 0 0));
+
+    --input:
+      var(--color-border-primary, oklch(0.922 0 0));
+
+    --ring:
+      var(--color-focus-ring, oklch(0.708 0 0));
+
+    /* -------------------- Chart colors -------------------- */
+
+    --chart-1:
+      var(--color-primary, oklch(0.87 0 0));
+
+    --chart-2:
+      var(--color-info, oklch(0.556 0 0));
+
+    --chart-3:
+      var(--color-success, oklch(0.439 0 0));
+
+    --chart-4:
+      var(--color-warning, oklch(0.371 0 0));
+
+    --chart-5:
+      var(--color-error, oklch(0.269 0 0));
+
+    /* -------------------- Sidebar -------------------- */
+
+    --sidebar:
+      var(--color-sidemenu-bg, oklch(0.985 0 0));
+
+    --sidebar-foreground:
+      var(--color-sidemenu-text, oklch(0.145 0 0));
+
+    --sidebar-primary:
+      var(--color-primary, oklch(0.205 0 0));
+
+    --sidebar-primary-foreground:
+      var(--color-btn-primary-text, oklch(0.985 0 0));
+
+    --sidebar-accent:
+      var(--color-active-bg, oklch(0.97 0 0));
+
+    --sidebar-accent-foreground:
+      var(--color-sidemenu-text-active, oklch(0.205 0 0));
+
+    --sidebar-border:
+      var(--color-menu-border-primary, oklch(0.922 0 0));
+
+    --sidebar-ring:
+      var(--color-focus-ring, oklch(0.708 0 0));
+  }
+
+  /* ========================================================
+     Dark theme
+     ======================================================== */
+
+  .dark {
+    --background:
+      var(--color-bg-primary, oklch(0.145 0 0));
+
+    --foreground:
+      var(--color-text-primary, oklch(0.985 0 0));
+
+    --card:
+      var(--color-panel-bg, oklch(0.205 0 0));
+
+    --card-foreground:
+      var(--color-text-primary, oklch(0.985 0 0));
+
+    --popover:
+      var(--color-context-menu-bg, oklch(0.205 0 0));
+
+    --popover-foreground:
+      var(--color-context-menu-item-text, oklch(0.985 0 0));
+
+    --primary:
+      var(--color-primary, oklch(0.922 0 0));
+
+    --primary-foreground:
+      var(--color-btn-primary-text, oklch(0.205 0 0));
+
+    --secondary:
+      var(--color-btn-secondary-bg, oklch(0.269 0 0));
+
+    --secondary-foreground:
+      var(--color-btn-secondary-text, oklch(0.985 0 0));
+
+    --muted:
+      var(--color-surface, oklch(0.269 0 0));
+
+    --muted-foreground:
+      var(--color-text-muted, oklch(0.708 0 0));
+
+    --accent:
+      var(--color-hover-bg, oklch(0.269 0 0));
+
+    --accent-foreground:
+      var(--color-text-primary, oklch(0.985 0 0));
+
+    --destructive:
+      var(--color-error, oklch(0.704 0.191 22.216));
+
+    --border:
+      var(--color-border-primary, oklch(1 0 0 / 10%));
+
+    --input:
+      var(--color-border-primary, oklch(1 0 0 / 15%));
+
+    --ring:
+      var(--color-focus-ring, oklch(0.556 0 0));
+
+    --chart-1:
+      var(--color-primary, oklch(0.87 0 0));
+
+    --chart-2:
+      var(--color-info, oklch(0.556 0 0));
+
+    --chart-3:
+      var(--color-success, oklch(0.439 0 0));
+
+    --chart-4:
+      var(--color-warning, oklch(0.371 0 0));
+
+    --chart-5:
+      var(--color-error, oklch(0.269 0 0));
+
+    --sidebar:
+      var(--color-sidemenu-bg, oklch(0.205 0 0));
+
+    --sidebar-foreground:
+      var(--color-sidemenu-text, oklch(0.985 0 0));
+
+    --sidebar-primary:
+      var(--color-primary, oklch(0.488 0.243 264.376));
+
+    --sidebar-primary-foreground:
+      var(--color-btn-primary-text, oklch(0.985 0 0));
+
+    --sidebar-accent:
+      var(--color-active-bg, oklch(0.269 0 0));
+
+    --sidebar-accent-foreground:
+      var(--color-sidemenu-text-active, oklch(0.985 0 0));
+
+    --sidebar-border:
+      var(--color-menu-border-primary, oklch(1 0 0 / 10%));
+
+    --sidebar-ring:
+      var(--color-focus-ring, oklch(0.556 0 0));
+  }
+
+  /* ========================================================
+     Global reset
+     ======================================================== */
+
+  *,
+  ::before,
+  ::after,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+
+  *,
+  ::before,
+  ::after {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: var(--app-font-family);
+    font-size: var(--app-font-size);
+
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+
+    background-color:
+      var(--background, var(--color-bg-primary));
+
+    background-image:
+      radial-gradient(
+        1100px 420px at 100% -10%,
+        color-mix(
+          in srgb,
+          var(--primary, var(--color-primary)) 10%,
+          transparent
+        ),
+        transparent 60%
+      ),
+      linear-gradient(
+        180deg,
+        color-mix(
+          in srgb,
+          var(--background, var(--color-bg-primary)) 97%,
+          white 3%
+        )
+        0%,
+        var(--background, var(--color-bg-primary)) 100%
+      );
+
+    color:
+      var(--foreground, var(--color-text-primary));
+
+    transition:
+      background-color var(--transition-base),
+      color var(--transition-base);
+  }
+
+  * {
+    font-family: inherit;
+  }
+
+  /* 裸 border（未显式指定颜色的 border/divide 类）默认用主题边框色：
+     Tailwind v4 默认是浅灰，暗色主题下会显示成刺眼的白色分隔线 */
+  *,
+  ::before,
+  ::after {
+    border-color: var(--border);
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font-family: var(--app-font-family);
+  }
+
+  button {
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+}
+
+/* ============================================================
+   Window glass effect (acrylic/mica/blur)
+   有毛玻璃效果时 body 背景透明，让系统级毛玻璃/壁纸透出；
+   卡片/面板等 bg-card 元素仍不透明，保证内容可读
+   ============================================================ */
+
+html.window-effect body {
+  background: transparent !important;
+}
+
+/* 应用根容器也不透底（否则 bg-background 盖住毛玻璃）；顶栏/侧边栏/卡片保持实体 */
+html.window-effect .layout-wrapper {
+  background: transparent !important;
+}
+
+/* ============================================================
+   Form controls
+   ============================================================ */
+
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* ============================================================
+   Typography compatibility
+   ============================================================ */
+
+/*
+ * 暂时保留 Swallow 原项目行为。
+ *
+ * 后续如果决定完全采用 Tailwind v4 默认字号，
+ * 再删除这一段。
+ */
+
+.text-xs {
+  font-size: calc(var(--app-font-size) * 0.75) !important;
+  line-height: 1rem;
+}
+
+.text-sm {
+  font-size: calc(var(--app-font-size) * 0.875) !important;
+  line-height: 1.25rem;
+}
+
+.text-base {
+  font-size: var(--app-font-size) !important;
+  line-height: 1.5rem;
+}
+
+.text-lg {
+  font-size: calc(var(--app-font-size) * 1.125) !important;
+  line-height: 1.75rem;
+}
+
+.text-xl {
+  font-size: calc(var(--app-font-size) * 1.25) !important;
+  line-height: 1.75rem;
+}
+
+.text-2xl {
+  font-size: calc(var(--app-font-size) * 1.5) !important;
+  line-height: 2rem;
+}
+
+/* ============================================================
+   Scrollbar
+   默认 auto（浏览器原生行为）：仅内容溢出、滚动条真实出现时
+   才占用轨道空间——不需要滚动的地方不显示、也不预留，零痕迹。
+   - 轨道全透明，thumb 为半透明胶囊（padding-box + 透明 border
+     悬浮于轨道槽内），只在滚动条出现时可见；
+   - 宽度由 --scrollbar-width 驱动（设置页可调）。
+   关闭「悬浮」（html 带 .no-overlay-scrollbar）时回退传统实色轨道 + 满宽 thumb。
+   ============================================================ */
+
+/* Firefox：细滚动条 + 透明轨道。滑块直接用主题色板 scrollbar_thumb 色（所见即所得） */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-scrollbar-thumb, rgba(128, 128, 128, 0.4)) transparent;
+}
+
+::-webkit-scrollbar {
+  width: var(--scrollbar-width, 10px);
+  height: var(--scrollbar-width, 10px);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  /* 与主题一致：直接使用主题色板「滚动条滑块」色，不再加额外淡化层 */
+  background-color: var(--color-scrollbar-thumb, rgba(128, 128, 128, 0.45));
+  background-clip: padding-box;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  min-height: 24px;
+  min-width: 24px;
+
+  transition:
+    background-color var(--transition-base),
+    border-color var(--transition-base);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-scrollbar-thumb-hover, rgba(128, 128, 128, 0.7));
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background-color: var(--color-scrollbar-thumb-hover, rgba(128, 128, 128, 0.9));
+  border: 2px solid transparent;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 非悬浮（传统滚动条）：实色轨道 + 满宽实色 thumb。
+   正向语义：默认无 class 即悬浮稳定占位，仅当 html 带 .no-overlay-scrollbar 时回退传统样式。 */
+html.no-overlay-scrollbar * {
+  scrollbar-color: var(--color-scrollbar-thumb, rgba(128, 128, 128, 0.4)) var(--color-scrollbar-track, #f1f5f9);
+}
+
+html.no-overlay-scrollbar ::-webkit-scrollbar-track {
+  background: var(--color-scrollbar-track, #f1f5f9);
+}
+
+html.no-overlay-scrollbar ::-webkit-scrollbar-thumb {
+  background-color: var(--color-scrollbar-thumb, rgba(128, 128, 128, 0.4));
+  background-clip: border-box;
+  border: none;
+  border-radius: 4px;
+}
+
+html.no-overlay-scrollbar ::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-scrollbar-thumb-hover, rgba(128, 128, 128, 0.6));
+  border: none;
+}
+
+html.no-overlay-scrollbar ::-webkit-scrollbar-thumb:active {
+  background-color: var(--color-scrollbar-thumb-hover, rgba(128, 128, 128, 0.8));
+  border: none;
+}
+
+/* ============================================================
+   可滚动容器（.overlay-scrollbar 工具类）
+   历史：原依赖 overflow: overlay 让滚动条悬浮、不占布局宽度，
+   该属性已废弃且被 Chromium 降级为 auto。
+   现默认 gutter: auto——仅内容溢出时出现滚动条（不预留空槽），
+   内容不满的容器完全无滚动条痕迹。若某容器需要「稳定占位防
+   内容跳动」，在该容器上单独加 scrollbar-gutter: stable 即可。
+   类名保留以兼容既有调用处，仅需保证容器可滚动。
+   ============================================================ */
+.overlay-scrollbar {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* 抽屉（Sheet）内容区滚动：采用稳定预留（scrollbar-gutter: stable）——
+   表单分区展开/收起或内容增减时，滚动条槽位恒定，内容不左右跳动。
+   区别于全局 auto（内容不满的普通容器零痕迹），抽屉属「需要滚动」的长表单场景。 */
+[data-slot='sheet-body'] {
+  scrollbar-gutter: stable;
+}
+
+/* ============================================================
+   Topbar 背景延伸（.topbar-extend）
+   终端背景透出顶栏时，标签文字/图标/窗口控件若继续用主题 foreground/accent，
+   在深色终端背景下会看不清、hover 白块突兀。故颜色改用按背景亮度挑选的
+   对比前景变量（--topbar-ext-*，由 TerminalView 注入）：
+   深背景 → 白字系；浅背景 → 深字系。未注入时回退主题色。
+   ============================================================ */
+.topbar-extend .tab-item {
+  color: var(--topbar-ext-fg-dim, var(--color-muted-foreground));
+  background-color: transparent;
+}
+
+.topbar-extend .tab-item:hover {
+  color: var(--topbar-ext-fg, var(--color-foreground));
+  background-color: var(--topbar-ext-hover-bg, transparent);
+}
+
+.topbar-extend .tab-item[aria-selected='true'],
+.topbar-extend .tab-item[aria-selected='true']:hover {
+  color: var(--topbar-ext-fg, var(--color-foreground));
+  background-color: transparent;
+}
+
+/* 激活标签顶部指示条跟随对比前景 */
+.topbar-extend .tab-active-bar {
+  background-color: var(--topbar-ext-fg, var(--color-foreground));
+}
+
+/* 顶栏其余按钮（Home / 新建 / 更多 / 传输中心 / 窗口控制）同套对比变量 */
+.topbar-extend button {
+  color: var(--topbar-ext-fg-dim, var(--color-muted-foreground));
+}
+
+.topbar-extend button:hover {
+  color: var(--topbar-ext-fg, var(--color-foreground));
+  background-color: var(--topbar-ext-hover-bg, transparent);
+}
+
+/* 窗口关闭按钮保留红色 hover 语义（任何背景下都可辨识，且不与「统一反色」冲突） */
+.topbar-extend button.win-close-btn:hover,
+.topbar-extend button.win-close-btn:active {
+  color: var(--color-primary-foreground);
+  background-color: var(--color-destructive);
+}
+
+/* ============================================================
+   Focus
+   ============================================================ */
+
+button:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+/* ============================================================
+   Layout
+   ============================================================ */
+
+.topbar {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.tab-bar,
+.window-controls {
+  gap: 0;
+}
+
+.side-menu,
+.content-area {
+  border-radius: 0;
+}
+
+.home-grid {
+  gap: 0;
+}
+
+.tab-item {
+  transition: all var(--transition-slow);
+  transform-origin: left center;
+}
+
+/* ============================================================
+   Side menu effects
+   ============================================================ */
+
+.side-menu button {
+  position: relative;
+  overflow: hidden;
+}
+
+.side-menu button::before {
+  content: "";
+
+  position: absolute;
+  top: 0;
+  left: -100%;
+
+  width: 100%;
+  height: 100%;
+
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(
+      in srgb,
+      var(--color-text-primary) 10%,
+      transparent
+    ),
+    transparent
+  );
+
+  transition: left 0.5s ease;
+}
+
+.dark .side-menu button::before {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(
+      in srgb,
+      var(--color-text-primary) 6%,
+      transparent
+    ),
+    transparent
+  );
+}
+
+.side-menu button:hover::before {
+  left: 100%;
+}
+
+/* ============================================================
+   Tab animations
+   ============================================================ */
+
+@keyframes tabSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes tabSlideOut {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+}
+
+@keyframes tabEnter {
+  from {
+    opacity: 0;
+    transform: scaleX(0.8);
+    width: 0;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+    width: 160px;
+  }
+}
+
+@keyframes tabExit {
+  from {
+    opacity: 1;
+    transform: scaleX(1);
+    width: 160px;
+  }
+
+  to {
+    opacity: 0;
+    transform: scaleX(0);
+    width: 0;
+    padding-left: 0;
+    padding-right: 0;
+  }
+}
+
+/* 拖拽标签时，目标标签左侧高亮插入位（排序） */
+.tab-drag-over {
+  box-shadow: inset 2px 0 0 0 var(--color-primary, #4f46e5);
+}
+
+/* 拖拽标签合并：按方向高亮目标标签对应边缘 */
+.tab-merge-left {
+  box-shadow: inset 3px 0 0 0 var(--color-primary, #4f46e5);
+}
+
+.tab-merge-right {
+  box-shadow: inset -3px 0 0 0 var(--color-primary, #4f46e5);
+}
+
+.tab-merge-up {
+  box-shadow: inset 0 3px 0 0 var(--color-primary, #4f46e5);
+}
+
+.tab-merge-down {
+  box-shadow: inset 0 -3px 0 0 var(--color-primary, #4f46e5);
+}
+
+/* ============================================================
+   Fade
+   ============================================================ */
+
+.fade-in {
+  animation: fadeIn 0.3s ease-in;
+}
+
+/* ============================================================
+   Context menu
+   ============================================================ */
+
+@keyframes contextMenuIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.context-menu {
+  animation: contextMenuIn 0.15s ease-out;
+  transform-origin: top left;
+}
+
+/* ============================================================
+   Sheet
+   ============================================================ */
+
+[data-slot="sheet-overlay"][data-state="open"] {
+  animation: sheet-fade-in 0.15s ease-out;
+}
+
+[data-slot="sheet-overlay"][data-state="closed"] {
+  animation: sheet-fade-out 0.15s ease-in forwards;
+}
+
+[data-slot="sheet-content"][data-side="right"][data-state="open"] {
+  animation:
+    sheet-slide-in-right
+    0.22s
+    cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-slot="sheet-content"][data-side="right"][data-state="closed"] {
+  animation: sheet-slide-out-right 0.18s ease-in forwards;
+}
+
+[data-slot="sheet-content"][data-side="left"][data-state="open"] {
+  animation:
+    sheet-slide-in-left
+    0.22s
+    cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-slot="sheet-content"][data-side="left"][data-state="closed"] {
+  animation: sheet-slide-out-left 0.18s ease-in forwards;
+}
+
+[data-slot="sheet-content"][data-side="top"][data-state="open"] {
+  animation:
+    sheet-slide-in-top
+    0.22s
+    cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-slot="sheet-content"][data-side="top"][data-state="closed"] {
+  animation: sheet-slide-out-top 0.18s ease-in forwards;
+}
+
+[data-slot="sheet-content"][data-side="bottom"][data-state="open"] {
+  animation:
+    sheet-slide-in-bottom
+    0.22s
+    cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-slot="sheet-content"][data-side="bottom"][data-state="closed"] {
+  animation: sheet-slide-out-bottom 0.18s ease-in forwards;
+}
+
+@keyframes sheet-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sheet-fade-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes sheet-slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes sheet-slide-out-right {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes sheet-slide-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes sheet-slide-out-left {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes sheet-slide-in-top {
+  from {
+    transform: translateY(-100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes sheet-slide-out-top {
+  from {
+    transform: translateY(0);
+  }
+
+  to {
+    transform: translateY(-100%);
+  }
+}
+
+@keyframes sheet-slide-in-bottom {
+  from {
+    transform: translateY(100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes sheet-slide-out-bottom {
+  from {
+    transform: translateY(0);
+  }
+
+  to {
+    transform: translateY(100%);
+  }
+}
+
+/* 终端选区半透明：xterm DomRenderer 有【两层】选区视觉——
+   ① 选中字符 span 被内联 background-color（blend 后的不透明色，_addStyle 直接写到 style 属性）；
+   ② .xterm-selection div 覆盖层（z-index:1，JS 注入 background-color）。
+   仅给 ② 加 opacity 不够——① 的不透明背景会盖住背景图。所以：
+   - 禁用 ①（xterm-decoration-top 是 DomRenderer 给选中 cell 打的标记类，项目未用 registerDecoration，
+     可安全覆盖）：背景置透明，让选区视觉只由 ② 承担；
+   - ② 做元素级 opacity，透出下层（纯色背景透出终端底色、背景图模式透出背景图）。
+   透明度由 TerminalView 的 --xterm-selection-opacity 变量驱动（配置 terminal.selection_opacity，默认 0.4）。 */
+.terminal-view .xterm .xterm-decoration-top {
+  background-color: transparent !important;
+}
+
+.terminal-view .xterm-selection div {
+  opacity: var(--xterm-selection-opacity, 0.4);
+}

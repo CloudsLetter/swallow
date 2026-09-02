@@ -1,0 +1,66 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Env & build caches
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+.pnpm-store
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.iml
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS thumbnails / desktop artifacts
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# Local scratch / sensitive / temp (not for repo)
+.history/
+_keys.mjs
+_scan.mjs
+_tmp_*/
+cloud-server/data/
+*.key
+*.pem
+
+# AI 助手 / 会话 / 工具产物（本地保留，不入库；匹配任意层级）
+.agents/
+.cargo/
+.codex/
+.codebuddy/
+.codebuddy_ai/
+.claude/
+.copilot/
+.cursor/
+.continue/
+.windsurf/
+.zed/
+.aider*
+# 项目本地记忆（不入库）
+.workbuddy/
+# 根目录临时截图/图片（避免误提交）
+/*.png
+/*.jpg
+/*.jpeg
