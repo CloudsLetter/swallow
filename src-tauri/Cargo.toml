@@ -56,3 +56,8 @@ keyring = { version = "3", features = ["apple-native", "crypto-rust"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
+
+# mac/linux CI 无系统 OpenSSL：vendored 让 openssl-src 为对应架构自动编译
+# （mac 自带 perl、ubuntu runner 也有；Windows 本机无 perl，保持系统 openssl 方案）
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+ssh2 = { version = "0.9", features = ["vendored-openssl"] }
