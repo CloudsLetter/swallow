@@ -32,7 +32,8 @@ tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 thiserror = "1"
 chrono = "0.4"
-suppaftp = "5.2"
+suppaftp = "11"
+encoding_rs = "0.8"
 portable-pty = "0.9"
 windows-sys = { version = "0.59", features = ["Win32_Graphics_Dwm", "Win32_Foundation"] }
 serde_yaml = "0.9.34"
@@ -50,6 +51,9 @@ pbkdf2 = { version = "0.12", features = ["simple"] }
 # keyring 按平台选择系统凭据 backend（跨平台打包必需；不可统一放顶层）
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native", "crypto-rust"] }
+# WebView2 原生 WebMessage 附加对象（CoreWebView2File → DOM File 真实路径），拖拽上传直读通道
+webview2-com = "0.38"
+windows-core = "0.61"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native", "crypto-rust"] }

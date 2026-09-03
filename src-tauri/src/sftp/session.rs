@@ -79,6 +79,106 @@ pub struct FileItem {
 }
 
 /// 解析 FTP `LIST` 命令的一行输出为 `FileItem`（纯函数，便于单元测试）。
+/// 按行拆分并解码 FTP 数据：优先 UTF-8，失败回退 GB18030（兼容 GBK 中文文件名的
+/// 老式服务器，如 NAS/SmbFTPD——UTF-8 解析会把这些字节变乱码）。
+fn decode_ftp_lines(raw: &[u8]) -> Vec<String> {
+    raw.split(|b| *b == b'\n')
+        .filter_map(|line_bytes| {
+            let mut line = line_bytes;
+            while line.last() == Some(&b'\r') {
+                line = &line[..line.len() - 1];
+            }
+            if line.is_empty() {
+                return None;
+            }
+            Some(match std::str::from_utf8(line) {
+                Ok(s) => s.to_string(),
+                Err(_) => encoding_rs::GB18030.decode(line).0.into_owned(),
+            })
+        })
+        .collect()
+}
+
+/// 走 raw 数据通道执行一个目录数据命令（LIST/MLSD/NLST），返回解码后的行。
+/// custom_data_command 拿原始字节：绕开 suppaftp 高层读取的 lossy；收尾读 226。
+fn raw_ftp_lines(
+    ftp: &mut suppaftp::FtpStream,
+    cmd: &str,
+) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+    use std::io::Read;
+    let (_, mut data_stream) = ftp
+        .custom_data_command(cmd, &[suppaftp::Status::AboutToSend])
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
+    let mut raw: Vec<u8> = Vec::new();
+    data_stream
+        .read_to_end(&mut raw)
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+    ftp.close_data_connection(data_stream)
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
+    Ok(decode_ftp_lines(&raw))
+}
+
+/// 目录排序：目录在前、其余按名字。
+fn sort_dir_items(files: &mut [FileItem]) {
+    files.sort_by(|a, b| {
+        use std::cmp::Ordering;
+        match (&a.file_type, &b.file_type) {
+            (FileType::Directory, FileType::Directory) => a.name.cmp(&b.name),
+            (FileType::Directory, _) => Ordering::Less,
+            (_, FileType::Directory) => Ordering::Greater,
+            _ => a.name.cmp(&b.name),
+        }
+    });
+}
+
+/// 解析 MLSD（RFC 3659）一行：`type=dir;size=…;modify=…; name`。
+/// 名字在首个空格之后（可含空格）；文件名可能被 URL 转义（%XX），保持原样显示。
+fn parse_mlsd_entry(line: &str) -> Option<FileItem> {
+    let sp = line.find(' ')?;
+    let facts = &line[..sp];
+    let name = line[sp + 1..].trim();
+    if name.is_empty() || name == "." || name == ".." {
+        return None;
+    }
+    let mut size: u64 = 0;
+    let mut file_type = FileType::File;
+    for seg in facts.split(';') {
+        if let Some(v) = seg.strip_prefix("size=") {
+            if let Ok(s) = v.parse() {
+                size = s;
+            }
+        } else if let Some(v) = seg.strip_prefix("type=") {
+            file_type = match v {
+                "dir" | "cdir" | "pdir" => FileType::Directory,
+                s if s.contains("slink") || s.contains("symlink") => FileType::Symlink,
+                _ => FileType::File,
+            };
+        }
+    }
+    Some(FileItem {
+        name: name.to_string(),
+        file_type,
+        size,
+        modified: String::new(),
+        permissions: String::new(),
+    })
+}
+
+/// NLST 兜底：只有名字，无法区分目录/文件（类型按文件处理，进目录会再报错提示）。
+fn parse_nlst_entry(name: &str) -> Option<FileItem> {
+    let name = name.trim();
+    if name.is_empty() || name == "." || name == ".." {
+        return None;
+    }
+    Some(FileItem {
+        name: name.to_string(),
+        file_type: FileType::File,
+        size: 0,
+        modified: String::new(),
+        permissions: String::new(),
+    })
+}
+
 /// 标准 Unix 格式：`drwxr-xr-x   5 user  group       170 Dec 16 10:00 dirname`。
 /// 文件名可能含空格（取第 9 列及之后）；行格式不完整（<9 列）返回 None（跳过）。
 fn parse_ftp_list_entry(entry: &str) -> Option<FileItem> {
@@ -140,6 +240,8 @@ struct FtpPool {
     timeout_secs: u32,
     /// 当前池内连接总数（含借出未还），用于归还时判断是否超上限
     total: AtomicUsize,
+    /// MLSD 能力缓存：None=未知 / Some(true)=支持 / Some(false)=不支持（直接跳过 MLSD）
+    mlsd_ok: std::sync::Mutex<Option<bool>>,
 }
 
 /// 借出的 FTP 连接守卫：`Drop` 时归还或丢弃。
@@ -183,6 +285,7 @@ impl FtpPool {
             password,
             timeout_secs: timeout_secs.max(1),
             total: AtomicUsize::new(0),
+            mlsd_ok: std::sync::Mutex::new(None),
         };
         // 预热首个连接：连接失败立即报错，保持「连接即验证凭据」的语义
         let conn = pool.connect_stream()?;
@@ -212,6 +315,9 @@ impl FtpPool {
         tcp.set_write_timeout(Some(io_timeout))?;
         let mut ftp_stream = suppaftp::FtpStream::connect_with_stream(tcp)?;
         ftp_stream.login(&self.username, &self.password)?;
+        // 开启 UTF8 模式（RFC 2640）：否则服务器默认按本地码页（GBK）收发，中文路径
+        // 会 550 / 列表字节非 UTF-8。不支持此命令的老服务器忽略即可（调用方已有兜底解码）。
+        let _ = ftp_stream.opts("UTF8", Some("ON"));
         Ok(ftp_stream)
     }
 
@@ -422,8 +528,9 @@ impl SftpSession {
         }
 
         // 交互阶段：I/O 超时收紧到最多 15 秒（半开连接/服务器无响应时读目录不会挂满连接超时）。
-        // 建立阶段的握手/认证已完成，正常操作远快于此阈值。
-        let io_timeout_ms = timeout_secs.min(15).saturating_mul(1000);
+        // ⚠️ 但不能小于传输需求：大文件分块上传在慢链路上单块（open+写+等 ack）可能远超 15s，
+        // 会触发 libssh2 Session(-9) 超时。折中取 60s：响应检测仍有界，4MB 块低至 ~70KB/s 也不超时。
+        let io_timeout_ms = timeout_secs.min(60).saturating_mul(1000);
         session.set_timeout(io_timeout_ms);
 
         // 打开 SFTP 通道
@@ -477,31 +584,54 @@ impl SftpSession {
         path: &str,
     ) -> Result<Vec<FileItem>, Box<dyn std::error::Error + Send + Sync>> {
         pool.with_conn(|ftp_stream| {
-            // 切换到目标目录（LIST 需先 CWD；其余操作走绝对路径，不受 cwd 残留影响）
+            // 切换到目标目录（列表命令需先 CWD；其余操作走绝对路径，不受 cwd 残留影响）
             let current_dir = ftp_stream.pwd()?;
             if path != current_dir {
                 ftp_stream.cwd(path)?;
             }
 
-            // 获取文件列表并逐行解析（解析抽为纯函数 parse_ftp_list_entry，便于单元测试）
-            let entries = ftp_stream.list(None)?;
-            let mut files: Vec<FileItem> = entries
-                .iter()
-                .filter_map(|entry| parse_ftp_list_entry(entry))
-                .collect();
-
-            // 排序
-            files.sort_by(|a, b| {
-                use std::cmp::Ordering;
-                match (&a.file_type, &b.file_type) {
-                    (FileType::Directory, FileType::Directory) => a.name.cmp(&b.name),
-                    (FileType::Directory, _) => Ordering::Less,
-                    (_, FileType::Directory) => Ordering::Greater,
-                    _ => a.name.cmp(&b.name),
+            // 标准协商链：MLSD（结构化最稳）→ LIST（Unix 行，raw 字节 + GBK 兜底）→ NLST（仅名兜底）。
+            // MLSD 结果缓存到连接池（一次失败后不再尝试）；LIST/NLST 都走 raw 数据通道，
+            // 绕开 suppaftp 高层读取的 lossy，文件名不被破坏。
+            let mlsd_cached = *pool.mlsd_ok.lock().unwrap();
+            if mlsd_cached != Some(false) {
+                match raw_ftp_lines(ftp_stream, "MLSD") {
+                    Ok(lines) => {
+                        *pool.mlsd_ok.lock().unwrap() = Some(true);
+                        let mut files: Vec<FileItem> = lines
+                            .iter()
+                            .filter_map(|line| parse_mlsd_entry(line))
+                            .collect();
+                        sort_dir_items(&mut files);
+                        return Ok(files);
+                    }
+                    Err(_) => {
+                        // 服务器不支持 MLSD（命令未实现等）：缓存后走 LIST
+                        *pool.mlsd_ok.lock().unwrap() = Some(false);
+                    }
                 }
-            });
+            }
 
-            Ok(files)
+            match raw_ftp_lines(ftp_stream, "LIST") {
+                Ok(lines) => {
+                    let mut files: Vec<FileItem> = lines
+                        .iter()
+                        .filter_map(|line| parse_ftp_list_entry(line))
+                        .collect();
+                    sort_dir_items(&mut files);
+                    Ok(files)
+                }
+                Err(_) => {
+                    // LIST 异常（极老服务器）：NLST 仅拿名字兜底，类型按文件处理
+                    let lines = raw_ftp_lines(ftp_stream, "NLST")?;
+                    let mut files: Vec<FileItem> = lines
+                        .iter()
+                        .filter_map(|name| parse_nlst_entry(name))
+                        .collect();
+                    sort_dir_items(&mut files);
+                    Ok(files)
+                }
+            }
         })
     }
 
@@ -814,6 +944,67 @@ impl SftpSession {
                 remote_file.write_all(data)?;
                 Ok(())
             }
+        }
+    }
+
+    /// 流式上传**本地文件**：后端直读磁盘 → 写远端（SFTP 逐块循环，进度逐块回调）。
+    /// 让上传绕开「前端读整文件 → IPC 序列化 → 后端」的高额开销（这是上传远慢于下载
+    /// 的根因：下载是后端直写本地，不走 IPC）。FTP 单数据连接 reader 写入，无进度回调。
+    /// `cancel` 可选：置位后中断并返回取消错误。
+    pub fn upload_local_file<F>(
+        &self,
+        local_path: &str,
+        remote_path: &str,
+        mut on_progress: F,
+        cancel: Option<&std::sync::atomic::AtomicBool>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+    where
+        F: FnMut(u64, u64),
+    {
+        use std::io::Read;
+        use std::sync::atomic::Ordering;
+
+        let is_cancelled = || cancel.map_or(false, |c| c.load(Ordering::Relaxed));
+        let total = std::fs::metadata(local_path).map(|m| m.len()).unwrap_or(0);
+
+        match &self.session_type {
+            SessionType::Sftp { sftp, .. } => {
+                use ssh2::{OpenFlags, OpenType};
+                let mut remote_file = sftp.open_mode(
+                    Path::new(remote_path),
+                    OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::TRUNCATE,
+                    0o644,
+                    OpenType::File,
+                )?;
+                let mut local = std::fs::File::open(local_path)?;
+                let mut buf = vec![0u8; TRANSFER_CHUNK_BYTES];
+                let mut done: u64 = 0;
+                loop {
+                    if is_cancelled() {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::Interrupted,
+                            "Transfer cancelled",
+                        )
+                        .into());
+                    }
+                    let n = local.read(&mut buf)?;
+                    if n == 0 {
+                        break;
+                    }
+                    remote_file.write_all(&buf[..n])?;
+                    done += n as u64;
+                    on_progress(done, total);
+                }
+                on_progress(total, total);
+                Ok(())
+            }
+            SessionType::Ftp(pool) => pool.with_conn(|ftp_stream| {
+                let mut local = std::fs::File::open(local_path)?;
+                ftp_stream.put_file(remote_path, &mut local)?;
+                // FTP 单数据连接无中间回调：完成后发一次满进度
+                on_progress(total, total);
+                Ok(())
+            }),
         }
     }
 

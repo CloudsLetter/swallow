@@ -8,6 +8,8 @@ mod telnet;
 mod local;
 mod utils;
 mod monitor;
+#[cfg(target_os = "windows")]
+mod os_drop_paths;
 
 use ssh::{SshConfig, SshManager, SshSession, TunnelManager};
 use sftp::{SftpConfig, SftpManager, SftpSession, FileItem};
@@ -1257,6 +1259,91 @@ async fn sftp_upload_chunk(
 }
 
 #[tauri::command]
+async fn sftp_upload_local(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    session_id: String,
+    local_path: String,
+    remote_path: String,
+    cancel_token: Option<String>,
+) -> Result<(), String> {
+    let session = {
+        let manager = state.sftp.lock().map_err(|e| e.to_string())?;
+        manager
+            .get_session(&session_id)
+            .ok_or_else(|| format!("SFTP session {} not found", session_id))?
+    };
+    let progress_session = session_id.clone();
+    let progress_path = remote_path.clone();
+    // 清理远端半成品与取消标志需在阻塞任务之后使用 session/remote_path（闭包已 move 原值）
+    let cleanup_session = session.clone();
+    let cleanup_path = remote_path.clone();
+
+    // 注册取消标志（「结束任务」由 sftp_cancel_transfer 置位 → 后端中断上传）
+    let cancel_flag: Option<Arc<AtomicBool>> = match cancel_token.clone() {
+        Some(token) => {
+            let flag = Arc::new(AtomicBool::new(false));
+            if let Ok(mut cancels) = state.transfer_cancels.lock() {
+                cancels.insert(token, flag.clone());
+            }
+            Some(flag)
+        }
+        None => None,
+    };
+
+    let result = tauri::async_runtime::spawn_blocking({
+        let cancel_flag = cancel_flag.clone();
+        move || {
+            // 进度事件节流到 1 秒（结束帧立即发）
+            let last_emit = std::cell::Cell::new(0u64);
+            session
+                .upload_local_file(
+                    &local_path,
+                    &remote_path,
+                    |done, total| {
+                        if done < total {
+                            let now = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_millis() as u64)
+                                .unwrap_or(0);
+                            if now.saturating_sub(last_emit.get()) < 1000 {
+                                return;
+                            }
+                            last_emit.set(now);
+                        }
+                        let _ = app.emit(
+                            "sftp-transfer",
+                            SftpTransferProgress {
+                                session_id: progress_session.clone(),
+                                remote_path: progress_path.clone(),
+                                done,
+                                total,
+                            },
+                        );
+                    },
+                    cancel_flag.as_deref(),
+                )
+                .map_err(|e| format!("Failed to upload: {e}"))
+        }
+    })
+    .await
+    .map_err(|e| format!("Upload task failed: {e}"))?;
+
+    // 主动取消：清理远端半成品文件（上传中断时远端可能残留不完整文件）
+    if cancel_flag.as_ref().map_or(false, |f| f.load(Ordering::Relaxed)) {
+        let _ = cleanup_session.delete_file(&cleanup_path);
+    }
+
+    // 清理取消标志
+    if let Some(token) = cancel_token {
+        if let Ok(mut cancels) = state.transfer_cancels.lock() {
+            cancels.remove(&token);
+        }
+    }
+    result
+}
+
+#[tauri::command]
 async fn sftp_download_file_progress(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
@@ -1301,12 +1388,24 @@ async fn sftp_download_file_progress(
         // cancel_flag 克隆进阻塞任务，外部保留一份用于「取消时清理半成品文件」
         let cancel_flag = cancel_flag.clone();
         move || {
+            // 进度事件节流到 1 秒（结束帧立即发），避免高速下载时高频 IPC 拖慢传输/UI
+            let last_emit = std::cell::Cell::new(0u64);
             session
                 .stream_download_to(
                     &remote_path,
                     &target_path,
                     offset,
                     |done, total| {
+                        if done < total {
+                            let now = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_millis() as u64)
+                                .unwrap_or(0);
+                            if now.saturating_sub(last_emit.get()) < 1000 {
+                                return;
+                            }
+                            last_emit.set(now);
+                        }
                         let _ = app.emit(
                             "sftp-transfer",
                             SftpTransferProgress {
@@ -1480,6 +1579,7 @@ pub fn run() {
             sftp_search_files,
             sftp_rename,
             sftp_upload_chunk,
+            sftp_upload_local,
             sftp_download_file_progress,
             sftp_cancel_transfer,
             sftp_disconnect,
@@ -1545,6 +1645,9 @@ pub fn run() {
                 if let Some(webview) = _app.get_webview_window("main") {
                     let _ = webview.set_background_color(Some(Color(0, 0, 0, 0)));
                 }
+                // 正式桥：WebView2 WebMessageReceived → AdditionalObjects → CoreWebView2File.Path
+                // （拖拽上传的 DOM File 无 JS 路径，此桥在原生层取真实路径 emit 回前端直读满速）
+                os_drop_paths::attach(_app.handle());
             }
             let app_handle = _app.handle().clone();
             
