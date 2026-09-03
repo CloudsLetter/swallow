@@ -232,16 +232,25 @@ fn parse_ftp_list_entry(entry: &str) -> Option<FileItem> {
 /// 复用前以 `noop()` 探活，规避服务器静默断开后的半开连接。所有文件操作均使用绝对路径，
 /// 因此连接复用时 cwd 状态残留不影响正确性（仅 `list_dir` 依赖 cwd，用前自行 `cwd` 切换）。
 /// 上传进度读取器：包装本地文件 reader，每次 read 推进 done 并回调 `(done, total)`。
-/// suppaftp 的 `put_file` 无原生进度钩子，用它包一层在 FTP 上传时也能逐块回报进度。
-struct ProgressReader<R: std::io::Read, F: FnMut(u64, u64)> {
+/// suppaftp 的 `put_file` 无原生进度钩子，用它包一层在 FTP 上传时也能逐块回报进度；
+/// 同时检查 `cancel` 标志（置位即返回 Interrupted），补上 FTP 单数据连接无法中断的短板。
+struct ProgressReader<'a, R: std::io::Read, F: FnMut(u64, u64)> {
     inner: R,
     done: u64,
     total: u64,
     on_progress: F,
+    cancel: Option<&'a std::sync::atomic::AtomicBool>,
 }
 
-impl<R: std::io::Read, F: FnMut(u64, u64)> std::io::Read for ProgressReader<R, F> {
+impl<R: std::io::Read, F: FnMut(u64, u64)> std::io::Read for ProgressReader<'_, R, F> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        use std::sync::atomic::Ordering;
+        if self.cancel.map_or(false, |c| c.load(Ordering::Relaxed)) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "Transfer cancelled",
+            ));
+        }
         let n = self.inner.read(buf)?;
         if n == 0 {
             // EOF：补发一帧完成进度（覆盖 0 字节文件与恰好整块读尽的 final 帧）
@@ -1028,6 +1037,7 @@ impl SftpSession {
                     done: 0,
                     total,
                     on_progress,
+                    cancel,
                 };
                 ftp_stream.put_file(remote_path, &mut reader)?;
                 Ok(())
