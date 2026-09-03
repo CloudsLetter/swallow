@@ -92,6 +92,27 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
             librsvg2-dev patchelf libdbus-1-dev
 
+      # vendored OpenSSL 构建需要 perl + nasm：缺 nasm 会退化成 no-asm 纯软加密
+      # （SFTP 限速、CPU 高）。用专用 action 显式安装，不依赖 runner 预装 Strawberry Perl。
+      - name: Setup NASM
+        if: matrix.platform == 'windows-latest'
+        uses: ilammy/setup-nasm@v1
+
+      - name: Setup Perl
+        if: matrix.platform == 'windows-latest'
+        uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: '5.38'
+
+      - name: Enable OpenSSL assembly
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          "OPENSSL_RUST_USE_NASM=1" | Out-File -FilePath $env:GITHUB_ENV -Append
+          # 自检：工具缺失时让本步直接失败，避免静默退化成 no-asm 发布
+          nasm -v
+          perl -v
+
       - name: Build & upload (tauri-action)
         uses: tauri-apps/tauri-action@v0
         env:
@@ -135,6 +156,24 @@ jobs:
 
       - name: Switch to offline WebView2 installer mode
         run: node -e "const fs=require('fs');const f='src-tauri/tauri.conf.json';const c=JSON.parse(fs.readFileSync(f,'utf8'));c.bundle.windows={webviewInstallMode:{type:'offlineInstaller'}};fs.writeFileSync(f,JSON.stringify(c,null,2)+'\n')"
+
+      # vendored OpenSSL 构建需要 perl + nasm：缺 nasm 会退化成 no-asm 纯软加密
+      # （SFTP 限速、CPU 高）。用专用 action 显式安装，不依赖 runner 预装 Strawberry Perl。
+      - name: Setup NASM
+        uses: ilammy/setup-nasm@v1
+
+      - name: Setup Perl
+        uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: '5.38'
+
+      - name: Enable OpenSSL assembly
+        shell: pwsh
+        run: |
+          "OPENSSL_RUST_USE_NASM=1" | Out-File -FilePath $env:GITHUB_ENV -Append
+          # 自检：工具缺失时让本步直接失败，避免静默退化成 no-asm 发布
+          nasm -v
+          perl -v
 
       - name: Build full bundle
         run: pnpm tauri build
