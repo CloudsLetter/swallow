@@ -23,7 +23,7 @@ export function AdvancedSettings() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* °²È«ÉèÖÃ */}
+      {/* å®‰å…¨è®¾ç½® */}
       <div className="rounded-lg border border-border bg-card p-4">
         <SectionTitle>{t('settings.securitySettings')}</SectionTitle>
         <div className="flex w-full flex-col gap-4">
@@ -77,7 +77,7 @@ export function AdvancedSettings() {
         </div>
       </div>
 
-      {/* Ó¦ÓÃĞĞÎª */}
+      {/* åº”ç”¨è¡Œä¸º */}
       <div className="rounded-lg border border-border bg-card p-4">
         <SectionTitle>{t('settings.appBehavior')}</SectionTitle>
         <div className="flex flex-col gap-4">
@@ -112,7 +112,7 @@ export function AdvancedSettings() {
         </div>
       </div>
 
-      {/* ÈÕÖ¾ºÍµ÷ÊÔ */}
+      {/* æ—¥å¿—å’Œè°ƒè¯• */}
       <div className="rounded-lg border border-border bg-card p-4">
         <SectionTitle>{t('settings.logsAndDebug')}</SectionTitle>
         <div className="flex flex-col gap-4">
@@ -145,7 +145,7 @@ export function AdvancedSettings() {
         </div>
       </div>
 
-      {/* ¸üĞÂºÍÍ³¼Æ */}
+      {/* æ›´æ–°å’Œç»Ÿè®¡ */}
       <div className="rounded-lg border border-border bg-card p-4">
         <SectionTitle>{t('settings.updatesAndAnalytics')}</SectionTitle>
         <div className="flex flex-col gap-4">
@@ -169,7 +169,7 @@ export function AdvancedSettings() {
         </div>
       </div>
 
-      {/* ¹ØÓÚĞÅÏ¢ */}
+      {/* å…³äºä¿¡æ¯ */}
       <div className="rounded-lg border border-border bg-card p-4">
         <SectionTitle>{t('settings.about')}</SectionTitle>
         <div className="flex flex-col gap-2 text-sm">
@@ -204,7 +204,7 @@ export function AdvancedSettings() {
         </div>
       </div>
 
-      {/* Î£ÏÕ²Ù×÷ */}
+      {/* å±é™©æ“ä½œ */}
       <div className="rounded-lg border border-border bg-card p-4">
         <SectionTitle danger>{t('settings.dangerZone')}</SectionTitle>
         <div className="flex flex-col gap-3">
