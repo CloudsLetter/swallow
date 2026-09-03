@@ -41,7 +41,6 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import { Switch } from '../components/ui/switch';
-import { Card, CardContent } from '../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '../components/ui/sheet';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
@@ -914,25 +913,90 @@ export function Hosts() {
     );
   };
 
-  const renderLoading = () => (
-    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <Card key={i} className="gap-0 p-0">
-          <CardContent className="space-y-3 p-4">
-            <div className="flex items-center gap-3">
-              <Skeleton className="size-10 rounded-lg" />
-              <div className="flex-1 space-y-2">
-                <Skeleton className="h-4 w-2/3" />
-                <Skeleton className="h-3 w-4/5" />
-              </div>
+  const renderLoading = () => {
+    const cardSkeleton = (i: number) => (
+      <div key={i} className="flex items-center gap-2.5 rounded-lg border border-border bg-card p-3">
+        <div className="relative shrink-0">
+          <Skeleton className="size-8 rounded-lg" />
+          <span className="absolute -right-1 -top-1 size-3 rounded-full bg-muted-foreground/10" />
+        </div>
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <Skeleton className="h-3.5 w-1/2" />
+          <Skeleton className="h-3 w-3/5" />
+        </div>
+        <div className="flex shrink-0 gap-1">
+          <Skeleton className="size-8 rounded-lg" />
+          <Skeleton className="size-8 rounded-lg" />
+        </div>
+      </div>
+    );
+    const rowSkeleton = (i: number) => (
+      <TableRow key={i}>
+        <TableCell>
+          <div className="flex items-center gap-3">
+            <Skeleton className="size-8 shrink-0 rounded-lg" />
+            <div className="min-w-0 space-y-1.5">
+              <Skeleton className="h-3.5 w-28" />
+              <Skeleton className="h-3 w-40" />
             </div>
-            <Skeleton className="h-16 w-full" />
-            <Skeleton className="h-9 w-full" />
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  );
+          </div>
+        </TableCell>
+        <TableCell>
+          <Skeleton className="h-3.5 w-8" />
+        </TableCell>
+        <TableCell>
+          <Skeleton className="h-5 w-16 rounded-full" />
+        </TableCell>
+        <TableCell>
+          <Skeleton className="size-2 rounded-full" />
+        </TableCell>
+        <TableCell>
+          <Skeleton className="h-3.5 w-24" />
+        </TableCell>
+        <TableCell className="text-right">
+          <div className="flex items-center justify-end gap-1">
+            <Skeleton className="size-7 rounded-md" />
+            <Skeleton className="size-7 rounded-md" />
+          </div>
+        </TableCell>
+      </TableRow>
+    );
+    return (
+      <div className="flex flex-col gap-6">
+        <section className="flex flex-col gap-2.5">
+          <div className="flex items-center gap-2">
+            <Skeleton className="size-1.5 rounded-full" />
+            <Skeleton className="h-3 w-16" />
+            <Skeleton className="h-4 w-7 rounded-full" />
+          </div>
+          {viewMode === 'grid' ? (
+            <div
+              className="grid gap-2.5"
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(256px, 1fr))' }}
+            >
+              {Array.from({ length: 6 }).map((_, i) => cardSkeleton(i))}
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-lg border border-border bg-card">
+              <Table>
+                <TableHeader className="[&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground">
+                  <TableRow className="bg-muted/40 hover:bg-muted/40">
+                    <TableHead className="w-[42%] min-w-[240px]">{t('hosts.tableHost')}</TableHead>
+                    <TableHead className="w-16">{t('hosts.tablePort')}</TableHead>
+                    <TableHead>{t('hosts.tableAuth')}</TableHead>
+                    <TableHead className="w-12">{t('hosts.tableStatus')}</TableHead>
+                    <TableHead className="w-40">{t('hosts.tableLastConnected')}</TableHead>
+                    <TableHead className="w-36 text-right">{t('hosts.tableActions')}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>{Array.from({ length: 6 }).map((_, i) => rowSkeleton(i))}</TableBody>
+              </Table>
+            </div>
+          )}
+        </section>
+      </div>
+    );
+  };
 
   const renderEmpty = () => (
     <div className="flex flex-col items-center justify-center py-20 text-center">

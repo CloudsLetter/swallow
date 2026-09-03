@@ -19,10 +19,9 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
-import { Card, CardContent } from '../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '../components/ui/sheet';
-import { Skeleton } from '../components/ui/skeleton';
+import { CardGridSkeleton, ListTableSkeleton } from '../components/ui/listSkeleton';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -229,25 +228,23 @@ export function Certificates() {
     <p className="mt-2 text-xs text-muted-foreground">{children}</p>
   );
 
-  const renderLoading = () => (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <Card key={i} className="gap-0 p-0">
-          <CardContent className="space-y-3 p-4">
-            <div className="flex items-center gap-3">
-              <Skeleton className="size-8 rounded-lg" />
-              <div className="flex-1 space-y-2">
-                <Skeleton className="h-4 w-2/3" />
-                <Skeleton className="h-3 w-4/5" />
-              </div>
-            </div>
-            <Skeleton className="h-16 w-full" />
-            <Skeleton className="h-7 w-full" />
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  );
+  const renderLoading = () =>
+    viewMode === 'grid' ? (
+      <CardGridSkeleton />
+    ) : (
+      <ListTableSkeleton
+        colCount={7}
+        head={
+          <TableRow className="bg-muted/40 hover:bg-muted/40">
+                  <TableHead className="w-[36%] min-w-[240px]">{t('certificates.tableCert')}</TableHead>
+                  <TableHead>{t('certificates.tableType')}</TableHead>
+                  <TableHead>{t('certificates.tablePrincipals')}</TableHead>
+                  <TableHead>{t('certificates.tableValidUntil')}</TableHead>
+                  <TableHead className="w-32 text-right">{t('common.actions')}</TableHead>
+          </TableRow>
+        }
+      />
+    );
 
   const renderEmpty = () => (
     <div className="flex flex-col items-center justify-center py-20 text-center">

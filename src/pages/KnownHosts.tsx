@@ -24,9 +24,9 @@ import {
 } from '../services/dataService';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
-import { Card } from '../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Skeleton } from '../components/ui/skeleton';
+import { CardGridSkeleton, ListTableSkeleton } from '../components/ui/listSkeleton';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../components/ui/sheet';
 import {
   DropdownMenu,
@@ -38,6 +38,9 @@ import { cn } from '@/lib/utils';
 import { message, ask, save } from '@tauri-apps/plugin-dialog';
 
 type ViewMode = 'grid' | 'list';
+
+/** 加密算法短名：ssh-ed25519 → ED25519（仅展示用） */
+const formatKeyType = (keyType: string) => keyType.replace(/^ssh-/, '').toUpperCase();
 
 export function KnownHosts() {
   const { t } = useTranslation();
@@ -272,6 +275,9 @@ export function KnownHosts() {
           <span className="min-w-0 truncate font-mono text-sm font-medium text-foreground">{host.host}</span>
         </div>
       </TableCell>
+      <TableCell className="whitespace-nowrap">
+        <span className="font-mono text-xs uppercase tracking-wider text-primary/80">{formatKeyType(host.keyType)}</span>
+      </TableCell>
       <TableCell className="max-w-0">
         <code className="block truncate font-mono text-xs text-muted-foreground">{host.fingerprint}</code>
       </TableCell>
@@ -310,22 +316,30 @@ export function KnownHosts() {
   );
 
   const renderLoading = () => (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <Card key={i} className="gap-0 p-0">
-          <div className="space-y-3 p-4">
-            <div className="flex items-center gap-3">
-              <Skeleton className="size-10 rounded-lg" />
-              <div className="flex-1 space-y-2">
-                <Skeleton className="h-4 w-2/3" />
-                <Skeleton className="h-3 w-4/5" />
-              </div>
-            </div>
-            <Skeleton className="h-16 w-full" />
-            <Skeleton className="h-9 w-full" />
-          </div>
-        </Card>
-      ))}
+    <div className="flex flex-col gap-6">
+      <section className="flex flex-col gap-2.5">
+        <div className="flex items-center gap-2">
+          <Skeleton className="size-1.5 rounded-full" />
+          <Skeleton className="h-3 w-16" />
+          <Skeleton className="h-4 w-7 rounded-full" />
+        </div>
+        {viewMode === 'grid' ? (
+          <CardGridSkeleton />
+        ) : (
+          <ListTableSkeleton
+            colCount={5}
+            head={
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead className="w-[30%] min-w-[220px]">{t('knownHosts.tableHost')}</TableHead>
+                    <TableHead className="whitespace-nowrap">{t('knownHosts.tableKeyType')}</TableHead>
+                    <TableHead>{t('knownHosts.tableFingerprint')}</TableHead>
+                    <TableHead>{t('knownHosts.tableLastUsed')}</TableHead>
+                    <TableHead className="w-24 text-right">{t('common.actions')}</TableHead>
+              </TableRow>
+            }
+          />
+        )}
+      </section>
     </div>
   );
 
@@ -450,6 +464,7 @@ export function KnownHosts() {
                       <TableHeader className="[&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground">
                         <TableRow className="bg-muted/40 hover:bg-muted/40">
                           <TableHead className="w-[30%] min-w-[220px]">{t('knownHosts.tableHost')}</TableHead>
+                    <TableHead className="whitespace-nowrap">{t('knownHosts.tableKeyType')}</TableHead>
                           <TableHead>{t('knownHosts.tableFingerprint')}</TableHead>
                           <TableHead>{t('knownHosts.tableLastUsed')}</TableHead>
                           <TableHead className="w-24 text-right">{t('common.actions')}</TableHead>
@@ -487,6 +502,10 @@ export function KnownHosts() {
                   <div className="col-span-2 min-w-0">
                     <div className="text-[11px] text-muted-foreground">{t('knownHosts.tableHost')}</div>
                     <div className="mt-0.5 truncate font-mono text-foreground">{detailHost.host}</div>
+                  </div>
+                  <div className="col-span-2 min-w-0">
+                    <div className="text-[11px] text-muted-foreground">{t('knownHosts.tableKeyType')}</div>
+                    <div className="mt-0.5 truncate font-mono text-foreground">{detailHost.keyType}</div>
                   </div>
                   <div className="min-w-0">
                     <div className="text-[11px] text-muted-foreground">{t('knownHosts.metaAddedAt')}</div>

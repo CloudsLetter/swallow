@@ -36,11 +36,10 @@ import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
-import { Card } from '../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
+import { CardGridSkeleton, ListTableSkeleton } from '../components/ui/listSkeleton';
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '../components/ui/sheet';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Skeleton } from '../components/ui/skeleton';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -647,25 +646,25 @@ export function PortForwarding() {
     </TableRow>
   );
 
-  const renderLoading = () => (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <Card key={i} className="gap-0 p-0">
-          <div className="space-y-3 p-4">
-            <div className="flex items-center gap-3">
-              <Skeleton className="size-10 rounded-lg" />
-              <div className="flex-1 space-y-2">
-                <Skeleton className="h-4 w-2/3" />
-                <Skeleton className="h-3 w-4/5" />
-              </div>
-            </div>
-            <Skeleton className="h-16 w-full" />
-            <Skeleton className="h-9 w-full" />
-          </div>
-        </Card>
-      ))}
-    </div>
-  );
+  const renderLoading = () =>
+    viewMode === 'grid' ? (
+      <CardGridSkeleton />
+    ) : (
+      <ListTableSkeleton
+        colCount={7}
+        head={
+          <TableRow className="bg-muted/40 hover:bg-muted/40">
+                          <TableHead className="w-[26%] min-w-[200px]">{t('portForwarding.tableRule')}</TableHead>
+                          <TableHead>{t('portForwarding.tableType')}</TableHead>
+                          <TableHead>{t('portForwarding.tableListen')}</TableHead>
+                          <TableHead>{t('portForwarding.tableTarget')}</TableHead>
+                          <TableHead>{t('portForwarding.tableSshHost')}</TableHead>
+                          <TableHead>{t('portForwarding.tableStatus')}</TableHead>
+                          <TableHead className="w-32 text-right">{t('common.actions')}</TableHead>
+          </TableRow>
+        }
+      />
+    );
 
   const renderEmpty = () => (
     <div className="flex flex-col items-center justify-center py-20 text-center">

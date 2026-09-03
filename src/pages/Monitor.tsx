@@ -826,8 +826,23 @@ export function Monitor() {
       <div className="flex-1 overflow-auto p-4">
         {loading ? (
           <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(min(100%,320px),1fr))]">
-            <Skeleton className="h-40 w-full" />
-            <Skeleton className="h-40 w-full" />
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="rounded-lg border border-border bg-card p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Skeleton className="size-2 shrink-0 rounded-full" />
+                    <Skeleton className="h-4 w-28" />
+                  </div>
+                  <Skeleton className="size-7 shrink-0 rounded-md" />
+                </div>
+                <Skeleton className="mt-3 h-24 w-full rounded-md" />
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <Skeleton className="h-3.5 w-full" />
+                  <Skeleton className="h-3.5 w-full" />
+                  <Skeleton className="h-3.5 w-full" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : items.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">

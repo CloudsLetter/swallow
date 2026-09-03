@@ -9,11 +9,10 @@ import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
-import { Card, CardContent } from '../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '../components/ui/sheet';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Skeleton } from '../components/ui/skeleton';
+import { CardGridSkeleton, ListTableSkeleton } from '../components/ui/listSkeleton';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -238,25 +237,23 @@ export function AccountPage() {
     <p className="mt-2 text-xs text-muted-foreground">{children}</p>
   );
 
-  const renderLoading = () => (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <Card key={i} className="gap-0 p-0">
-          <CardContent className="space-y-3 p-4">
-            <div className="flex items-center gap-3">
-              <Skeleton className="size-10 rounded-lg" />
-              <div className="flex-1 space-y-2">
-                <Skeleton className="h-4 w-2/3" />
-                <Skeleton className="h-3 w-4/5" />
-              </div>
-            </div>
-            <Skeleton className="h-16 w-full" />
-            <Skeleton className="h-9 w-full" />
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  );
+  const renderLoading = () =>
+    viewMode === 'grid' ? (
+      <CardGridSkeleton />
+    ) : (
+      <ListTableSkeleton
+        colCount={5}
+        head={
+          <TableRow className="bg-muted/40 hover:bg-muted/40">
+            <TableHead className="w-[32%] min-w-[240px]">{t('account.tableAccount')}</TableHead>
+            <TableHead>{t('account.tableAuth')}</TableHead>
+            <TableHead>{t('account.tableDescription')}</TableHead>
+            <TableHead>{t('account.tableTags')}</TableHead>
+            <TableHead className="w-28 text-right">{t('common.actions')}</TableHead>
+          </TableRow>
+        }
+      />
+    );
 
   const renderEmpty = () => (
     <div className="flex flex-col items-center justify-center py-20 text-center">
