@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
-use base64::engine::general_purpose::STANDARD_NO_PAD;
+use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
-use ssh2::{Channel, CheckResult, HashType, KnownHostFileKind, Session};
+use ssh2::{Channel, CheckResult, HashType, HostKeyType, KnownHostKeyFormat, Session};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
@@ -760,10 +760,17 @@ pub(crate) fn verify_host_key(session: &Session, host: &str, port: u16) -> Resul
         anyhow::bail!("Host key unavailable after handshake");
     };
 
-    let known_hosts_path = crate::utils::sqlite::known_hosts_file_path();
+    // 信任源为 DB（纯软件内管理，不走系统 ~/.ssh/known_hosts）：
+    // 把全部已信任条目装载进 libssh2 内存 known_hosts 再比对
     let mut known = session.known_hosts()?;
-    if known_hosts_path.exists() {
-        known.read_file(&known_hosts_path, KnownHostFileKind::OpenSSH)?;
+    for (entry_host, entry_type, key_data) in
+        crate::utils::sqlite::known_host_key_entries().map_err(|e| anyhow::anyhow!(e))?
+    {
+        if let Ok(blob) = STANDARD.decode(&key_data) {
+            if let Some(fmt) = key_format_from_name(&entry_type) {
+                let _ = known.add(&entry_host, &blob, "", fmt);
+            }
+        }
     }
 
     match known.check_port(host, port, key) {
@@ -813,23 +820,23 @@ pub fn accept_host_key(token: &str, expected_fingerprint: &str, timeout_secs: u3
         anyhow::bail!("Host key unavailable after handshake");
     };
 
-    let known_hosts_path = crate::utils::sqlite::known_hosts_file_path();
-    let mut known = session.known_hosts()?;
-    if known_hosts_path.exists() {
-        known.read_file(&known_hosts_path, KnownHostFileKind::OpenSSH)?;
-    }
-
-    // 非 22 端口按 OpenSSH 的 [host]:port 格式记录
+    // 信任写入 DB（纯软件内管理）；非 22 端口按 OpenSSH 的 [host]:port 记录
     let add_host = if config.port == 22 {
         config.host.clone()
     } else {
         format!("[{}]:{}", config.host, config.port)
     };
-    known.add(&add_host, key, "swallow", host_key_type.into())?;
-    if let Some(parent) = known_hosts_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    known.write_file(&known_hosts_path, KnownHostFileKind::OpenSSH)?;
+    let key_type_name = match host_key_type {
+        HostKeyType::Rsa => "ssh-rsa",
+        HostKeyType::Dss => "ssh-dss",
+        HostKeyType::Ecdsa256 => "ecdsa-sha2-nistp256",
+        HostKeyType::Ecdsa384 => "ecdsa-sha2-nistp384",
+        HostKeyType::Ecdsa521 => "ecdsa-sha2-nistp521",
+        HostKeyType::Ed25519 => "ssh-ed25519",
+        HostKeyType::Unknown => anyhow::bail!("Unsupported host key type"),
+    };
+    crate::utils::sqlite::insert_known_host(&add_host, key_type_name, &STANDARD.encode(key))
+        .map_err(|e| anyhow::anyhow!(e))?;
 
     Ok(())
 }
@@ -840,4 +847,17 @@ fn host_key_fingerprint(session: &Session) -> String {
         .host_key_hash(HashType::Sha256)
         .map(|hash| format!("SHA256:{}", STANDARD_NO_PAD.encode(hash)))
         .unwrap_or_else(|| "SHA256:unknown".to_string())
+}
+
+/// OpenSSH 主机密钥算法名 → libssh2 KnownHostKeyFormat（DB 装载用）。
+fn key_format_from_name(name: &str) -> Option<KnownHostKeyFormat> {
+    match name {
+        "ssh-rsa" | "rsa-sha2-256" | "rsa-sha2-512" => Some(KnownHostKeyFormat::SshRsa),
+        "ssh-dss" => Some(KnownHostKeyFormat::SshDss),
+        "ecdsa-sha2-nistp256" => Some(KnownHostKeyFormat::Ecdsa256),
+        "ecdsa-sha2-nistp384" => Some(KnownHostKeyFormat::Ecdsa384),
+        "ecdsa-sha2-nistp521" => Some(KnownHostKeyFormat::Ecdsa521),
+        "ssh-ed25519" => Some(KnownHostKeyFormat::Ed25519),
+        _ => None,
+    }
 }

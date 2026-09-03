@@ -135,6 +135,7 @@ pub fn init_database() -> Result<(), String> {
             fingerprint TEXT NOT NULL,
             last_used TEXT NOT NULL,
             added_date TEXT NOT NULL,
+            key_data TEXT NOT NULL DEFAULT '',
             raw_line TEXT NOT NULL
         );
 
@@ -178,6 +179,7 @@ pub fn init_database() -> Result<(), String> {
     ensure_column(&conn, "keys", "public_key", "TEXT")?;
     ensure_column(&conn, "certificates", "cert_content", "TEXT")?;
     ensure_column(&conn, "certificates", "private_key_content", "TEXT")?;
+    ensure_column(&conn, "known_hosts", "key_data", "TEXT")?;
     ensure_column(&conn, "port_forwardings", "socks_username", "TEXT")?;
     ensure_column(&conn, "port_forwardings", "socks_password", "TEXT")?;
 
@@ -186,6 +188,8 @@ pub fn init_database() -> Result<(), String> {
     migrate_cert_files_to_db(&conn)?;
 
     bootstrap_known_hosts(&conn)?;
+    // ensure 加列后老行的 key_data 为 NULL：从 raw_line 回填（幂等）
+    backfill_known_host_key_data(&conn)?;
 
     // 一次性迁移：旧明文凭据尽力搬入系统密钥链后清空列
     migrate_plaintext_secrets(&conn);
@@ -397,14 +401,6 @@ pub fn read_known_hosts_file() -> Result<String, String> {
     fs::read_to_string(path).map_err(|e| e.to_string())
 }
 
-pub fn write_known_hosts_file(content: &str) -> Result<(), String> {
-    let path = known_hosts_file_path();
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    fs::write(path, content).map_err(|e| e.to_string())
-}
-
 pub fn sanitize_file_stem(input: &str) -> String {
     let sanitized: String = input
         .chars()
@@ -493,17 +489,75 @@ pub fn refresh_known_hosts_table(conn: &Connection) -> Result<(), String> {
 
         let host = parts[0].to_string();
         let key_type = parts[1].to_string();
+        let key_data = parts[2].to_string();
         let fingerprint = compute_fingerprint(parts[2]);
         let id = format!("kh-{}", line_no + 1);
 
         conn.execute(
-            "INSERT INTO known_hosts (id, host, key_type, fingerprint, last_used, added_date, raw_line)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            rusqlite::params![id, host, key_type, fingerprint, file_modified, file_modified, line],
+            "INSERT INTO known_hosts (id, host, key_type, fingerprint, last_used, added_date, key_data, raw_line)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![id, host, key_type, fingerprint, file_modified, file_modified, key_data, line],
         )
         .map_err(|e| e.to_string())?;
     }
 
+    Ok(())
+}
+
+/// 读取全部已信任主机条目（host, key_type, key_data），用于连接时装载
+/// libssh2 内存 known_hosts 做校验。数据源为 DB（不再读系统文件）。
+/// ensure 加列（TEXT 无默认）后老行 key_data 为 NULL：从 raw_line 解析回填。
+/// OpenSSH 行格式：`host key_type key_blob_base64 [comment]`。
+fn backfill_known_host_key_data(conn: &Connection) -> Result<(), String> {
+    let mut stmt = conn
+        .prepare("SELECT id, raw_line FROM known_hosts WHERE key_data IS NULL OR key_data = ''")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|e| e.to_string())?;
+    let pairs: Vec<(String, String)> = rows
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+    drop(stmt);
+
+    for (id, raw_line) in pairs {
+        let parts: Vec<&str> = raw_line.split_whitespace().collect();
+        if parts.len() >= 3 {
+            conn.execute(
+                "UPDATE known_hosts SET key_data = ?1 WHERE id = ?2",
+                rusqlite::params![parts[2], id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+pub fn known_host_key_entries() -> Result<Vec<(String, String, String)>, String> {
+    let conn = open_connection()?;
+    let mut stmt = conn
+        .prepare("SELECT host, key_type, COALESCE(key_data, '') FROM known_hosts")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+/// 用户确认信任后写入一条主机密钥（纯 DB，不再写系统 known_hosts 文件）。
+/// fingerprint 与列表展示一致（含 SHA256: 前缀）；key_data 为 OpenSSH 公钥 blob base64。
+pub fn insert_known_host(host: &str, key_type: &str, key_data: &str) -> Result<(), String> {
+    let conn = open_connection()?;
+    let fingerprint = compute_fingerprint(key_data);
+    let now = now_iso();
+    let id = new_id("kh");
+    let raw_line = format!("{} {} {}", host, key_type, key_data);
+    conn.execute(
+        "INSERT INTO known_hosts (id, host, key_type, fingerprint, last_used, added_date, key_data, raw_line)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        rusqlite::params![id, host, key_type, fingerprint, now, now, key_data, raw_line],
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 

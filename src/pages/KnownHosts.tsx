@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useUiPage } from '../store/uiPage';
 import {
   Trash2 as IconTrash,
   ShieldCheck as IconShield,
@@ -23,7 +24,6 @@ import {
 } from '../services/dataService';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
-import { Badge } from '../components/ui/badge';
 import { Card } from '../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Skeleton } from '../components/ui/skeleton';
@@ -39,23 +39,6 @@ import { message, ask, save } from '@tauri-apps/plugin-dialog';
 
 type ViewMode = 'grid' | 'list';
 
-const keyTypeBadgeCls = (keyType: string) => {
-  const map: Record<string, string> = {
-    'ssh-ed25519': 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-    ED25519: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-    'ssh-rsa': 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-    RSA: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-    ECDSA: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  };
-  return map[keyType] || 'bg-muted text-muted-foreground';
-};
-
-const keyTypeBadge = (keyType: string) => (
-  <Badge variant="outline" className={cn('font-normal', keyTypeBadgeCls(keyType))}>
-    {keyType.replace('ssh-', '').toUpperCase()}
-  </Badge>
-);
-
 export function KnownHosts() {
   const { t } = useTranslation();
   // ============ 数据状态 ============
@@ -70,10 +53,29 @@ export function KnownHosts() {
   const [detailHost, setDetailHost] = useState<KnownHost | null>(null);
   const [copiedRaw, setCopiedRaw] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  // Home 页面 keep-alive：每次切换到本页（或从会话标签切回本页）自动刷新列表。
+  // 已有数据时静默刷新（不重放骨架屏）；仅首次进入/无数据时显示骨架。
+  const homePage = useUiPage((s) => s.homePage);
+  const isPageActive = homePage === 'knownhosts';
+
+  const hostsRef = useRef(hosts);
+  hostsRef.current = hosts;
 
   useEffect(() => {
-    void loadKnownHosts();
-  }, []);
+    if (isPageActive) {
+      setError(null);
+      const silent = hostsRef.current.length > 0;
+      if (!silent) setLoading(true);
+      refreshKnownHosts()
+        .then((list) => setHosts(list))
+        .catch((refreshError) => {
+          console.error('Failed to auto-refresh known hosts:', refreshError);
+          setError(t('knownHosts.refreshFailed'));
+        })
+        .finally(() => setLoading(false));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPageActive]);
 
   // ============ 键盘快捷键 ============
   useEffect(() => {
@@ -215,11 +217,17 @@ export function KnownHosts() {
           <IconShield size={15} strokeWidth={2} />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="truncate font-mono text-sm font-medium text-foreground">{host.host}</span>
-            {keyTypeBadge(host.keyType)}
-          </div>
-          <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground" title={host.fingerprint || undefined}>
+          {/* 主机地址独占一行，不被协议徽章挤掉 */}
+          <span
+            className="block truncate font-mono text-sm font-medium text-foreground"
+            title={host.host}
+          >
+            {host.host}
+          </span>
+          <div
+            className="mt-1 truncate font-mono text-xs text-muted-foreground"
+            title={host.fingerprint || undefined}
+          >
             {host.fingerprint || '—'}
           </div>
         </div>
@@ -264,7 +272,6 @@ export function KnownHosts() {
           <span className="min-w-0 truncate font-mono text-sm font-medium text-foreground">{host.host}</span>
         </div>
       </TableCell>
-      <TableCell className="whitespace-nowrap">{keyTypeBadge(host.keyType)}</TableCell>
       <TableCell className="max-w-0">
         <code className="block truncate font-mono text-xs text-muted-foreground">{host.fingerprint}</code>
       </TableCell>
@@ -443,7 +450,6 @@ export function KnownHosts() {
                       <TableHeader className="[&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground">
                         <TableRow className="bg-muted/40 hover:bg-muted/40">
                           <TableHead className="w-[30%] min-w-[220px]">{t('knownHosts.tableHost')}</TableHead>
-                          <TableHead>{t('knownHosts.tableKeyType')}</TableHead>
                           <TableHead>{t('knownHosts.tableFingerprint')}</TableHead>
                           <TableHead>{t('knownHosts.tableLastUsed')}</TableHead>
                           <TableHead className="w-24 text-right">{t('common.actions')}</TableHead>
@@ -477,7 +483,6 @@ export function KnownHosts() {
                   <div className="text-sm font-semibold text-foreground">{t('knownHosts.basicInfo')}</div>
                   <div className="text-xs text-muted-foreground">{t('knownHosts.basicInfoDesc')}</div>
                 </div>
-                <div className="flex items-center gap-1.5">{keyTypeBadge(detailHost.keyType)}</div>
                 <div className="grid grid-cols-2 gap-x-3 gap-y-2 rounded-lg bg-muted/50 p-2.5 text-xs">
                   <div className="col-span-2 min-w-0">
                     <div className="text-[11px] text-muted-foreground">{t('knownHosts.tableHost')}</div>

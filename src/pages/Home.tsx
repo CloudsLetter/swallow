@@ -1,10 +1,11 @@
-﻿import { useState, type ReactNode } from 'react';
+﻿import { useState, useEffect, type ReactNode } from 'react';
 import { SideMenu } from '../components/SideMenu';
 import { TerminalView } from '../components/TerminalView';
 import { SftpView } from '../components/SftpView';
 import { SplitView } from '../components/SplitView';
 import { QuickConnect } from './QuickConnect';
 import { useTabStore, Tab } from '../store/tabStore';
+import { useUiPage } from '../store/uiPage';
 import { Hosts } from './Hosts';
 import { AccountPage } from './Account';
 import { Keys } from './Keys';
@@ -40,6 +41,11 @@ export function Home() {
 
   const homeTab = tabs.find((t: Tab) => t.type === 'home');
   const isHomeActive = activeTabId === (homeTab?.id ?? 'home-tab');
+
+  // 向 keep-alive 页面广播「当前可见页面」（切到会话标签时置 null）
+  useEffect(() => {
+    useUiPage.getState().setHomePage(isHomeActive ? currentPage : null);
+  }, [currentPage, isHomeActive]);
 
   // 非 home 标签（terminal / sftp / quick-connect）
   const sessionTabs = tabs.filter((t: Tab) => t.type !== 'home');
