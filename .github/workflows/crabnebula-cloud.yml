@@ -42,9 +42,14 @@ jobs:
       - uses: actions/checkout@v4
       - id: guard
         name: Guard (CN_API_KEY configured?)
-        run: echo "enabled=${{ secrets.CN_API_KEY != '' }}" >> "$GITHUB_OUTPUT"
+        # secrets 只能经 env/with 注入，再在 shell/if 中判定；禁止任何 if 直接引用
+        env:
+          CN_API_KEY: ${{ secrets.CN_API_KEY }}
+        run: echo "enabled=${{ env.CN_API_KEY != '' }}" >> "$GITHUB_OUTPUT"
       - name: Create draft release
-        if: ${{ secrets.CN_API_KEY != '' }}
+        # if 条件禁止引用 secrets（无论 job 级还是 step 级），
+        # 改用 guard step 的输出判断（guard 在 run 内比较 secrets 是允许的）
+        if: ${{ steps.guard.outputs.enabled == 'true' }}
         uses: crabnebula-dev/cloud-release@v0
         with:
           command: release draft ${{ env.CN_APPLICATION }} --framework tauri
