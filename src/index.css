@@ -1086,3 +1086,16 @@ a:focus-visible,
 .terminal-view .xterm-selection div {
   opacity: var(--xterm-selection-opacity, 0.4);
 }
+
+/* 传输任务「总量未知」时的不确定进度动画（FTP 单数据连接无中间进度时使用） */
+@keyframes transferIndeterminate {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(420%);
+  }
+}
+.transfer-indeterminate {
+  animation: transferIndeterminate 1.2s ease-in-out infinite;
+}

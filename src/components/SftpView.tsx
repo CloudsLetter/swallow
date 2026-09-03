@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { listen } from '@tauri-apps/api/event';
 import {
   Folder as IconFolder,
   File as IconFile,
@@ -39,6 +40,8 @@ import {
   sftpChmod,
   sftpSearchFiles,
   sftpUploadChunk,
+  sftpUploadFile,
+  sftpUploadLocal,
   localFileSize,
 } from '../services/sessionService';
 import {
@@ -101,8 +104,11 @@ interface SftpViewProps {
 
 type SortKey = 'name' | 'size' | 'modified';
 
-/** 分块传输的块大小（字节），与后端 TRANSFER_CHUNK_BYTES 一致。 */
-const TRANSFER_CHUNK = 1024 * 1024;
+/** 分块传输的块大小（字节）。单次整传的上限与后端 MAX_FILE_TRANSFER_BYTES 一致。
+ *  ⚠️ 4MB（非更大）：无 path 的 IPC 分块在慢链路上单块需在会话 60s 超时内完成，
+ *  8MB 在低带宽（<130KB/s）下会超时失败。直读路径不受此限制（后端 1MB 块循环）。 */
+const TRANSFER_CHUNK = 4 * 1024 * 1024;
+const MAX_SINGLE_UPLOAD = 100 * 1024 * 1024;
 
 /** 拖拽收集到的待上传内容：需创建的目录（相对路径）+ 待上传的文件（相对路径）。 */
 interface DroppedUpload {
@@ -148,6 +154,67 @@ function readEntryTree(entry: FileSystemEntry, base: string, out: DroppedUpload)
     });
   }
   return Promise.resolve();
+}
+
+// WebView2 原生桥能力（postMessageWithAdditionalObjects → 宿主 AdditionalObjects → CoreWebView2File）
+interface ChromeWebviewHost {
+  postMessageWithAdditionalObjects?: (message: string, objects: ArrayLike<File>) => void;
+}
+declare global {
+  interface Window {
+    chrome?: { webview?: ChromeWebviewHost };
+  }
+}
+
+/**
+ * 经 WebView2 原生桥（WebMessageObjects）获取拖入文件的真实本地路径。
+ * DOM File 在 JS 层不暴露路径；宿主（os_drop_paths.rs）从 AdditionalObjects 提取
+ * CoreWebView2File.Path 后以 `sftp-os-drop-paths` 事件回传（顺序与 files 一致）。
+ * 能力不可用 / 宿主无响应（600ms）→ 全 undefined，调用方走 IPC 慢通道兜底。
+ */
+async function requestOsFilePaths(files: File[]): Promise<(string | undefined)[]> {
+  const webview = window.chrome?.webview;
+  const canPost =
+    typeof webview?.postMessageWithAdditionalObjects === 'function' && files.length > 0;
+  if (!canPost) return files.map(() => undefined);
+
+  const requestId = `dp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const fallback = files.map(() => undefined);
+  return new Promise<(string | undefined)[]>((resolve) => {
+    let settled = false;
+    let unlisten: (() => void) | undefined;
+    const timer = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      unlisten?.();
+      resolve(fallback);
+    }, 600);
+    void listen<{ requestId: string; paths: string[] }>('sftp-os-drop-paths', (e) => {
+      if (settled || e.payload.requestId !== requestId) return;
+      settled = true;
+      window.clearTimeout(timer);
+      unlisten?.();
+      const { paths } = e.payload;
+      resolve(files.map((_, i) => paths[i]));
+    }).then((un) => {
+      if (settled) {
+        un();
+      } else {
+        unlisten = un;
+      }
+    });
+    try {
+      // 附加对象需要 ArrayLike：File[] 即满足
+      webview!.postMessageWithAdditionalObjects!(`swallow-os-files::${requestId}`, files);
+    } catch {
+      if (!settled) {
+        settled = true;
+        window.clearTimeout(timer);
+        unlisten?.();
+        resolve(fallback);
+      }
+    }
+  });
 }
 
 /** 从拖拽数据收集待上传内容（文件 + 目录树，递归遍历）。 */
@@ -466,7 +533,9 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
   const joinRemotePath = (name: string) => (currentPath === '/' ? `/${name}` : `${currentPath}/${name}`);
 
   // 上传一批本地文件/目录（文件选择与拖拽共用）：先建目录再传文件，分块非阻塞 + 进度条
-  const uploadFiles = async (dropped: DroppedUpload) => {
+  // osPaths：与 files 等长的真实本地路径数组（WebView2 原生桥取回，仅拖拽来源有值）；
+  // 命中则直读满速，否则回退 File.path / IPC 通道
+  const uploadFiles = async (dropped: DroppedUpload, osPaths?: (string | undefined)[]) => {
     const { dirs, files } = dropped;
     if (files.length === 0 || !sessionId) return;
 
@@ -486,7 +555,9 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
     }
 
     // 2. 逐个上传文件（remotePath = currentPath 下的相对路径）
-    for (const { relativePath, file } of files) {
+    for (const [idx, { relativePath, file }] of files.entries()) {
+      const cancelToken = `ul-${sessionId}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+      const remotePath = joinRemotePath(relativePath);
       const taskId = addTransfer({
         name: relativePath,
         kind: 'upload',
@@ -494,10 +565,47 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
         done: 0,
         total: file.size,
         sessionId,
+        remotePath,
         host: sftpConfig?.host,
         protocol: sftpConfig?.protocol || 'sftp',
+        cancelToken,
       });
       try {
+        // 拖拽来源优先用 WebView2 原生桥取回的真实路径（osPaths 与 files 同序）；
+        // 按钮/无桥环境回退 File.path（罕见，WebView2 已不暴露）与下方 IPC 通道。
+        const localPath = osPaths?.[idx] ?? (file as File & { path?: string }).path;
+        if (localPath) {
+          if (isCancelRequested(taskId)) {
+            throw new Error(t('sftp.cancelledError'));
+          }
+          await sftpUploadLocal(sessionId, localPath, remotePath, cancelToken);
+          updateTransfer(taskId, { done: file.size, status: 'done' });
+          scheduleTransferDismiss(taskId);
+          successCount += 1;
+          continue;
+        }
+        // 拖拽大文件无 path：走分块 IPC（较慢）。一次性提示建议改用上传按钮（直读满速）
+        if (!localPath && file.size > MAX_SINGLE_UPLOAD) {
+          const hintShown = window.sessionStorage.getItem('sftp-drag-hint-shown');
+          if (!hintShown) {
+            window.sessionStorage.setItem('sftp-drag-hint-shown', '1');
+            toast.info(t('sftp.dragBigFileHint'), { duration: 6000 });
+          }
+        }
+        // ≤100MB：单次整传（后端一次 open 流式写，无逐块 open/RTT 开销，上传不受限速）；
+        // 数据一次读完经 IPC 传递。>100MB 走下方 8MB 分块（块大 → 打开次数 ÷8）
+        if (file.size <= MAX_SINGLE_UPLOAD) {
+          if (isCancelRequested(taskId)) {
+            throw new Error(t('sftp.cancelledError'));
+          }
+          const data = new Uint8Array(await file.arrayBuffer());
+          await sftpUploadFile(sessionId, data, joinRemotePath(relativePath));
+          updateTransfer(taskId, { done: file.size });
+          updateTransfer(taskId, { status: 'done' });
+          scheduleTransferDismiss(taskId);
+          successCount += 1;
+          continue;
+        }
         let offset = 0;
         // do-while 确保空文件（size=0）也至少上传一次：首块 truncate 会在远端创建 0 字节文件
         do {
@@ -549,8 +657,77 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
     await loadFiles(currentPath);
   };
 
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
+  const handleUploadClick = async () => {
+    // Tauri 原生对话框选文件（返回真实路径 → 后端直读流式上传，速度≈下载，
+    // 绕开浏览器 File 无路径 / IPC JSON 序列化瓶颈）
+    if (!sessionId) return;
+    const selected = await open({
+      multiple: true,
+      directory: false,
+      title: t('sftp.uploadFile'),
+    }).catch(() => null);
+    if (!selected || (Array.isArray(selected) ? selected.length === 0 : !selected)) return;
+    await uploadByPaths(Array.isArray(selected) ? selected : [selected]);
+  };
+
+  /** 按本地真实路径直接上传（后端直读文件，不经 IPC 数据搬运）。 */
+  const uploadByPaths = async (localPaths: string[]) => {
+    if (!sessionId || localPaths.length === 0) return;
+    let successCount = 0;
+    const failures: string[] = [];
+
+    for (const localPath of localPaths) {
+      const name = localPath.replace(/\\/g, '/').split('/').filter(Boolean).pop() || localPath;
+      const cancelToken = `ul-${sessionId}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+      const taskId = addTransfer({
+        name,
+        kind: 'upload',
+        status: 'active',
+        done: 0,
+        total: 0, // 后端直读：进度事件首帧会带来 total/done
+        sessionId,
+        remotePath: joinRemotePath(name), // 事件按 sessionId+remotePath 匹配任务（缺失则进度永远更新不上）
+        host: sftpConfig?.host,
+        protocol: sftpConfig?.protocol || 'sftp',
+        cancelToken,
+      });
+      try {
+        await sftpUploadLocal(sessionId, localPath, joinRemotePath(name), cancelToken);
+        if (isCancelRequested(taskId)) {
+          scheduleTransferDismiss(taskId);
+          continue;
+        }
+        updateTransfer(taskId, { status: 'done' });
+        scheduleTransferDismiss(taskId);
+        successCount += 1;
+      } catch (error) {
+        if (isCancelRequested(taskId)) {
+          scheduleTransferDismiss(taskId);
+          continue;
+        }
+        updateTransfer(taskId, {
+          status: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        });
+        failures.push(`${name}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    if (successCount > 0) {
+      toast.success(
+        successCount === 1
+          ? t('sftp.uploadedFile', { name: localPaths[0].replace(/\\/g, '/').split('/').pop() })
+          : t('sftp.uploadedFiles', { success: successCount, total: localPaths.length }),
+      );
+    }
+    if (failures.length > 0) {
+      toast.error(
+        t('sftp.uploadPartiallyFailed', {
+          first: failures[0],
+          more: failures.length > 1 ? t('sftp.uploadFailedMore', { count: failures.length }) : '',
+        }),
+      );
+    }
   };
 
   const handleFileSelected = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -577,7 +754,9 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
       toast.error(t('sftp.dropReadFailed'));
       return;
     }
-    await uploadFiles(dropped);
+    // 先经 WebView2 原生桥取真实路径（≤600ms 无响应自动回退 IPC 通道）
+    const osPaths = await requestOsFilePaths(dropped.files.map((f) => f.file));
+    await uploadFiles(dropped, osPaths);
   };
 
   useEffect(() => {

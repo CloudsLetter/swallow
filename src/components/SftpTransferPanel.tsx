@@ -25,8 +25,8 @@ interface SftpTransferPanelProps {
   className?: string;
 }
 
-/** 速率显示刷新频率（毫秒）：保证进行中任务的速率与 ETA 持续滚动。 */
-const RATE_REFRESH_MS = 500;
+/** 速率显示刷新频率（毫秒）：传输速度/ETA 每秒更新一次即可，避免高频重渲染。 */
+const RATE_REFRESH_MS = 1000;
 
 function formatBytes(bytes: number) {
   if (!bytes || bytes <= 0) return '0 B';
@@ -176,9 +176,15 @@ export function SftpTransferPanel({
           </Badge>
         </div>
 
-        {/* 行 3：进度条 + 进度文本 */}
+        {/* 行 3：进度条 + 进度文本（总量未知的 FTP 上传显示不确定动画条） */}
         <div className="flex w-full min-w-0 items-center gap-2">
-          <Progress value={percent} className="min-w-0 flex-1" />
+          {isActive && !hasKnownTotal ? (
+            <div className="relative h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+              <div className="transfer-indeterminate absolute inset-y-0 w-1/4 rounded-full bg-primary" />
+            </div>
+          ) : (
+            <Progress value={percent} className="min-w-0 flex-1" />
+          )}
           <span className="w-32 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
             {isDone
               ? t('transfer.done')

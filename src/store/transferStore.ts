@@ -88,6 +88,25 @@ function clearRateSample(id: number) {
   rateSamples.delete(id);
 }
 
+// 进度 UI 节流：上传/下载的 done 推进按窗口写一次 store（结束帧立即写）。
+// ⚠️ 窗口不能与后端 emit 节流同频（同为 1000ms 会因时钟抖动互相错过 → 中间帧全被丢）。
+// 后端事件已 1s 节流，前端用 600ms 窗口只压「高频直写」源（分块循环），不吞后端帧。
+const PROGRESS_THROTTLE_MS = 600;
+const progressThrottleAt = new Map<string, number>();
+
+/** 返回 true 表示本次进度应被节流跳过；完成帧（done >= total）恒不跳过。 */
+function throttleProgress(key: string, done: number, total: number): boolean {
+  if (total > 0 && done >= total) {
+    progressThrottleAt.delete(key);
+    return false;
+  }
+  const now = Date.now();
+  const last = progressThrottleAt.get(key) ?? 0;
+  if (now - last < PROGRESS_THROTTLE_MS) return true;
+  progressThrottleAt.set(key, now);
+  return false;
+}
+
 export const useTransferStore = create<TransferStore>((set, get) => ({
   transfers: [],
 
@@ -99,7 +118,12 @@ export const useTransferStore = create<TransferStore>((set, get) => ({
     return id;
   },
 
-  updateTransfer: (id, patch) =>
+  updateTransfer: (id, patch) => {
+    // 仅推进 done 的中间进度：1s 节流；状态变化（done/error/cancel）恒即时
+    if (patch.done !== undefined && patch.status === undefined) {
+      const task = get().transfers.find((t) => t.id === id);
+      if (task && throttleProgress(String(id), patch.done, task.total)) return;
+    }
     set((state) => ({
       transfers: state.transfers.map((task) => {
         if (task.id !== id) return task;
@@ -112,14 +136,16 @@ export const useTransferStore = create<TransferStore>((set, get) => ({
         }
         return next;
       }),
-    })),
+    }));
+  },
 
-  updateTransferProgress: (sessionId, remotePath, done, total) =>
+  updateTransferProgress: (sessionId, remotePath, done, total) => {
+    if (throttleProgress(`${sessionId}\u0000${remotePath}`, done, total)) return;
     set((state) => ({
       transfers: state.transfers.map((task) => {
         const matches =
           task.status === 'active' &&
-          task.kind === 'download' &&
+          (task.kind === 'download' || task.kind === 'upload') &&
           task.sessionId === sessionId &&
           task.remotePath === remotePath;
         if (!matches) return task;
@@ -127,13 +153,14 @@ export const useTransferStore = create<TransferStore>((set, get) => ({
         next.rate = computeRate(task.id, done);
         return next;
       }),
-    })),
+    }));
+  },
 
   // 结束任务：下载 → 置位后端取消标志中断流；上传 → 置位取消标志供循环感知
   cancelTransfer: (id) => {
     const task = get().transfers.find((t) => t.id === id);
     if (!task || task.status !== 'active') return;
-    if (task.kind === 'download' && task.cancelToken) {
+    if (task.cancelToken) {
       void sftpCancelTransfer(task.cancelToken).catch(() => {});
     }
     cancelRequestedIds.add(id);

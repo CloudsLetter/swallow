@@ -1221,6 +1221,7 @@ export default {
     root: '返回根目录',
     rootSegment: '根目录',
     uploadFile: '上传文件',
+    dragBigFileHint: '拖拽的大文件无本地路径，将走慢速分块通道；建议用「上传」按钮以获得直读满速。',
     upload: '上传',
     downloadSelected: '下载选中文件',
     download: '下载',

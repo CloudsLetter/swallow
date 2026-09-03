@@ -1223,6 +1223,7 @@ export default {
     root: 'Back to root',
     rootSegment: 'Root',
     uploadFile: 'Upload File',
+    dragBigFileHint: 'Dropped large files lack a local path and use the slower chunked channel; prefer the Upload button for direct full-speed transfer.',
     upload: 'Upload',
     downloadSelected: 'Download selected files',
     download: 'Download',

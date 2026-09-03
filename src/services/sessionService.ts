@@ -154,7 +154,7 @@ export function sftpDownloadFileTo(
   return invoke<void>('sftp_download_file_to', { sessionId, remotePath, targetPath });
 }
 
-/** 上传文件到 SFTP 远端路径。 */
+/** 上传文件到 SFTP 远端路径（≤100MB 单次整传；数据直接传二进制，避免 Array.from 大数组拷贝）。 */
 export function sftpUploadFile(
   sessionId: string,
   localData: Uint8Array,
@@ -162,9 +162,22 @@ export function sftpUploadFile(
 ): Promise<void> {
   return invoke<void>('sftp_upload_file', {
     sessionId,
-    localData: Array.from(localData),
+    localData,
     remotePath,
   });
+}
+
+/**
+ * 后端直读本地文件流式上传（绕开大文件 IPC 序列化开销，速度接近下载）。
+ * WebView2 的 File 对象带 path 时前端走此通道；进度经 'sftp-transfer' 事件上报。
+ */
+export function sftpUploadLocal(
+  sessionId: string,
+  localPath: string,
+  remotePath: string,
+  cancelToken?: string,
+): Promise<void> {
+  return invoke<void>('sftp_upload_local', { sessionId, localPath, remotePath, cancelToken });
 }
 
 /**
