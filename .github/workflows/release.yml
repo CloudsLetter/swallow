@@ -119,6 +119,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.TOKEN }}
           # 无开发者证书时跳过签名查找，避免 mac/win 打包失败
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # 更新包签名（tauri-plugin-updater）：私钥内容 + 密码
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: src-tauri
           releaseId: ${{ needs.create-release.outputs.releaseId }}
@@ -176,6 +179,9 @@ jobs:
           perl -v
 
       - name: Build full bundle
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: pnpm tauri build
 
       - name: Upload -full installer to release

@@ -15,6 +15,7 @@ import { useConfigStore } from './store/config';
 import { initTransferProgressListener } from './store/transferStore';
 import { useTabStore, type Tab } from './store/tabStore';
 import { loadOpenSessions, saveOpenSessions, getHosts } from './services/dataService';
+import { checkForAppUpdates } from './services/updaterService';
 import i18next from './i18n/i18n';
 
 function App() {
@@ -114,6 +115,16 @@ function App() {
     });
     return () => unlisten?.();
   }, [loadConfig]);
+
+  // 启动时自动检查更新（配置加载完成后触发一次；dev 环境无签名跳过，避免无谓网络请求）
+  const autoCheckedRef = useRef(false);
+  useEffect(() => {
+    if (!config || autoCheckedRef.current) return;
+    autoCheckedRef.current = true;
+    if (!config.advanced.check_updates) return;
+    if (import.meta.env.DEV) return;
+    void checkForAppUpdates({ interactive: false });
+  }, [config]);
 
   // 启动时恢复上次打开的标签会话（配置加载完成后恢复，避免连接时缺配置）
   const restoredRef = useRef(false);

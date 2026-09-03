@@ -1532,6 +1532,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        // 更新器：CrabNebula Cloud 分发 + minisign 校验
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        // 进程：更新下载完成后 relaunch 重启
+        .plugin(tauri_plugin_process::init())
         // 单实例：再次启动时聚焦/还原已存在的主窗口，而不是新开一个
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Some(window) = app.get_webview_window("main") {

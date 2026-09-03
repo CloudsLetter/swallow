@@ -372,6 +372,7 @@ export default {
     sendAnalytics: 'Send Anonymous Analytics',
     sendAnalyticsDesc: 'Help us improve the product (no sensitive data)',
     checkForUpdates: 'Check for Updates',
+    checkingForUpdates: 'Checking...',
 
     // About
     about: 'About Swallow',
@@ -390,6 +391,21 @@ export default {
 
     // Shortcuts
     customShortcutsComingSoon: 'Custom shortcuts feature is coming soon',
+  },
+
+  // App updates
+  update: {
+    upToDate: 'You are up to date',
+    availableToast: 'New version v{{version}} available, update it in Settings → Advanced',
+    confirmTitle: 'Update Available',
+    confirmBody: 'Swallow v{{version}} is available. Download and install now?',
+    confirmOk: 'Update Now',
+    confirmCancel: 'Later',
+    downloading: 'Downloading update...',
+    downloadProgress: 'Downloading update... {{mb}} MB',
+    installDone: 'Update downloaded, restarting to finish installation',
+    downloadFailed: 'Update failed: {{message}}',
+    checkFailed: 'Failed to check for updates: {{message}}',
   },
 
   tabs: {

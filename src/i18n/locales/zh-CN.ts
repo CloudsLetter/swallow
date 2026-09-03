@@ -370,6 +370,7 @@ export default {
     sendAnalytics: '发送匿名统计',
     sendAnalyticsDesc: '帮助我们改进产品（不包含敏感信息）',
     checkForUpdates: '检查更新',
+    checkingForUpdates: '正在检查...',
 
     // 关于
     about: '关于 Swallow',
@@ -388,6 +389,21 @@ export default {
 
     // 快捷键设置
     customShortcutsComingSoon: '自定义快捷键功能即将推出',
+  },
+
+  // 应用更新
+  update: {
+    upToDate: '当前已是最新版本',
+    availableToast: '发现新版本 v{{version}}，可在 设置 → 高级 中更新',
+    confirmTitle: '发现新版本',
+    confirmBody: 'Swallow v{{version}} 已发布，是否立即下载并安装？',
+    confirmOk: '立即更新',
+    confirmCancel: '稍后再说',
+    downloading: '正在下载更新...',
+    downloadProgress: '正在下载更新... {{mb}} MB',
+    installDone: '更新已下载，即将重启完成安装',
+    downloadFailed: '更新失败：{{message}}',
+    checkFailed: '检查更新失败：{{message}}',
   },
 
   tabs: {

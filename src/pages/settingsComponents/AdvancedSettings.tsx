@@ -1,15 +1,18 @@
 import { useConfigStore } from '../../store/config';
 import { useTranslation } from 'react-i18next';
+import { useState } from 'react';
 import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
 import { Label } from '../../components/ui/label';
 import { SectionTitle, SwitchRow } from './shared';
+import { checkForAppUpdates } from '../../services/updaterService';
 
 export function AdvancedSettings() {
   const { t } = useTranslation();
   const config = useConfigStore((state) => state.config);
   const updateConfig = useConfigStore((state) => state.updateConfig);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
 
   if (!config) return null;
 
@@ -154,7 +157,6 @@ export function AdvancedSettings() {
             desc={t('settings.checkUpdatesDesc')}
             checked={config.advanced.check_updates}
             onCheckedChange={(v) => updateAdvancedConfig({ check_updates: v })}
-            notEffective
           />
           <SwitchRow
             label={t('settings.sendAnalytics')}
@@ -163,8 +165,15 @@ export function AdvancedSettings() {
             onCheckedChange={(v) => updateAdvancedConfig({ send_analytics: v })}
             notEffective
           />
-          <Button className="w-full" disabled title={t('settings.notEffective')}>
-            {t('settings.checkForUpdates')}
+          <Button
+            className="w-full"
+            disabled={checkingUpdate}
+            onClick={() => {
+              setCheckingUpdate(true);
+              void checkForAppUpdates({ interactive: true }).finally(() => setCheckingUpdate(false));
+            }}
+          >
+            {checkingUpdate ? t('settings.checkingForUpdates') : t('settings.checkForUpdates')}
           </Button>
         </div>
       </div>
