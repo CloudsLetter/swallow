@@ -214,6 +214,11 @@ export async function removeHost(id: string): Promise<void> {
   await invoke('delete_host', { id });
 }
 
+/** 连接成功后回写最近连接时间（供「最近连接」排序显示）。 */
+export async function touchHostLastConnected(host: string, port: number): Promise<void> {
+  await invoke('touch_host_last_connected', { host, port });
+}
+
 export async function updateHost(id: string, updates: Partial<Host>): Promise<Host> {
   const current = await findById(getHosts, id, 'Host');
   return invoke<Host>('save_host', { host: { ...current, ...updates, id } });

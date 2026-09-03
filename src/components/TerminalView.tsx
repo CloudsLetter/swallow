@@ -13,6 +13,8 @@ import { useTerminalBackground } from '../hooks/useTerminalBackground';
 import { TerminalBackdrop } from './TerminalBackdrop';
 import { useSessionConnection, sshSessionPool } from '../hooks/useSessionConnection';
 import { acceptHostKey, sshConnect, disconnectSsh, telnetConnect, telnetDisconnect, localShellConnect, localShellDisconnect } from '../services/sessionService';
+import { touchHostLastConnected } from '../services/dataService';
+import { useOnlineHosts } from '../store/uiState';
 import type { Config } from '../types/config';
 import {
   createOrGetTerminal,
@@ -317,6 +319,13 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
             markConnected(true);
             setIsConnectingState(false);
             resetReconnectAttempts(sessionId);
+            // 在线状态走内存 + 最近连接时间落库（SSH 会话）
+            if (sshConfig?.host) {
+              useOnlineHosts.getState().connect(sshConfig.host, sshConfig.port);
+              if (!silentReconnect) {
+                touchHostLastConnected(sshConfig.host, sshConfig.port).catch(() => {});
+              }
+            }
             if (silentReconnect) {
               setSilentReconnect(sessionId, false);
               // 重连成功：右下角 toast 提示，不在终端打印
@@ -402,6 +411,10 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
               duration: 4000,
             });
             markConnected(false);
+            // 主机离线：内存状态移除（列表/快速链接页状态点实时回灰）
+            if (sshConfig?.host) {
+              useOnlineHosts.getState().disconnect(sshConfig.host, sshConfig.port);
+            }
             const cfg = useConfigStore.getState().config;
             const maxAttempts = cfg?.ssh?.max_reconnect_attempts ?? 0;
             if (

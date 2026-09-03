@@ -24,6 +24,8 @@ import {
 } from 'lucide-react';
 import { ConnectionProgress } from './ConnectionProgress';
 import { useSessionConnection, sftpSessionPool } from '../hooks/useSessionConnection';
+import { touchHostLastConnected } from '../services/dataService';
+import { useOnlineHosts } from '../store/uiState';
 import {
   acceptHostKey,
   sftpConnect,
@@ -308,6 +310,10 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
     setCurrentPathLocal(sftpConfig?.remotePath || '/');
     setCurrentPathInPool(sessionId, sftpConfig?.remotePath || '/');
     markConnected(false);
+    // 主机离线：内存状态移除
+    if (sftpConfig?.host) {
+      useOnlineHosts.getState().disconnect(sftpConfig.host, sftpConfig.port);
+    }
     const connectFn = getConnectFunction(sessionId);
     if (connectFn) {
       void connectFn();
@@ -387,6 +393,11 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
 
         markConnected(true);
         setIsConnectingState(false);
+        // 在线状态走内存 + 最近连接时间落库（SFTP/FTP 会话）
+        if (sftpConfig?.host) {
+          useOnlineHosts.getState().connect(sftpConfig.host, sftpConfig.port);
+          touchHostLastConnected(sftpConfig.host, sftpConfig.port).catch(() => {});
+        }
 
         // 真实读取目录
         updateStep('list', 'loading');

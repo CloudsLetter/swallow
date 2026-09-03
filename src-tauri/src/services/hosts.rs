@@ -165,3 +165,16 @@ pub fn delete_host(id: String) -> Result<(), String> {
 
     Ok(())
 }
+
+/// 连接成功后回写最近连接时间（last_connected），供「最近连接」排序/时间显示。
+/// 按 host + port 定位（快速连接无 host id 也能覆盖）。
+#[tauri::command]
+pub fn touch_host_last_connected(host: String, port: u16) -> Result<(), String> {
+    let conn = sqlite::open_connection()?;
+    conn.execute(
+        "UPDATE hosts SET last_connected = ?1 WHERE host = ?2 AND port = ?3",
+        rusqlite::params![crate::utils::sqlite::now_iso(), host, port],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}

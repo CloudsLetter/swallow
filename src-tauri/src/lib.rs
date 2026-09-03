@@ -1491,6 +1491,7 @@ pub fn run() {
             services::hosts::list_hosts,
             services::hosts::save_host,
             services::hosts::delete_host,
+            services::hosts::touch_host_last_connected,
             services::accounts::list_accounts,
             services::accounts::save_account,
             services::accounts::delete_account,

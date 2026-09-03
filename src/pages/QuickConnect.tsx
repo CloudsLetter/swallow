@@ -19,6 +19,7 @@ import {
 } from '../services/dataService';
 import { resolveHostSshAuth } from '../services/sshAuthResolver';
 import { useTabStore } from '../store/tabStore';
+import { useOnlineHosts } from '../store/uiState';
 import { cn } from '@/lib/utils';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
@@ -105,13 +106,21 @@ export function QuickConnect() {
     openSessionTab(`${localShell} (local)`, 'local', { localConfig: { shell: localShell } });
   };
 
-  // 过滤 + 按最近连接时间排序
-  const filteredHosts = hosts.filter(
-    (host) =>
-      host.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      host.host.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      host.username.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
+  // 过滤 + 按最近连接时间排序（最近连接来自 DB last_connected；在线状态纯内存实时合并）
+  const online = useOnlineHosts((s) => s.online);
+  const filteredHosts = hosts
+    .filter(
+      (host) =>
+        host.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        host.host.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        host.username.toLowerCase().includes(searchQuery.toLowerCase()),
+    )
+    .map(
+      (host): Host =>
+        online.has(`${host.host}:${host.port}`) && host.status !== 'connected'
+          ? { ...host, status: 'connected' }
+          : host,
+    );
   const recentHosts = [...filteredHosts].sort((a, b) => {
     if (!a.lastConnected && !b.lastConnected) return 0;
     if (!a.lastConnected) return 1;
