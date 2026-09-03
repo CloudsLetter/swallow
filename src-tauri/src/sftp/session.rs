@@ -231,6 +231,29 @@ fn parse_ftp_list_entry(entry: &str) -> Option<FileItem> {
 /// 每个操作经 `with_conn` 借用一个空闲连接（无空闲则新建），用完归还；连接失效则丢弃重建。
 /// 复用前以 `noop()` 探活，规避服务器静默断开后的半开连接。所有文件操作均使用绝对路径，
 /// 因此连接复用时 cwd 状态残留不影响正确性（仅 `list_dir` 依赖 cwd，用前自行 `cwd` 切换）。
+/// 上传进度读取器：包装本地文件 reader，每次 read 推进 done 并回调 `(done, total)`。
+/// suppaftp 的 `put_file` 无原生进度钩子，用它包一层在 FTP 上传时也能逐块回报进度。
+struct ProgressReader<R: std::io::Read, F: FnMut(u64, u64)> {
+    inner: R,
+    done: u64,
+    total: u64,
+    on_progress: F,
+}
+
+impl<R: std::io::Read, F: FnMut(u64, u64)> std::io::Read for ProgressReader<R, F> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        if n == 0 {
+            // EOF：补发一帧完成进度（覆盖 0 字节文件与恰好整块读尽的 final 帧）
+            (self.on_progress)(self.done, self.total);
+        } else {
+            self.done += n as u64;
+            (self.on_progress)(self.done, self.total);
+        }
+        Ok(n)
+    }
+}
+
 struct FtpPool {
     idle: std::sync::Mutex<Vec<suppaftp::FtpStream>>,
     host: String,
@@ -949,10 +972,10 @@ impl SftpSession {
 
     /// 流式上传**本地文件**：后端直读磁盘 → 写远端（SFTP 逐块循环，进度逐块回调）。
     /// 让上传绕开「前端读整文件 → IPC 序列化 → 后端」的高额开销（这是上传远慢于下载
-    /// 的根因：下载是后端直写本地，不走 IPC）。FTP 单数据连接 reader 写入，无进度回调。
+    /// 的根因：下载是后端直写本地，不走 IPC）。FTP 经 `ProgressReader` 包装 `put_file`
+    /// 的 reader，逐块回调进度（suppaftp 无原生进度钩子，用 Read 包装补上）。
     /// `cancel` 可选：置位后中断并返回取消错误。
-    pub fn upload_local_file<F>(
-        &self,
+    pub fn upload_local_file<F>(        &self,
         local_path: &str,
         remote_path: &str,
         mut on_progress: F,
@@ -999,10 +1022,14 @@ impl SftpSession {
                 Ok(())
             }
             SessionType::Ftp(pool) => pool.with_conn(|ftp_stream| {
-                let mut local = std::fs::File::open(local_path)?;
-                ftp_stream.put_file(remote_path, &mut local)?;
-                // FTP 单数据连接无中间回调：完成后发一次满进度
-                on_progress(total, total);
+                let local = std::fs::File::open(local_path)?;
+                let mut reader = ProgressReader {
+                    inner: local,
+                    done: 0,
+                    total,
+                    on_progress,
+                };
+                ftp_stream.put_file(remote_path, &mut reader)?;
                 Ok(())
             }),
         }
