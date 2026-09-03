@@ -31,12 +31,20 @@ concurrency:
 
 jobs:
   draft:
-    # 未配置 CN_API_KEY / CN_APPLICATION 时跳过（后续 job 连锁跳过）
-    if: ${{ secrets.CN_API_KEY != '' && vars.CN_APPLICATION != '' }}
+    # job 级 if 无法访问 secrets（仅 step 级可用），故只在此检查 vars；
+    # CN_API_KEY 的守卫放到 guard step 并通过 outputs.enabled 传给下游 job。
+    if: ${{ vars.CN_APPLICATION != '' }}
     runs-on: ubuntu-22.04
+    outputs:
+      # 下游 build/publish 据此判断是否真正发布（CN_API_KEY 是否已配置）
+      enabled: ${{ steps.guard.outputs.enabled }}
     steps:
       - uses: actions/checkout@v4
+      - id: guard
+        name: Guard (CN_API_KEY configured?)
+        run: echo "enabled=${{ secrets.CN_API_KEY != '' }}" >> "$GITHUB_OUTPUT"
       - name: Create draft release
+        if: ${{ secrets.CN_API_KEY != '' }}
         uses: crabnebula-dev/cloud-release@v0
         with:
           command: release draft ${{ env.CN_APPLICATION }} --framework tauri
@@ -44,6 +52,9 @@ jobs:
 
   build:
     needs: [draft]
+    # CN_API_KEY 未配置时（draft.enabled=false）跳过整个矩阵构建；
+    # draft 自身被跳过（vars 为空）时本 job 也会随 needs 链自动跳过
+    if: ${{ needs.draft.outputs.enabled == 'true' }}
     strategy:
       fail-fast: false
       matrix:
