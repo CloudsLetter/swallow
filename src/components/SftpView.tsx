@@ -894,13 +894,25 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
       if (entry.type === 'directory') {
         await downloadDirRecursive(remoteChild, localChild, results);
       } else {
+        // 断点续传：本地已有完整文件则跳过，半成品则从断点续传，缺失则全量下载
+        let offset = 0;
+        if (entry.size > 0) {
+          const localSize = await localFileSize(localChild).catch(() => 0);
+          if (localSize === entry.size) {
+            results.ok += 1; // 已完整，跳过（意外退出重下目录时不重复下载已完成文件）
+            continue;
+          }
+          if (localSize > 0 && localSize < entry.size) {
+            offset = localSize;
+          }
+        }
         const cancelToken = `dl-${sessionId}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
         const taskId = addTransfer({
           name: entry.name,
           kind: 'download',
           status: 'active',
-          done: 0,
-          total: 0,
+          done: offset,
+          total: entry.size > 0 ? entry.size : 0,
           sessionId,
           remotePath: remoteChild,
           host: sftpConfig?.host,
@@ -908,7 +920,7 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
           cancelToken,
         });
         try {
-          await sftpDownloadFileProgress(sessionId!, remoteChild, localChild, 0, cancelToken);
+          await sftpDownloadFileProgress(sessionId!, remoteChild, localChild, offset, cancelToken);
           if (isCancelRequested(taskId)) {
             scheduleTransferDismiss(taskId);
             continue;
