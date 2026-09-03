@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { listen } from '@tauri-apps/api/event';
+import { once } from '@tauri-apps/api/event';
 import {
   Folder as IconFolder,
   File as IconFile,
@@ -183,37 +183,34 @@ async function requestOsFilePaths(files: File[]): Promise<(string | undefined)[]
   return new Promise<(string | undefined)[]>((resolve) => {
     let settled = false;
     let unlisten: (() => void) | undefined;
-    const timer = window.setTimeout(() => {
+    const finish = (paths: (string | undefined)[]) => {
       if (settled) return;
       settled = true;
-      unlisten?.();
-      resolve(fallback);
-    }, 600);
-    void listen<{ requestId: string; paths: string[] }>('sftp-os-drop-paths', (e) => {
-      if (settled || e.payload.requestId !== requestId) return;
-      settled = true;
       window.clearTimeout(timer);
+      resolve(paths);
+    };
+    const timer = window.setTimeout(() => {
+      finish(fallback);
       unlisten?.();
+    }, 600);
+    // 先注册一次性监听并 await 注册完成，再发消息——避免宿主回包早于监听注册而丢失
+    void once<{ requestId: string; paths: string[] }>('sftp-os-drop-paths', (e) => {
+      if (settled || e.payload.requestId !== requestId) return;
       const { paths } = e.payload;
-      resolve(files.map((_, i) => paths[i]));
+      finish(files.map((_, i) => paths[i]));
     }).then((un) => {
       if (settled) {
         un();
-      } else {
-        unlisten = un;
+        return;
+      }
+      unlisten = un;
+      try {
+        webview!.postMessageWithAdditionalObjects!(`swallow-os-files::${requestId}`, files);
+      } catch {
+        finish(fallback);
+        un();
       }
     });
-    try {
-      // 附加对象需要 ArrayLike：File[] 即满足
-      webview!.postMessageWithAdditionalObjects!(`swallow-os-files::${requestId}`, files);
-    } catch {
-      if (!settled) {
-        settled = true;
-        window.clearTimeout(timer);
-        unlisten?.();
-        resolve(fallback);
-      }
-    }
   });
 }
 
