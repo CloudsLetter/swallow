@@ -45,6 +45,7 @@ impl VncManager {
     }
 
     /// 是否有该会话。
+    #[allow(dead_code)]
     pub fn contains(&self, session_id: &str) -> bool {
         self.sessions
             .lock()

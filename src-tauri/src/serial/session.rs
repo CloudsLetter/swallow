@@ -222,10 +222,6 @@ impl SerialSession {
         }
         Ok(())
     }
-
-    pub fn is_connected(&self) -> bool {
-        *self.is_connected.lock().unwrap()
-    }
 }
 
 /// 把累积字节按 UTF-8 增量边界刷成 Output 事件；非法字节替换 U+FFFD。

@@ -75,7 +75,7 @@ fn to_ssh_config(t: &SshTransportConfig) -> SshConfig {
 
 /// 在 SSH 会话与本地 loopback TCP 对的一端之间做双向数据泵。
 /// 参考 `ssh/tunnel.rs::bridge`：`channel.stream(0)` 是 Arc 句柄可克隆并发使用。
-fn spawn_pump(mut channel: ssh2::Channel, mut tcp: TcpStream) -> thread::JoinHandle<()> {
+fn spawn_pump(mut channel: ssh2::Channel, tcp: TcpStream) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         // 空闲超时：防止半开连接占线程
         let _ = tcp.set_read_timeout(Some(Duration::from_secs(300)));

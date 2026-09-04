@@ -10,7 +10,7 @@ mod manager;
 mod ssh;
 
 pub use manager::VncManager;
-pub use ssh::{open_ssh_tunnel, SshTunnelGuard};
+pub use ssh::open_ssh_tunnel;
 
 use serde::{Deserialize, Serialize};
 
@@ -41,7 +41,9 @@ pub struct VncConnectRequest {
     pub port: u16,
     /// 透明桥不需要 VNC 密码；保留字段仅为前端透传 noVNC credentials 与后续兼容。
     /// 不允许写入 URL、日志或持久化会话文件。
+    #[allow(dead_code)]
     pub password: Option<String>,
+    #[allow(dead_code)]
     pub shared: Option<bool>,
     /// SSH 隧道传输（None = 直连 VNC）
     pub ssh: Option<SshTransportConfig>,
