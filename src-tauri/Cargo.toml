@@ -49,6 +49,8 @@ aes-gcm = "0.10"
 rand = "0.8"
 hkdf = "0.12"
 pbkdf2 = { version = "0.12", features = ["simple"] }
+tokio-tungstenite = "0.30"
+futures-util = "0.3"
 
 # keyring 按平台选择系统凭据 backend（跨平台打包必需；不可统一放顶层）
 [target.'cfg(target_os = "windows")'.dependencies]

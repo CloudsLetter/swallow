@@ -1,0 +1,388 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import RFB from '@novnc/novnc';
+import { useTranslation } from 'react-i18next';
+import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { ask } from '@tauri-apps/plugin-dialog';
+import { acceptHostKey, vncConnect, vncDisconnect } from '../services/sessionService';
+import type { VncTabConfig } from '../store/tabStore';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { cn } from '@/lib/utils';
+
+type VncStatus = 'idle' | 'starting' | 'connecting' | 'connected' | 'disconnected' | 'error';
+
+interface VncViewProps {
+  sessionId?: string;
+  vncConfig?: VncTabConfig;
+  /** 恢复的会话缺少密码时跳过自动连接，等待用户手动连接 */
+  skipAutoConnect?: boolean;
+}
+
+/** 为 RFB 事件挂监听（noVNC 类型声明不完整，事件按 CustomEvent 处理）。 */
+function onRfb(rfb: RFB, type: string, handler: (detail: Record<string, unknown>) => void) {
+  // noVNC 事件带 detail（{ clean?, reason?, text?, name? }）
+  rfb.addEventListener(type, ((e: Event) => {
+    handler(((e as CustomEvent).detail ?? {}) as Record<string, unknown>);
+  }) as EventListener);
+}
+
+export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps) {
+  const { t } = useTranslation();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const rfbRef = useRef<RFB | null>(null);
+  const cancelledRef = useRef(false);
+  // 连接配置在连接开始时固定；vncConfig 对象身份变化不触发自动重连
+  const configRef = useRef<VncTabConfig | undefined>(vncConfig);
+  configRef.current = vncConfig;
+
+  const [status, setStatus] = useState<VncStatus>('idle');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [desktopName, setDesktopName] = useState<string | null>(null);
+  const [fitView, setFitView] = useState(true);
+  const [viewOnly, setViewOnly] = useState(false);
+  const [needPassword, setNeedPassword] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [remoteClipboard, setRemoteClipboard] = useState<string | null>(null);
+
+  /** 关闭当前 RFB 与后端桥（不置 cancelled，供按钮手动断连/重连） */
+  const teardownRfb = useCallback(() => {
+    const rfb = rfbRef.current;
+    if (rfb) {
+      // 先摘监听，避免 disconnect 事件回写状态
+      try {
+        (rfb as unknown as { removeAllListeners?: () => void }).removeAllListeners?.();
+      } catch {
+        /* noop */
+      }
+      rfb.disconnect();
+      rfbRef.current = null;
+    }
+  }, []);
+
+  /** 开始（或重连）VNC：先请求后端建桥拿 wsUrl，再让 noVNC 连上 */
+  const startConnect = useCallback(async () => {
+    const cfg = configRef.current;
+    if (!cfg || !sessionId) {
+      setStatus('error');
+      setErrorMsg(t('vnc.missingConfig'));
+      return;
+    }
+    // 断掉旧实例
+    teardownRfb();
+    setStatus('starting');
+    setErrorMsg(null);
+    setNeedPassword(false);
+    setDesktopName(null);
+
+    let wsUrl: string | undefined;
+    try {
+      const result = await vncConnect(sessionId, {
+        host: cfg.host,
+        port: cfg.port,
+        // 直连时密码仅交给 noVNC 完成 RFB 认证，不经后端、不进 URL
+        password: cfg.password || undefined,
+        shared: cfg.shared ?? true,
+        ssh: cfg.ssh,
+      });
+      // SSH 隧道首次遇到未知主机密钥：确认指纹后（写入 known_hosts）重试连接
+      if (!result.wsUrl && result.hostKeyToken) {
+        const confirmed = await ask(
+          `${t('vnc.hostKeyFingerprint')}\n${result.fingerprint || ''}\n\n${result.host ?? ''}:${result.port ?? ''}`,
+          {
+            title: t('vnc.hostKeyTitle'),
+            kind: 'warning',
+            okLabel: t('vnc.hostKeyTrust'),
+            cancelLabel: t('vnc.hostKeyCancel'),
+          },
+        );
+        if (cancelledRef.current) return;
+        if (!confirmed) {
+          setStatus('disconnected');
+          return;
+        }
+        try {
+          await acceptHostKey(result.hostKeyToken, result.fingerprint || '');
+        } catch (err) {
+          setStatus('error');
+          setErrorMsg(String(err));
+          return;
+        }
+        // 指纹已信任：重试本连接（将复用已写入的 known_hosts）
+        void startConnect();
+        return;
+      }
+      wsUrl = result.wsUrl;
+    } catch (err) {
+      if (cancelledRef.current) return;
+      setStatus('error');
+      setErrorMsg(String(err));
+      return;
+    }
+    if (cancelledRef.current || !containerRef.current) return;
+    if (!wsUrl) {
+      setStatus('error');
+      setErrorMsg(t('vnc.error'));
+      return;
+    }
+
+    // 容器复用前清空（RFB 会向容器 append 自身 DOM）
+    containerRef.current.innerHTML = '';
+    setStatus('connecting');
+
+    let rfb: RFB;
+    try {
+      rfb = new RFB(containerRef.current, wsUrl, {
+        credentials: cfg.password ? { password: cfg.password } : undefined,
+        shared: cfg.shared ?? true,
+      });
+    } catch (err) {
+      setStatus('error');
+      setErrorMsg(String(err));
+      return;
+    }
+    rfbRef.current = rfb;
+
+    // 初始视图参数
+    rfb.scaleViewport = fitView;
+    rfb.clipViewport = !fitView;
+    rfb.viewOnly = viewOnly;
+    rfb.resizeSession = false;
+
+    onRfb(rfb, 'connect', () => {
+      if (cancelledRef.current) return;
+      setStatus('connected');
+      setNeedPassword(false);
+    });
+    onRfb(rfb, 'disconnect', (detail) => {
+      if (cancelledRef.current) return;
+      setStatus('disconnected');
+      if (detail.clean === false && detail.message) {
+        setErrorMsg(String(detail.message));
+      }
+      rfbRef.current = null;
+    });
+    onRfb(rfb, 'credentialsrequired', () => {
+      if (cancelledRef.current) return;
+      // 未预先提供密码：弹输入框，sendCredentials 补交
+      setNeedPassword(true);
+    });
+    onRfb(rfb, 'securityfailure', (detail) => {
+      if (cancelledRef.current) return;
+      setStatus('error');
+      setErrorMsg((detail.reason as string) || t('vnc.securityFailure'));
+    });
+    onRfb(rfb, 'desktopname', (detail) => {
+      if (detail.name) setDesktopName(String(detail.name));
+    });
+    onRfb(rfb, 'clipboard', (detail) => {
+      if (typeof detail.text === 'string') setRemoteClipboard(detail.text);
+    });
+    // bell 无操作（后续可做提示音）
+  }, [sessionId, teardownRfb, t, fitView, viewOnly]);
+
+  // 挂载自动连接（skipAutoConnect = 恢复会话缺密码，等待手动）
+  useEffect(() => {
+    cancelledRef.current = false;
+    if (skipAutoConnect) {
+      setStatus('disconnected');
+      return;
+    }
+    void startConnect();
+    return () => {
+      cancelledRef.current = true;
+      // 卸载：关 noVNC 并通知后端停止桥（WebSocket/TCP/listener 一起释放）
+      try {
+        rfbRef.current?.disconnect();
+      } catch {
+        /* noop */
+      }
+      rfbRef.current = null;
+      if (sessionId) void vncDisconnect(sessionId).catch(() => {});
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
+
+  // 视图参数变化即时应用到已连接实例
+  useEffect(() => {
+    const rfb = rfbRef.current;
+    if (!rfb) return;
+    rfb.scaleViewport = fitView;
+    rfb.clipViewport = !fitView;
+  }, [fitView]);
+
+  useEffect(() => {
+    const rfb = rfbRef.current;
+    if (!rfb) return;
+    rfb.viewOnly = viewOnly;
+  }, [viewOnly]);
+
+  const submitPassword = () => {
+    const pwd = passwordInput.trim();
+    if (!pwd) return;
+    rfbRef.current?.sendCredentials({ password: pwd });
+    setNeedPassword(false);
+    setPasswordInput('');
+  };
+
+  const handleDisconnect = () => {
+    teardownRfb();
+    setStatus('disconnected');
+    if (sessionId) void vncDisconnect(sessionId).catch(() => {});
+  };
+
+  const handleCopyRemoteClipboard = async () => {
+    if (!remoteClipboard) return;
+    try {
+      await writeText(remoteClipboard);
+    } catch (err) {
+      console.warn('copy remote clipboard failed:', err);
+    }
+  };
+
+  const handlePasteLocalClipboard = async () => {
+    try {
+      const text = await readText();
+      if (text) rfbRef.current?.clipboardPasteFrom(text);
+    } catch (err) {
+      console.warn('paste to remote clipboard failed:', err);
+    }
+  };
+
+  const connected = status === 'connected';
+  const title = desktopName || (vncConfig ? `${vncConfig.host}:${vncConfig.port}` : '');
+
+  return (
+    <div className="flex h-full min-h-0 flex-col" style={{ background: 'var(--color-background)' }}>
+      {/* 工具栏 */}
+      <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border bg-card px-2">
+        <span className="mr-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+          <span
+            className={cn(
+              'size-1.5 shrink-0 rounded-full',
+              connected ? 'bg-emerald-500' : status === 'error' ? 'bg-destructive' : 'bg-muted-foreground/40',
+            )}
+          />
+          <span className="truncate">{title || t('vnc.title')}</span>
+        </span>
+
+        <div className="ml-auto flex items-center gap-1">
+          <Button
+            variant={fitView ? 'default' : 'ghost'}
+            size="sm"
+            className="h-6 px-2 text-xs"
+            onClick={() => setFitView((v) => !v)}
+          >
+            {t('vnc.fitWindow')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs"
+            disabled={!connected}
+            onClick={() => setViewOnly((v) => !v)}
+          >
+            {t(viewOnly ? 'vnc.viewOnlyOn' : 'vnc.viewOnly')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs"
+            disabled={!connected}
+            title={t('vnc.ctrlAltDel')}
+            onClick={() => rfbRef.current?.sendCtrlAltDel()}
+          >
+            {t('vnc.ctrlAltDel')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs"
+            disabled={!connected || !remoteClipboard}
+            title={t('vnc.copyRemote')}
+            onClick={() => void handleCopyRemoteClipboard()}
+          >
+            {t('vnc.copyRemote')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs"
+            disabled={!connected}
+            title={t('vnc.pasteLocal')}
+            onClick={() => void handlePasteLocalClipboard()}
+          >
+            {t('vnc.pasteLocal')}
+          </Button>
+          {connected ? (
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={handleDisconnect}>
+              {t('vnc.disconnect')}
+            </Button>
+          ) : (
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => void startConnect()}>
+              {t('vnc.reconnect')}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* 桌面容器：fit=裁切隐藏，original=允许滚动查看完整画布 */}
+      <div
+        className="min-h-0 flex-1"
+        style={{ overflow: fitView ? 'hidden' : 'auto', position: 'relative' }}
+      >
+        <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }} />
+
+        {/* 连接中遮罩 */}
+        {(status === 'starting' || status === 'connecting') && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-background/70 text-sm text-muted-foreground backdrop-blur-[1px]">
+            <div className="size-6 animate-spin rounded-full border-2 border-border border-t-primary" />
+            <span>{t('vnc.connecting')}</span>
+          </div>
+        )}
+
+        {/* 错误遮罩 */}
+        {status === 'error' && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background/85 p-6 text-center">
+            <p className="max-w-md break-words text-sm text-destructive">{errorMsg || t('vnc.error')}</p>
+            <Button size="sm" onClick={() => void startConnect()}>
+              {t('vnc.retry')}
+            </Button>
+          </div>
+        )}
+
+        {/* 断连/未连接遮罩 */}
+        {(status === 'disconnected' || status === 'idle') && !needPassword && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background/85 p-6 text-center">
+            <p className="text-sm text-muted-foreground">
+              {skipAutoConnect && !vncConfig?.password ? t('vnc.missingPasswordHint') : t('vnc.disconnected')}
+            </p>
+            <Button size="sm" onClick={() => void startConnect()}>
+              {t('vnc.reconnect')}
+            </Button>
+          </div>
+        )}
+
+        {/* 需要密码遮罩 */}
+        {needPassword && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background/85 p-6">
+            <p className="text-sm text-muted-foreground">{t('vnc.needPassword')}</p>
+            <Input
+              autoFocus
+              type="password"
+              value={passwordInput}
+              placeholder={t('vnc.passwordPlaceholder')}
+              className="w-64"
+              onChange={(e) => setPasswordInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submitPassword();
+              }}
+            />
+            <Button size="sm" disabled={!passwordInput} onClick={submitPassword}>
+              {t('vnc.passwordSubmit')}
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

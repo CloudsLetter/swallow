@@ -264,3 +264,58 @@ export function disconnectSftp(sessionId: string): Promise<void> {
 export function localFileSize(path: string): Promise<number> {
   return invoke<number>('local_file_size', { path });
 }
+
+// ==================== VNC ====================
+
+/** SSH 隧道传输配置（经 SSH 访问内网 VNC 服务）。 */
+export interface VncSshTransportConfig {
+  sshHost: string;
+  sshPort: number;
+  sshUsername: string;
+  sshAuthType: string;
+  sshPassword?: string;
+  sshKeyId?: string;
+  sshKeyPath?: string;
+  sshPassphrase?: string;
+  targetHost: string;
+  targetPort: number;
+}
+
+export interface VncSessionConfig {
+  host: string;
+  port: number;
+  password?: string;
+  shared?: boolean;
+  ssh?: VncSshTransportConfig;
+}
+
+export interface VncConnectResult {
+  sessionId: string;
+  /** 本地 WebSocket 地址；SSH 主机密钥待确认时为 undefined */
+  wsUrl?: string;
+  /** 待确认主机信息（hostKeyToken 非空时） */
+  host?: string;
+  port?: number;
+  fingerprint?: string;
+  hostKeyToken?: string;
+}
+
+/** 建立 VNC 会话：Rust 侧起本地 loopback WebSocket<->TCP 桥，返回 ws 地址。 */
+export function vncConnect(
+  sessionId: string,
+  config: VncSessionConfig,
+): Promise<VncConnectResult> {
+  return invoke<VncConnectResult>('vnc_connect', {
+    request: { sessionId, ...config },
+  });
+}
+
+/** 断开 VNC 会话（幂等）。 */
+export function vncDisconnect(sessionId: string): Promise<void> {
+  return invoke<void>('vnc_disconnect', { sessionId });
+}
+
+/** 列出当前 VNC 会话 id。 */
+export function vncListSessions(): Promise<string[]> {
+  return invoke<string[]>('vnc_list_sessions');
+}

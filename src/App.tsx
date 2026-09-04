@@ -138,11 +138,12 @@ function App() {
         const data = await loadOpenSessions();
         const sessions = JSON.parse(data) as Array<{
           name: string;
-          type: 'terminal' | 'telnet' | 'local' | 'sftp';
+          type: 'terminal' | 'telnet' | 'local' | 'sftp' | 'vnc';
           sshConfig?: Tab['sshConfig'];
           telnetConfig?: Tab['telnetConfig'];
           localConfig?: Tab['localConfig'];
           sftpConfig?: Tab['sftpConfig'];
+          vncConfig?: Tab['vncConfig'];
         }>;
         const { createTab } = useTabStore.getState();
         for (const s of sessions) {
@@ -150,6 +151,7 @@ function App() {
           // 避免启动即报「无密码/无密钥」连接失败
           const passwordAuth = s.sshConfig?.auth_type === 'password' && !s.sshConfig.password;
           const sftpPasswordAuth = s.sftpConfig?.authType === 'password' && !s.sftpConfig.password;
+          const vncPasswordMissing = s.type === 'vnc' && !s.vncConfig?.password;
           createTab({
             name: s.name,
             type: s.type,
@@ -157,7 +159,8 @@ function App() {
             telnetConfig: s.telnetConfig,
             localConfig: s.localConfig,
             sftpConfig: s.sftpConfig,
-            skipAutoConnect: passwordAuth || sftpPasswordAuth,
+            vncConfig: s.vncConfig,
+            skipAutoConnect: passwordAuth || sftpPasswordAuth || vncPasswordMissing,
           });
         }
       } catch (e) {
@@ -166,12 +169,12 @@ function App() {
     })();
   }, [config]);
 
-  // 标签变化时持久化当前打开的会话（仅 terminal/sftp，密码/passphrase 不落盘）
+  // 标签变化时持久化当前打开的会话（仅 terminal/sftp/vnc，密码/passphrase 不落盘）
   useEffect(() => {
     const persist = () => {
       const { tabs } = useTabStore.getState();
       const sessions = tabs
-        .filter((t) => t.type === 'terminal' || t.type === 'telnet' || t.type === 'local' || t.type === 'sftp')
+        .filter((t) => t.type === 'terminal' || t.type === 'telnet' || t.type === 'local' || t.type === 'sftp' || t.type === 'vnc')
         .map((t) => ({
           name: t.name,
           type: t.type,
@@ -179,6 +182,15 @@ function App() {
           telnetConfig: t.telnetConfig,
           localConfig: t.localConfig,
           sftpConfig: t.sftpConfig ? { ...t.sftpConfig, password: undefined, passphrase: undefined } : undefined,
+          vncConfig: t.vncConfig
+            ? {
+                ...t.vncConfig,
+                password: undefined,
+                ssh: t.vncConfig.ssh
+                  ? { ...t.vncConfig.ssh, sshPassword: undefined, sshPassphrase: undefined }
+                  : undefined,
+              }
+            : undefined,
         }));
       void saveOpenSessions(JSON.stringify(sessions)).catch(() => {});
     };

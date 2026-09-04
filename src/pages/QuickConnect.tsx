@@ -6,6 +6,7 @@ import {
   Clock as IconClock,
   Network as IconNetwork,
   Zap as IconZap,
+  Monitor as IconMonitor,
 } from 'lucide-react';
 import {
   getHosts,
@@ -45,6 +46,10 @@ export function QuickConnect() {
   const [telnetHost, setTelnetHost] = useState('');
   const [telnetPort, setTelnetPort] = useState(23);
   const [localShell, setLocalShell] = useState('cmd');
+  // VNC 快速连接（第一版直连；SSH 隧道待阶段 D 支持后启用）
+  const [vncHost, setVncHost] = useState('');
+  const [vncPort, setVncPort] = useState(5900);
+  const [vncPassword, setVncPassword] = useState('');
   const { createTab, closeTab, activeTabId } = useTabStore();
   const { t } = useTranslation();
 
@@ -65,7 +70,7 @@ export function QuickConnect() {
   }, []);
 
   /** 打开连接标签并关闭当前快速连接标签。 */
-  const openSessionTab = (name: string, type: 'terminal' | 'telnet' | 'local', config: Record<string, unknown>) => {
+  const openSessionTab = (name: string, type: 'terminal' | 'telnet' | 'local' | 'vnc', config: Record<string, unknown>) => {
     createTab({ name, type, ...config } as Parameters<typeof createTab>[0]);
     if (activeTabId) closeTab(activeTabId);
   };
@@ -104,6 +109,23 @@ export function QuickConnect() {
   // 启动本地终端（cmd/powershell/pwsh/wsl/bash）
   const handleConnectLocal = () => {
     openSessionTab(`${localShell} (local)`, 'local', { localConfig: { shell: localShell } });
+  };
+
+  // 快速连接 VNC（无密码留空：连接后如服务端要求再由 noVNC 弹窗补交）
+  const handleConnectVnc = () => {
+    const host = vncHost.trim();
+    if (!host) {
+      void message(t('quickConnect.vncHostRequired'), { title: t('common.tip'), kind: 'warning' });
+      return;
+    }
+    openSessionTab(`vnc:${host}:${vncPort}`, 'vnc', {
+      vncConfig: {
+        host,
+        port: vncPort,
+        password: vncPassword || undefined,
+        shared: true,
+      },
+    });
   };
 
   // 过滤 + 按最近连接时间排序（最近连接来自 DB last_connected；在线状态纯内存实时合并）
@@ -220,6 +242,45 @@ export function QuickConnect() {
           </Select>
           <Button size="sm" className="h-8 shrink-0" onClick={() => void handleConnectLocal()}>
             {t('quickConnect.localConnect')}
+          </Button>
+        </div>
+
+        {/* VNC（占满第二行） */}
+        <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 md:col-span-2">
+          <span className="flex w-24 shrink-0 items-center gap-1.5 text-sm font-medium">
+            <IconMonitor size={15} className="text-muted-foreground" />
+            {t('quickConnect.vncTitle')}
+          </span>
+          <Input
+            type="text"
+            placeholder={t('quickConnect.vncHost')}
+            value={vncHost}
+            onChange={(e) => setVncHost(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleConnectVnc();
+            }}
+            className="h-8 min-w-0 flex-1"
+          />
+          <Input
+            type="number"
+            value={vncPort}
+            min={1}
+            max={65535}
+            onChange={(e) => setVncPort(Number(e.target.value) || 5900)}
+            className="h-8 w-16 shrink-0"
+          />
+          <Input
+            type="password"
+            placeholder={t('quickConnect.vncPassword')}
+            value={vncPassword}
+            onChange={(e) => setVncPassword(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleConnectVnc();
+            }}
+            className="h-8 w-40 shrink-0"
+          />
+          <Button size="sm" className="h-8 shrink-0" onClick={() => void handleConnectVnc()}>
+            {t('quickConnect.vncConnect')}
           </Button>
         </div>
       </div>

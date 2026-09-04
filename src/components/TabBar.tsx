@@ -14,6 +14,7 @@ import {
   Zap as IconZap,
   LayoutGrid as IconLayoutGrid,
   PlayCircle as IconPlayCircle,
+  Monitor as IconMonitor,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from './ui/context-menu';
@@ -32,6 +33,8 @@ function tabIcon(type: Tab['type']) {
   switch (type) {
     case 'sftp':
       return IconFolder;
+    case 'vnc':
+      return IconMonitor;
     case 'telnet':
       return IconNetwork;
     case 'local':

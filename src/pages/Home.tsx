@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, type ReactNode } from 'react';
+﻿import { useState, useEffect, lazy, Suspense, type ReactNode } from 'react';
 import { SideMenu } from '../components/SideMenu';
 import { TerminalView } from '../components/TerminalView';
 import { SftpView } from '../components/SftpView';
@@ -18,6 +18,12 @@ import { PortForwarding } from './PortForwarding';
 import { SettingsPage } from './Settings';
 import { Monitor } from './Monitor';
 import { ReplayView } from '../components/ReplayView';
+
+// VNC 按需加载：noVNC 是重依赖，静态 import 会拖慢首屏；且其加载失败不应拖垮
+// 普通终端等其他标签（只影响真正打开 VNC 标签时）。
+const VncView = lazy(() =>
+  import('../components/VncView').then((m) => ({ default: m.VncView })),
+);
 
 // home 侧边栏页面（全部常驻挂载，按 currentPage 显隐，保留各页面内部状态）
 const HOME_PAGES: Record<string, ReactNode> = {
@@ -124,6 +130,14 @@ export function Home() {
                   sftpConfig={tab.sftpConfig}
                   isActive={isActive}
                 />
+              ) : tab.type === 'vnc' && tab.vncConfig ? (
+                <Suspense fallback={null}>
+                  <VncView
+                    sessionId={tab.sessionId || undefined}
+                    vncConfig={tab.vncConfig}
+                    skipAutoConnect={tab.skipAutoConnect}
+                  />
+                </Suspense>
               ) : tab.type === 'split' ? (
                 <SplitView
                   tabId={tab.id}

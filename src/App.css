@@ -111,6 +111,43 @@
   background: transparent;
 }
 
+/* xterm 6.0（#5096）滚动结构：滚动容器是 .xterm-scrollable-element，
+   xterm.css 默认给它与 .xterm-viewport 涂黑底（background-color:#000）。
+   fit 按字体测量计算后，底部「不足一整行」的空隙与滚动槽会露出该黑底 →
+   置透明，让主题背景/背景层接管（黑条即消失）。 */
+.terminal-view .xterm-viewport,
+.terminal-view .xterm-scrollable-element {
+  background-color: transparent !important;
+}
+
+/* xterm 6.0 DOM 滚动条（VS Code ScrollableElement：.scrollbar > .slider）主题化。
+   默认滑块是深色硬块，这里换成与上方原生 webkit 一致的「主题色胶囊」：
+   透明轨道 + thumb 主题色 + 透明 border 制造槽位留白，hover/拖拽加深。 */
+.terminal-view .xterm-scrollable-element > .scrollbar {
+  background: transparent !important;
+}
+.terminal-view .xterm-scrollable-element > .scrollbar > .slider {
+  background-color: var(--color-scrollbar-thumb, rgba(128, 128, 128, 0.45)) !important;
+  background-clip: padding-box !important;
+  border: 3px solid transparent !important;
+  border-radius: 999px !important;
+  min-height: 24px !important;
+}
+.terminal-view .xterm-scrollable-element > .scrollbar > .slider:hover {
+  background-color: var(--color-scrollbar-thumb-hover, rgba(128, 128, 128, 0.7)) !important;
+  background-clip: padding-box !important;
+  border: 2px solid transparent !important;
+}
+.terminal-view .xterm-scrollable-element > .scrollbar > .slider.active {
+  background-color: var(--color-scrollbar-thumb-hover, rgba(128, 128, 128, 0.9)) !important;
+  background-clip: padding-box !important;
+  border: 2px solid transparent !important;
+}
+/* 无横向内容，横向滚动条既无用处还会在底部留一条占位 → 隐藏 */
+.terminal-view .xterm-scrollable-element > .scrollbar.horizontal {
+  display: none !important;
+}
+
 /* 不要覆盖 xterm 自己给 .xterm-screen 写入的 canvas 高度。
    xterm 会按「行数 × cell 高度」动态更新这个 inline style；强制 100% 会让
    screen 的布局高度脱离实际行高，导致选区/光标/滚动区域与内容坐标不一致。 */
