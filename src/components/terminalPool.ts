@@ -6,6 +6,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SerializeAddon } from '@xterm/addon-serialize';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { UnicodeGraphemesAddon } from '@xterm/addon-unicode-graphemes';
+import { ImageAddon } from '@xterm/addon-image';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { listen } from '@tauri-apps/api/event';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
@@ -168,6 +169,15 @@ export function createOrGetTerminal(
     );
   } catch (e) {
     console.warn('[web-links] WebLinksAddon 加载失败:', e);
+  }
+
+  // 终端内嵌图片（SIXEL / iTerm2 协议）：被动 addon，仅在程序输出图片序列时激活。
+  // 0.9.0 起 sixel 解码用内嵌 WASM，要求 WebView CSP script-src 含 'wasm-unsafe-eval'
+  //（见 tauri.conf.json），否则解码被拦、图片不渲染。
+  try {
+    terminal.loadAddon(new ImageAddon());
+  } catch (e) {
+    console.warn('[image] ImageAddon 加载失败:', e);
   }
 
   // 缓冲区查找（findNext/findPrevious + 高亮装饰，查找条 UI 在 TerminalView）
