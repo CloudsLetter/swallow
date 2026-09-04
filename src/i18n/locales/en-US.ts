@@ -1476,7 +1476,7 @@ export default {
     passwordPlaceholder: 'Enter VNC password',
     passwordSubmit: 'Connect',
     missingConfig: 'Missing VNC connection config',
-    missingPasswordHint: 'Restored session has no VNC password; click Reconnect and enter it',
+    missingPasswordHint: 'Restored session is missing credentials (e.g. SSH password); click Reconnect and enter them',
     hostKeyTitle: 'Confirm SSH host key',
     hostKeyFingerprint: 'SSH tunnel host key fingerprint:',
     hostKeyTrust: 'Trust & connect',

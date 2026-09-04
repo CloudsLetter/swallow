@@ -152,7 +152,14 @@ function App() {
           // 避免启动即报「无密码/无密钥」连接失败
           const passwordAuth = s.sshConfig?.auth_type === 'password' && !s.sshConfig.password;
           const sftpPasswordAuth = s.sftpConfig?.authType === 'password' && !s.sftpConfig.password;
-          const vncPasswordMissing = s.type === 'vnc' && !s.vncConfig?.password;
+          // VNC 直连：缺 VNC 密码不跳过——无密码 VNC 本就该自动连，需要密码时
+          // noVNC 会发 credentialsrequired 弹输入框兜底（区分不了「没存」与「本无密码」）。
+          // VNC 走 SSH 隧道 + 密码认证：ssh 密码缺失时 ssh2 无交互兜底必然失败 → 跳过。
+          const vncSshPasswordMissing =
+            s.type === 'vnc' &&
+            !!s.vncConfig?.ssh &&
+            s.vncConfig.ssh.sshAuthType === 'password' &&
+            !s.vncConfig.ssh.sshPassword;
           createTab({
             name: s.name,
             type: s.type,
@@ -162,7 +169,7 @@ function App() {
             serialConfig: s.serialConfig,
             sftpConfig: s.sftpConfig,
             vncConfig: s.vncConfig,
-            skipAutoConnect: passwordAuth || sftpPasswordAuth || vncPasswordMissing,
+            skipAutoConnect: passwordAuth || sftpPasswordAuth || vncSshPasswordMissing,
           });
         }
       } catch (e) {

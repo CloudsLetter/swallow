@@ -153,6 +153,8 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
         shared: cfg.shared ?? true,
       });
     } catch (err) {
+      // RFB 构造失败：后端桥已建好但无人使用，按代清掉，避免泄漏到自清窗口
+      void vncDisconnect(sessionId, gen).catch(() => {});
       if (gen !== genRef.current) return;
       setStatus('error');
       setErrorMsg(String(err));
@@ -378,7 +380,7 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
         {(status === 'disconnected' || status === 'idle') && !needPassword && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background/85 p-6 text-center">
             <p className="text-sm text-muted-foreground">
-              {skipAutoConnect && !vncConfig?.password ? t('vnc.missingPasswordHint') : t('vnc.disconnected')}
+              {skipAutoConnect ? t('vnc.missingPasswordHint') : t('vnc.disconnected')}
             </p>
             <Button size="sm" onClick={() => void startConnect()}>
               {t('vnc.reconnect')}

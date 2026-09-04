@@ -1474,7 +1474,7 @@ export default {
     passwordPlaceholder: '输入 VNC 密码',
     passwordSubmit: '连接',
     missingConfig: '缺少 VNC 连接配置',
-    missingPasswordHint: '恢复的会话缺少 VNC 密码，点击重新连接后输入密码',
+    missingPasswordHint: '恢复的会话缺少连接凭据（SSH 密码等），点击重新连接后输入',
     hostKeyTitle: '确认 SSH 主机密钥',
     hostKeyFingerprint: 'SSH 隧道主机的密钥指纹：',
     hostKeyTrust: '信任并连接',
