@@ -25,7 +25,7 @@ import {
 import { resolveHostSshAuth } from '../services/sshAuthResolver';
 import { serialListPorts } from '../services/sessionService';
 import { consumeQuickConnectIntent } from '../services/quickConnectIntent';
-import { useTabStore } from '../store/tabStore';
+import { useTabStore, type VncTabConfig } from '../store/tabStore';
 import { useOnlineHosts } from '../store/uiState';
 import { cn } from '@/lib/utils';
 import { Input } from '../components/ui/input';
@@ -52,10 +52,12 @@ export function QuickConnect() {
   const [telnetHost, setTelnetHost] = useState('');
   const [telnetPort, setTelnetPort] = useState(23);
   const [localShell, setLocalShell] = useState('cmd');
-  // VNC 快速连接（第一版直连；SSH 隧道待阶段 D 支持后启用）
+  // VNC 快速连接（直连；可展开经 SSH 隧道）
   const [vncHost, setVncHost] = useState('');
   const [vncPort, setVncPort] = useState(5900);
   const [vncPassword, setVncPassword] = useState('');
+  const [vncViaSsh, setVncViaSsh] = useState(false);
+  const [vncSshHostId, setVncSshHostId] = useState('');
   // 串口快速连接
   const [serialPort, setSerialPort] = useState('');
   const [serialPorts, setSerialPorts] = useState<string[]>([]);
@@ -155,12 +157,40 @@ export function QuickConnect() {
     openSessionTab(`${localShell} (local)`, 'local', { localConfig: { shell: localShell } });
   };
 
-  // 快速连接 VNC（无密码留空：连接后如服务端要求再由 noVNC 弹窗补交）
-  const handleConnectVnc = () => {
+  // 快速连接 VNC（无密码留空：连接后如服务端要求再由 noVNC 弹窗补交）。
+  // vncViaSsh = 经 SSH 隧道：跳板主机复用其已存认证（密码/密钥），目标为上方 VNC 主机:端口。
+  const handleConnectVnc = async () => {
     const host = vncHost.trim();
     if (!host) {
       void message(t('quickConnect.vncHostRequired'), { title: t('common.tip'), kind: 'warning' });
       return;
+    }
+    let sshConfig: VncTabConfig['ssh'];
+    if (vncViaSsh) {
+      const jump = hosts.find((h) => h.id === vncSshHostId);
+      if (!jump) {
+        void message(t('quickConnect.vncJumpRequired'), { title: t('common.tip'), kind: 'warning' });
+        return;
+      }
+      const auth = resolveHostSshAuth(jump, accounts, keys, certs);
+      if (auth.error) {
+        void message(auth.error, { title: t('quickConnect.cannotConnect'), kind: 'warning' });
+        return;
+      }
+      if (auth.authType === 'certificate' || auth.authType === 'none') {
+        void message(t('quickConnect.vncJumpUnsupported'), { title: t('common.tip'), kind: 'warning' });
+        return;
+      }
+      sshConfig = {
+        sshHost: jump.host,
+        sshPort: jump.port,
+        sshUsername: auth.username,
+        sshAuthType: auth.authType === 'key' ? 'key' : 'password',
+        sshPassword: auth.password,
+        sshKeyId: auth.authType === 'key' ? auth.keyId : undefined,
+        targetHost: host,
+        targetPort: vncPort,
+      };
     }
     openSessionTab(`vnc:${host}:${vncPort}`, 'vnc', {
       vncConfig: {
@@ -168,6 +198,7 @@ export function QuickConnect() {
         port: vncPort,
         password: vncPassword || undefined,
         shared: true,
+        ssh: sshConfig,
       },
     });
   };
@@ -308,12 +339,13 @@ export function QuickConnect() {
           </Button>
         </div>
 
-        {/* VNC（占满第二行） */}
-        <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 md:col-span-2">
-          <span className="flex w-32 shrink-0 items-center gap-1.5 whitespace-nowrap text-sm font-medium">
-            <IconMonitor size={15} className="text-muted-foreground" />
-            {t('quickConnect.vncTitle')}
-          </span>
+        {/* VNC（占满第二行；可经 SSH 隧道） */}
+        <div className="rounded-lg border border-border bg-card p-3 md:col-span-2">
+          <div className="flex items-center gap-3">
+            <span className="flex w-32 shrink-0 items-center gap-1.5 whitespace-nowrap text-sm font-medium">
+              <IconMonitor size={15} className="text-muted-foreground" />
+              {t('quickConnect.vncTitle')}
+            </span>
           <Input
             type="text"
             placeholder={t('quickConnect.vncHost')}
@@ -338,13 +370,45 @@ export function QuickConnect() {
             value={vncPassword}
             onChange={(e) => setVncPassword(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') handleConnectVnc();
+              if (e.key === 'Enter') void handleConnectVnc();
             }}
             className="h-8 w-40 shrink-0"
           />
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn('h-8 shrink-0 px-2 text-xs', vncViaSsh && 'bg-primary/10 text-primary')}
+            onClick={() => setVncViaSsh((v) => !v)}
+            title={t('quickConnect.vncViaSshHint')}
+          >
+            {t('quickConnect.vncViaSsh')}
+          </Button>
           <Button size="sm" className="h-8 shrink-0" onClick={() => void handleConnectVnc()}>
             {t('quickConnect.vncConnect')}
           </Button>
+          </div>
+
+          {/* SSH 隧道展开：跳板主机（复用其已存认证），目标 = 上方 VNC 主机:端口 */}
+          {vncViaSsh && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 pl-[8.75rem]">
+              <span className="text-xs text-muted-foreground">{t('quickConnect.vncJumpHost')}</span>
+              <Select value={vncSshHostId} onValueChange={setVncSshHostId}>
+                <SelectTrigger className="h-8 w-64">
+                  <SelectValue placeholder={t('quickConnect.vncJumpPlaceholder')} />
+                </SelectTrigger>
+                <SelectContent className="max-h-72">
+                  {hosts
+                    .filter((h) => !h.useProxy)
+                    .map((h) => (
+                      <SelectItem key={h.id} value={h.id}>
+                        {h.name} · {h.host}:{h.port}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              <span className="text-xs text-muted-foreground">{t('quickConnect.vncTargetHint')}</span>
+            </div>
+          )}
         </div>
 
         {/* 串口（占满整行；高级参数折叠） */}
