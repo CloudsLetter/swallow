@@ -1,7 +1,12 @@
 import { Terminal, type ITerminalOptions } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { CanvasAddon } from '@xterm/addon-canvas';
 import { WebglAddon } from '@xterm/addon-webgl';
+import { SearchAddon } from '@xterm/addon-search';
+import { WebLinksAddon } from '@xterm/addon-web-links';
+import { SerializeAddon } from '@xterm/addon-serialize';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
+import { UnicodeGraphemesAddon } from '@xterm/addon-unicode-graphemes';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { listen } from '@tauri-apps/api/event';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import {
@@ -61,8 +66,14 @@ type PoolItem = {
   // 输出缓冲：handlers 尚未注册时（挂载竞态/重挂载间隙）到达的会话输出先缓存，
   // registerEventHandlers 时回放，保证连接早期输出（Last login / motd）不丢失
   pendingOutputs?: string[];
-  // 实际生效的渲染引擎（配置选 webgl 但 GPU 关/加载失败时会降级 canvas/dom）
+  // 实际生效的渲染引擎（配置选 webgl 但 GPU 关/加载失败时降级 dom；canvas 暂时禁用同走 dom）
   renderEngine?: TerminalRenderEngine;
+  // 缓冲区查找 addon（查找条通过 getSearchAddon 拿实例调 findNext/findPrevious）
+  search?: SearchAddon;
+  // 会话内容序列化 addon（复制全部缓冲：copyTerminalBufferToClipboard）
+  serialize?: SerializeAddon;
+  // 查找快捷键回调：组件挂载时 setFindToggleHandler 注册，触发查找条开/关
+  onFindToggle?: () => void;
 };
 
 /** xterm 渲染引擎（与后端 config.terminal.render_engine 对齐）。 */
@@ -90,33 +101,21 @@ export function getSessionType(sessionId: string): 'ssh' | 'telnet' | 'local' {
 
 /** 按偏好加载 xterm 渲染引擎 addon（open 前 load，xterm open 时按注册渲染器绘制）。
  *  - dom：不加载任何 addon（xterm 内置默认）；
- *  - canvas：加载 CanvasAddon；
- *  - webgl：仅当 gpu 开关开启时尝试 WebglAddon，失败降级 canvas。
+ *  - canvas：⚠️ 暂时禁用——已随 xterm 6.0 卸载依赖（TODO(xterm 6): addon 无 6.x 兼容版、停更于 5.x 线），
+ *    偏好降级 dom；官方出 6.x 版后：pnpm add @xterm/addon-canvas，再在下方恢复 CanvasAddon 加载分支；
+ *  - webgl：仅当 gpu 开关开启时尝试 WebglAddon（6.0 配套 0.19.0），失败降级 dom（不回退 canvas）。
  *  返回实际生效的引擎。 */
 function applyRenderAddon(
   terminal: Terminal,
   engine: TerminalRenderEngine,
   gpu: boolean,
 ): TerminalRenderEngine {
-  if (engine === 'dom') return 'dom';
-  const wantWebgl = engine === 'webgl' && gpu;
+  if (engine === 'dom' || engine === 'canvas' || !gpu) return 'dom';
   try {
-    if (wantWebgl) {
-      terminal.loadAddon(new WebglAddon());
-      return 'webgl';
-    }
-    terminal.loadAddon(new CanvasAddon());
-    return 'canvas';
+    terminal.loadAddon(new WebglAddon());
+    return 'webgl';
   } catch (e) {
-    console.warn('[render] 渲染引擎加载失败，降级 canvas:', e);
-    if (wantWebgl) {
-      try {
-        terminal.loadAddon(new CanvasAddon());
-        return 'canvas';
-      } catch {
-        return 'dom';
-      }
-    }
+    console.warn('[render] WebGL 渲染引擎加载失败，降级 DOM:', e);
     return 'dom';
   }
 }
@@ -138,18 +137,83 @@ export function createOrGetTerminal(
   const fit = new FitAddon();
   terminal.loadAddon(fit);
 
+  // Unicode 11 宽度表（老款稳定 addon）：activate 只 register '11' provider、不切换
+  // activeVersion。实际生效宽度规则由下方 unicode-graphemes 决定（自动切
+  // '15-graphemes'，U15 表已覆盖 U11）；如需改用 U11 表需手动
+  // terminal.unicode.activeVersion = '11'（会失去 grapheme cluster）。
+  try {
+    terminal.loadAddon(new Unicode11Addon());
+  } catch (e) {
+    console.warn('[unicode11] Unicode11Addon 加载失败:', e);
+  }
+
+  // 组合字形（ZWJ emoji/国旗等）宽度修正：官方 experimental addon，
+  // activate 内部自动注册并切 activeVersion='15-graphemes'；
+  // 依赖 allowProposedApi（new Terminal 已开，见下方 options），load 一次全局生效。
+  try {
+    terminal.loadAddon(new UnicodeGraphemesAddon());
+  } catch (e) {
+    console.warn('[unicode-graphemes] UnicodeGraphemesAddon 加载失败:', e);
+  }
+
+  // 可点击 URL：仅 Ctrl/Cmd+点击 打开（普通点击不劫持，避免误触/与框选冲突）。
+  // open 前 load 即可，xterm open 时会对 buffer 做链接标注。
+  try {
+    terminal.loadAddon(
+      new WebLinksAddon((event, uri) => {
+        if (!(event.ctrlKey || event.metaKey)) return;
+        openUrl(uri).catch((e) => console.warn(`[web-links] 打开 ${uri} 失败:`, e));
+      }),
+    );
+  } catch (e) {
+    console.warn('[web-links] WebLinksAddon 加载失败:', e);
+  }
+  // 缓冲区查找（findNext/findPrevious + 高亮装饰，查找条 UI 在 TerminalView）
+  const search = new SearchAddon();
+  terminal.loadAddon(search);
+  // 会话内容序列化（「复制全部内容」：TerminalView 动作栏按钮触发）
+  const serializeAddon = new SerializeAddon();
+  terminal.loadAddon(serializeAddon);
+
   // 所有 xterm.resize（窗口、分屏、字体重排、延迟校准）都从这里同步到真实 PTY。
   // 这比在各个调用点手工通知可靠：任何新增的 resize 路径也不会再漏同步。
   terminal.onResize(({ cols, rows }) => {
     notifyPtyResize(sessionId, cols, rows);
   });
 
-  const item: PoolItem = { terminal, fit, attachedEl: null };
+  const item: PoolItem = { terminal, fit, search, serialize: serializeAddon, attachedEl: null };
   if (render) {
     item.renderEngine = applyRenderAddon(terminal, render.engine, render.gpu);
   }
   pool[sessionId] = item;
   return pool[sessionId];
+}
+
+/** 取会话的 SearchAddon 实例（无则 undefined），供查找条调 findNext/findPrevious。 */
+export function getSearchAddon(sessionId: string): SearchAddon | undefined {
+  return pool[sessionId]?.search;
+}
+
+/** 注册/清除「查找快捷键」回调（TerminalView 挂载时注册，卸载时清空）。 */
+export function setFindToggleHandler(sessionId: string, cb: (() => void) | undefined) {
+  const item = pool[sessionId];
+  if (item) item.onFindToggle = cb;
+}
+
+/** 把键盘焦点还给 xterm（查找条关闭/点空白后调用）。 */
+export function focusTerminal(sessionId: string) {
+  pool[sessionId]?.terminal.focus();
+}
+
+/** 把当前会话完整缓冲（含滚动区）序列化为纯文本并复制到剪贴板；无 addon/空内容返回 false。 */
+export async function copyTerminalBufferToClipboard(sessionId: string): Promise<boolean> {
+  const addon = pool[sessionId]?.serialize;
+  if (!addon) return false;
+  // excludeModes：去掉 DECSET 等模式序列，得到干净文本（保留 alt buffer，所见即所得）
+  const text = addon.serialize({ excludeModes: true });
+  if (!text.trim()) return false;
+  await writeText(text);
+  return true;
 }
 
 /**
@@ -296,6 +360,12 @@ export function setupTerminalInteractions(sessionId: string) {
     if (matchesShortcut(event, bindSelectAll)) {
       event.preventDefault();
       terminal.selectAll();
+      return false;
+    }
+    // 缓冲区查找（固定 Ctrl+Shift+F，与主流终端一致）；回调由 TerminalView 注册
+    if (matchesShortcut(event, 'Ctrl+Shift+F')) {
+      event.preventDefault();
+      pool[sessionId]?.onFindToggle?.();
       return false;
     }
     return true;
@@ -483,14 +553,14 @@ function correctTerminalColumns(item: PoolItem) {
   const extraScrollbarWidth = Math.max(0, xtermScrollbarWidth - domScrollbarWidth);
   const availableWidth = viewport.clientWidth - extraScrollbarWidth;
 
-  // 即使乘积数学上刚好等于边界，canvas/DOM 栅格化与字体 hinting 仍可能
+  // 即使乘积数学上刚好等于边界，栅格化渲染与字体 hinting 仍可能
   // 向外取整，使最后一个字形（尤其是 w）被裁掉；保留 1.5px 安全余量。
   // 这可能让极少数临界宽度少一列，但不会把字符画到裁剪边界/滚动条下。
   const safeWidth = Math.max(0, availableWidth - CELL_EDGE_SAFETY_PX);
   const cols = Math.max(2, Math.floor(safeWidth / cellWidth));
   if (cols === item.terminal.cols) return;
 
-  // xterm 的 resize 会触发渲染；clear 让旧 canvas 不在重绘期间短暂残留。
+  // xterm 的 resize 会触发渲染；clear 让旧渲染层不在重绘期间短暂残留。
   core?._renderService?.clear?.();
   item.terminal.resize(cols, item.terminal.rows);
 }

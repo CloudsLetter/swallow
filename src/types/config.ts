@@ -173,7 +173,7 @@ export interface Terminal {
   // 滚动
   scrollback: number;
   scroll_sensitivity: number;
-  fast_scroll_modifier: "alt" | "shift" | "ctrl" | "none";
+  // 快速滚动倍率（xterm 6.0 起修饰键 Alt 硬编码，不再可配置）
   fast_scroll_sensitivity: number;
 
   // 外观
@@ -202,8 +202,9 @@ export interface Terminal {
   auto_connect: boolean;
 
   // 渲染引擎（dom | canvas | webgl；webgl 即 GPU 渲染，默认 dom 保持既有行为）
+  // canvas 暂禁用（TODO(xterm 6): 依赖已随 xterm 6.0 卸载，addon 无 6.x 版停更于 5.x 线）：偏好 canvas 时实际走 dom
   render_engine: "dom" | "canvas" | "webgl";
-  // GPU 加速总开关：关闭时即便引擎选了 webgl 也降级用 canvas
+  // GPU 加速总开关：关闭时即便引擎选了 webgl 也降级用 dom
   gpu_acceleration: boolean;
 }
 

@@ -424,6 +424,14 @@ export default {
   terminal: {
     broadcast: '命令广播',
     snippets: '快捷指令',
+    find: '查找',
+    findPlaceholder: '在缓冲区中查找',
+    findPrevious: '上一个 (Shift+Enter)',
+    findNext: '下一个 (Enter)',
+    findClose: '关闭 (Esc)',
+    copyAllOutput: '复制全部输出',
+    bufferCopied: '已复制全部终端输出',
+    bufferEmpty: '缓冲区为空',
   },
 
   shortcuts: {

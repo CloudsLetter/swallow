@@ -426,6 +426,14 @@ export default {
   terminal: {
     broadcast: 'Broadcast input',
     snippets: 'Snippets',
+    find: 'Find',
+    findPlaceholder: 'Find in buffer',
+    findPrevious: 'Previous (Shift+Enter)',
+    findNext: 'Next (Enter)',
+    findClose: 'Close (Esc)',
+    copyAllOutput: 'Copy all output',
+    bufferCopied: 'Copied all terminal output',
+    bufferEmpty: 'Buffer is empty',
   },
 
   shortcuts: {

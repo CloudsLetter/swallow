@@ -22,7 +22,8 @@ export function buildXtermOptions(t: Terminal): ITerminalOptions {
     // 滚动
     scrollback: t.scrollback,
     scrollSensitivity: t.scroll_sensitivity,
-    fastScrollModifier: t.fast_scroll_modifier,
+    // ⚠️ xterm 6.0 起 fastScrollModifier 选项被移除（Alt 硬编码），
+    // fastScrollSensitivity 倍率继续生效。
     fastScrollSensitivity: t.fast_scroll_sensitivity,
     scrollOnUserInput: t.scroll_on_input,
 

@@ -40,17 +40,42 @@ import {
   resetReconnectAttempts,
   setSilentReconnect,
   getSilentReconnect,
+  getSearchAddon,
+  setFindToggleHandler,
+  focusTerminal,
+  copyTerminalBufferToClipboard,
   setSessionType,
   type ConnectionStep,
 } from './terminalPool';
 import { SnippetPicker } from './SnippetPicker';
 import { useBroadcastStore } from '../store/broadcast';
 import { Button } from './ui/button';
-import { RadioTower as IconBroadcast, Zap as IconSnippet } from 'lucide-react';
+import { Input } from './ui/input';
+import {
+  ArrowDown as IconArrowDown,
+  ArrowUp as IconArrowUp,
+  Copy as IconCopy,
+  RadioTower as IconBroadcast,
+  Search as IconSearch,
+  X as IconX,
+  Zap as IconSnippet,
+} from 'lucide-react';
+import type { ISearchOptions } from '@xterm/addon-search';
 import { toast } from 'sonner';
 
 // onError 事件可能高频到达：500ms 内去重，避免 toast 刷屏
 let lastErrorToastAt = 0;
+
+// 缓冲区查找高亮配色（SearchAddon decorations 只接受 #RRGGBB 纯色；
+// 黄/橙对浅色与深色终端背景都可读，后续可按主题收敛到配置）
+const SEARCH_DECORATIONS: NonNullable<ISearchOptions['decorations']> = {
+  matchBackground: '#FDE047',
+  matchBorder: '#EAB308',
+  matchOverviewRuler: '#EAB308',
+  activeMatchBackground: '#F59E0B',
+  activeMatchBorder: '#B45309',
+  activeMatchColorOverviewRuler: '#F59E0B',
+};
 
 /** 由 terminal 配置生成完整 xterm 选项（含主题与背景透明度）。 */
 function buildTerminalOptions(cfg: Config['terminal']): ITerminalOptions {
@@ -169,6 +194,101 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
   // 广播模式（全局，跨终端标签）与快捷指令弹窗
   const broadcastEnabled = useBroadcastStore((state) => state.enabled);
   const [snippetPickerOpen, setSnippetPickerOpen] = useState(false);
+
+  // —— 缓冲区查找（SearchAddon 由 terminalPool 统一挂载，这里只做 UI 与状态）——
+  const [findOpen, setFindOpen] = useState(false);
+  const [findTerm, setFindTerm] = useState('');
+  const [findResult, setFindResult] = useState<{
+    resultIndex: number;
+    resultCount: number;
+  } | null>(null);
+  const findInputRef = useRef<HTMLInputElement>(null);
+  const findEverOpenedRef = useRef(false);
+
+  const openFind = () => {
+    findEverOpenedRef.current = true;
+    setFindOpen(true);
+  };
+  const moveFind = (dir: 'next' | 'prev') => {
+    if (!sessionId) return;
+    const search = getSearchAddon(sessionId);
+    if (!search) return;
+    const term = findTerm.trim();
+    if (!term) return;
+    if (dir === 'next') {
+      search.findNext(term, { decorations: SEARCH_DECORATIONS });
+    } else {
+      search.findPrevious(term, { decorations: SEARCH_DECORATIONS });
+    }
+  };
+  const closeFind = () => {
+    findEverOpenedRef.current = true;
+    setFindOpen(false);
+  };
+  const copyAllBuffer = async () => {
+    if (!sessionId) return;
+    try {
+      if (await copyTerminalBufferToClipboard(sessionId)) {
+        toast.success(t('terminal.bufferCopied'));
+      } else {
+        toast.info(t('terminal.bufferEmpty'));
+      }
+    } catch (e) {
+      console.warn('[terminal] 复制全部缓冲失败:', e);
+    }
+  };
+
+  // 查找快捷键 Ctrl+Shift+F 回调：每次渲染都注册最新闭包（toggle 用函数式更新，
+  // 避免 stale）；组件卸载时由下面带清理的 effect 清空。
+  useEffect(() => {
+    if (!sessionId) return;
+    setFindToggleHandler(sessionId, () => {
+      findEverOpenedRef.current = true;
+      setFindOpen((v) => !v);
+    });
+  });
+
+  useEffect(() => {
+    if (!sessionId) return;
+    const sid = sessionId; // 参数收窄不会进入闭包，先取到 const 再给清理函数用
+    return () => setFindToggleHandler(sid, undefined);
+  }, [sessionId]);
+
+  // 打开时聚焦输入框；关闭时清高亮/结果并把焦点还给终端（未打开过则不动，避免挂载抢焦）
+  useEffect(() => {
+    if (!sessionId) return;
+    if (findOpen) {
+      requestAnimationFrame(() => findInputRef.current?.focus());
+    } else if (findEverOpenedRef.current) {
+      getSearchAddon(sessionId)?.clearDecorations();
+      setFindResult(null);
+      setFindTerm('');
+      focusTerminal(sessionId);
+    }
+  }, [findOpen, sessionId]);
+
+  // 输入变化即增量查找（高亮全部；计数由 onDidChangeResults 事件驱动）
+  useEffect(() => {
+    if (!findOpen || !sessionId) return;
+    const search = getSearchAddon(sessionId);
+    if (!search) return;
+    const term = findTerm.trim();
+    if (!term) {
+      search.clearDecorations();
+      setFindResult(null);
+      return;
+    }
+    search.findNext(term, { incremental: true, decorations: SEARCH_DECORATIONS });
+  }, [findOpen, findTerm, sessionId]);
+
+  // 订阅查找结果计数（SearchAddon 每次 find 后广播当前 resultIndex / resultCount）
+  useEffect(() => {
+    if (!findOpen || !sessionId) return;
+    const search = getSearchAddon(sessionId);
+    if (!search) return;
+    const sub = search.onDidChangeResults((r) => setFindResult(r));
+    return () => sub.dispose();
+  }, [findOpen, sessionId]);
 
   // 协议类型（组件级派生）：telnet/local 与 ssh 共用终端渲染，仅连接/写入命令不同
   // 尺寸适配 hook：窗口 resize / 激活 refit / 分屏 signal 统一处理 + 已连接时同步 PTY 尺寸
@@ -587,9 +707,29 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
         }}
       />
 
-      {/* 浮动操作栏：广播 + 快捷指令（连接中隐藏） */}
+      {/* 浮动操作栏：复制全部 + 查找 + 广播 + 快捷指令（连接中隐藏） */}
       {!showProgress && (
         <div className="absolute right-2 top-2 z-20 flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="h-7 w-7 rounded-md bg-background/80"
+            onClick={copyAllBuffer}
+            title={t('terminal.copyAllOutput')}
+            aria-label={t('terminal.copyAllOutput')}
+          >
+            <IconCopy size={14} strokeWidth={2} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="h-7 w-7 rounded-md bg-background/80"
+            onClick={openFind}
+            title={`${t('terminal.find')} (Ctrl+Shift+F)`}
+            aria-label={t('terminal.find')}
+          >
+            <IconSearch size={14} strokeWidth={2} />
+          </Button>
           <Button
             variant={broadcastEnabled ? 'default' : 'ghost'}
             size="icon-xs"
@@ -609,6 +749,65 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
             aria-label={t('terminal.snippets')}
           >
             <IconSnippet size={14} strokeWidth={2} />
+          </Button>
+        </div>
+      )}
+
+      {/* 缓冲区查找条（Ctrl+Shift+F / 搜索按钮打开；Enter 下一个、Shift+Enter 上一个、Esc 关闭） */}
+      {!showProgress && findOpen && sessionId && (
+        <div className="absolute bottom-2 right-2 z-30 flex items-center gap-1 rounded-lg border border-border bg-background/95 p-1 shadow-md">
+          <Input
+            ref={findInputRef}
+            value={findTerm}
+            onChange={(e) => setFindTerm(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                moveFind(e.shiftKey ? 'prev' : 'next');
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                closeFind();
+              }
+            }}
+            placeholder={t('terminal.findPlaceholder')}
+            className="h-7 w-52 border-transparent bg-transparent text-xs shadow-none focus-visible:ring-0"
+          />
+          <span className="w-10 shrink-0 text-center text-xs tabular-nums text-muted-foreground">
+            {findTerm.trim()
+              ? findResult && findResult.resultCount > 0
+                ? `${findResult.resultIndex + 1}/${findResult.resultCount}`
+                : '0/0'
+              : ''}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="h-6 w-6 rounded-md"
+            onClick={() => moveFind('prev')}
+            title={t('terminal.findPrevious')}
+            aria-label={t('terminal.findPrevious')}
+          >
+            <IconArrowUp size={13} strokeWidth={2} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="h-6 w-6 rounded-md"
+            onClick={() => moveFind('next')}
+            title={t('terminal.findNext')}
+            aria-label={t('terminal.findNext')}
+          >
+            <IconArrowDown size={13} strokeWidth={2} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="h-6 w-6 rounded-md"
+            onClick={closeFind}
+            title={t('terminal.findClose')}
+            aria-label={t('terminal.findClose')}
+          >
+            <IconX size={13} strokeWidth={2} />
           </Button>
         </div>
       )}

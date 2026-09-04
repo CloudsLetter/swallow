@@ -200,7 +200,6 @@ pub struct Terminal {
 	// 滚动
 	pub scrollback: u32,
 	pub scroll_sensitivity: f32,
-	pub fast_scroll_modifier: FastScrollModifier,
 	pub fast_scroll_sensitivity: f32,
 
 	// 外观
@@ -290,24 +289,6 @@ pub enum CursorStyle {
 impl Default for CursorStyle {
     fn default() -> Self {
         Self::Block
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum FastScrollModifier {
-	#[serde(rename = "alt")]
-	Alt,
-	#[serde(rename = "shift")]
-	Shift,
-	#[serde(rename = "ctrl")]
-	Ctrl,
-	#[serde(rename = "none")]
-	None,
-}
-
-impl Default for FastScrollModifier {
-    fn default() -> Self {
-        Self::Alt
     }
 }
 
@@ -869,7 +850,6 @@ impl Default for Terminal {
 			cursor_width: 2,
 			scrollback: 1000,
 			scroll_sensitivity: 1.0,
-			fast_scroll_modifier: FastScrollModifier::Alt,
 			fast_scroll_sensitivity: 5.0,
 			background_opacity: 1.0,
 			allow_transparent_background: false,

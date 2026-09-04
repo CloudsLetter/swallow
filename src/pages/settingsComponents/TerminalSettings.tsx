@@ -373,7 +373,11 @@ export function TerminalSettings() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="dom">{t('settings.renderEngineDom')}</SelectItem>
-                <SelectItem value="canvas">{t('settings.renderEngineCanvas')}</SelectItem>
+                {/* TODO(xterm 6): @xterm/addon-canvas 无 6.x 兼容版，已随 xterm 6.0 卸载依赖；官方发布后：
+                    pnpm add @xterm/addon-canvas + 恢复 terminalPool 的 CanvasAddon 加载分支 + 去掉本项 disabled */}
+                <SelectItem value="canvas" disabled>
+                  {t('settings.renderEngineCanvas')}
+                </SelectItem>
                 <SelectItem value="webgl">{t('settings.renderEngineWebgl')}</SelectItem>
               </SelectContent>
             </Select>
