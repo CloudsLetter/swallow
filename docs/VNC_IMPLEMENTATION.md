@@ -6,6 +6,11 @@
 > 适用项目：`swallow`  
 > 当前技术栈：React 19、TypeScript、Vite、Tauri 2、Rust、Tokio、`ssh2`
 
+> **实现状态更新（2026-09-05）**：本文档规划的全部能力（直连 + SSH 隧道、token 鉴权桥、前端 noVNC 标签、CSP、资源释放）均已按设计实现并提交，相关提交见 git log（`feat(vnc): …` 系列）。落地时的补充与差异：
+> - 会话恢复采用 `sessions.json`（App.tsx 持久化剥除 VNC 密码与嵌套 SSH 密码/口令）；「收藏/入库」属文档规划的第二期，暂未做。
+> - 追加「连接代际（generation）」机制：修复 dev StrictMode 双挂载 / 快速重连下旧 RFB 断开事件误报「已断开」——后端同 sessionId 只允许新代覆盖旧代、`vnc_disconnect` 可按代停；前端 VncView 事件与流程一律校验代际。
+> - 追加 Serial（串口）终端协议（serialport 4，独立于本文档）；Hosts 页提供「VNC 连接」弹窗（主机 more 菜单）与「串口终端」跳转（页头工具栏 → QuickConnect 定位高亮）。
+
 ## 1. 实现目标
 
 增加一个 VNC 会话标签页，使用户可以：
