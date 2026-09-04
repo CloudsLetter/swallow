@@ -12,7 +12,7 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Badge } from '../../components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '../../components/ui/sheet';
 import type { TerminalThemePreset, TerminalThemeColors, Config } from '../../types/config';
 import { cn } from '@/lib/utils';
@@ -615,6 +615,63 @@ export function TerminalSettings() {
             onCheckedChange={(v) => updateSSHConfig({ compression: v })}
             notEffective
           />
+        </div>
+      </div>
+
+      {/* SSH 会话日志 */}
+      <div className="rounded-lg border border-border bg-card p-4">
+        <SectionTitle>{t('settings.sessionLogSettings')}</SectionTitle>
+        <div className="flex flex-col gap-4">
+          <SwitchRow
+            label={t('settings.sessionLogEnabled')}
+            desc={t('settings.sessionLogEnabledDesc')}
+            checked={config.terminal.session_log_enabled ?? false}
+            onCheckedChange={(v) => updateTerminalConfig({ session_log_enabled: v })}
+          />
+
+          <div>
+            <Label className="mb-2 block text-sm font-medium">{t('settings.sessionLogDirectory')}</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                value={config.terminal.session_log_directory ?? ''}
+                onChange={(e) => updateTerminalConfig({ session_log_directory: e.target.value })}
+                className="min-w-0 flex-1 font-mono text-xs"
+                placeholder={t('settings.sessionLogDirectoryPlaceholder')}
+              />
+              <Button
+                variant="secondary"
+                onClick={async () => {
+                  const selected = await open({ directory: true, multiple: false });
+                  if (typeof selected === 'string' && selected) {
+                    updateTerminalConfig({ session_log_directory: selected });
+                  }
+                }}
+              >
+                {t('settings.selectDirectory')}
+              </Button>
+            </div>
+            <p className="mt-1.5 text-xs text-muted-foreground">{t('settings.sessionLogDirectoryDesc')}</p>
+          </div>
+
+          <div>
+            <Label className="mb-2 block text-sm font-medium">{t('settings.sessionLogFormat')}</Label>
+            <Select
+              value={config.terminal.session_log_format ?? 'plain'}
+              onValueChange={(v) => updateTerminalConfig({ session_log_format: v as Config['terminal']['session_log_format'] })}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="plain">{t('settings.sessionLogFormatPlain')}</SelectItem>
+                  <SelectItem value="ansi-vt">{t('settings.sessionLogFormatAnsiVt')}</SelectItem>
+                  <SelectItem value="replay">{t('settings.sessionLogFormatReplay')}</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <p className="mt-1.5 text-xs text-muted-foreground">{t('settings.sessionLogFormatDesc')}</p>
+          </div>
         </div>
       </div>
 

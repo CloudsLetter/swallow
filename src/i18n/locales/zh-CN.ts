@@ -283,6 +283,20 @@ export default {
     compressionDesc: '在慢速网络下可以提高性能',
     notEffective: '未生效',
 
+    // SSH 会话日志
+    sessionLogSettings: 'SSH 会话日志',
+    sessionLogEnabled: '自动记录 SSH 会话',
+    sessionLogEnabledDesc: '连接 SSH 前自动开始记录，断开或重连时自动收尾；可能包含密码等敏感输入',
+    sessionLogDirectory: '默认保存目录',
+    sessionLogDirectoryPlaceholder: '应用数据目录/session-logs',
+    sessionLogDirectoryDesc: '日志文件按“用户名@主机-时间.log”自动命名，默认保存在应用数据目录下',
+    selectDirectory: '选择目录',
+    sessionLogFormat: '记录格式',
+    sessionLogFormatPlain: '纯文本（清除 ANSI/VT 控制序列）',
+    sessionLogFormatAnsiVt: 'ANSI/VT（保留控制序列）',
+    sessionLogFormatReplay: '回放（ANSI/VT + 时间轴，JSONL）',
+    sessionLogFormatDesc: '纯文本和 ANSI/VT 每行以 [时间] 开头；回放格式另存为带时间轴的 JSONL',
+
     // 快捷键设置
     shortcutsHint: '点击快捷键可以重新绑定',
     shortcutsDesc: '按下你想要的快捷键组合，支持 Ctrl、Shift、Alt 等修饰键',
@@ -1111,6 +1125,15 @@ export default {
     entriesTotal: ' 条 · 共 {{count}} 条',
     prevPage: '上一页',
     nextPage: '下一页',
+    openReplay: '打开回放',
+    replayTitle: '会话回放',
+    replayOpenFailed: '无法打开回放文件，请确认这是 Swallow 的回放格式文件。',
+    replayPlay: '播放',
+    replayPause: '暂停',
+    replayRestart: '重新播放',
+    replaySpeed: '播放速度',
+    replayTimeline: '回放时间轴',
+    replayFormatHint: '回放只读取输出，不会执行日志中的输入。',
   },
 
   snippets: {
@@ -1334,6 +1357,8 @@ export default {
     knownHostCleared: '已清空 known_hosts',
     cloudUploaded: '云同步：已上传数据',
     cloudRestored: '云同步：已从云端恢复数据',
+    sessionLogStarted: '会话日志：开始记录 ({{sessionId}})',
+    sessionLogStopped: '会话日志：已停止记录 ({{sessionId}})',
   },
   monitor: {
     title: '服务器监控',

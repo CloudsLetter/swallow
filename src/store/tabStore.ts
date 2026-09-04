@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { disposeTerminal, unattachListeners } from '../components/terminalPool';
 import { disposeSftpSession } from '../components/sftpPool';
 import { disconnectSsh, disconnectSftp, telnetDisconnect, localShellDisconnect } from '../services/sessionService';
+import type { SessionReplayData } from '../services/sessionReplay';
 import {
   type SplitLayout,
   type SplitDirection,
@@ -14,7 +15,7 @@ import {
   MAX_SPLIT_PANES,
 } from './splitLayout';
 
-export type TabType = 'home' | 'terminal' | 'telnet' | 'local' | 'sftp' | 'quick-connect' | 'split';
+export type TabType = 'home' | 'terminal' | 'telnet' | 'local' | 'sftp' | 'replay' | 'quick-connect' | 'split';
 
 export interface SshTabConfig {
   host: string;
@@ -57,6 +58,11 @@ export interface SftpTabConfig {
   connectionId?: string;
 }
 
+export interface ReplayTabConfig {
+  path: string;
+  replay: SessionReplayData;
+}
+
 /** 分屏里的单个 pane（一个 SSH/SFTP 会话）。FTP 会话 type 同为 'sftp'，靠 protocol 区分。 */
 export interface SplitPane {
   id: string;
@@ -77,6 +83,7 @@ export interface Tab {
   telnetConfig?: TelnetTabConfig;
   localConfig?: LocalTabConfig;
   sftpConfig?: SftpTabConfig;
+  replayConfig?: ReplayTabConfig;
   // 仅 split 标签使用：pane 扁平列表（供查找）+ 布局树（供渲染）
   panes?: SplitPane[];
   splitLayout?: SplitLayout;
@@ -99,6 +106,7 @@ interface TabStore {
     telnetConfig?: Tab['telnetConfig'];
     localConfig?: Tab['localConfig'];
     sftpConfig?: Tab['sftpConfig'];
+    replayConfig?: Tab['replayConfig'];
     skipAutoConnect?: boolean;
   }) => string;
   closeTab: (tabId: string) => void;
@@ -241,13 +249,14 @@ export const useTabStore = create<TabStore>((set, get) => ({
     const newTab: Tab = {
       id: newTabId,
       name: config.name || `Tab ${tabCounter}`,
-      sessionId: config.sessionId || newSessionId,
+      sessionId: config.sessionId === undefined ? newSessionId : config.sessionId,
       isActive: false,
       type: config.type || 'terminal',
       sshConfig: config.sshConfig,
       telnetConfig: config.telnetConfig,
       localConfig: config.localConfig,
       sftpConfig: config.sftpConfig,
+      replayConfig: config.replayConfig,
       skipAutoConnect: config.skipAutoConnect,
     };
 

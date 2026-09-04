@@ -17,6 +17,7 @@ import { Logs } from './Logs';
 import { PortForwarding } from './PortForwarding';
 import { SettingsPage } from './Settings';
 import { Monitor } from './Monitor';
+import { ReplayView } from '../components/ReplayView';
 
 // home 侧边栏页面（全部常驻挂载，按 currentPage 显隐，保留各页面内部状态）
 const HOME_PAGES: Record<string, ReactNode> = {
@@ -130,6 +131,8 @@ export function Home() {
                   layout={tab.splitLayout}
                   isActive={isActive}
                 />
+              ) : tab.type === 'replay' && tab.replayConfig ? (
+                <ReplayView replayConfig={tab.replayConfig} />
               ) : (
                 <QuickConnect />
               )}

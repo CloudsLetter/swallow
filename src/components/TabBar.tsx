@@ -13,6 +13,7 @@ import {
   Network as IconNetwork,
   Zap as IconZap,
   LayoutGrid as IconLayoutGrid,
+  PlayCircle as IconPlayCircle,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from './ui/context-menu';
@@ -39,6 +40,8 @@ function tabIcon(type: Tab['type']) {
       return IconZap;
     case 'split':
       return IconLayoutGrid;
+    case 'replay':
+      return IconPlayCircle;
     default:
       return IconTerminal;
   }

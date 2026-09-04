@@ -238,6 +238,15 @@ pub struct Terminal {
 	/// GPU 加速总开关：关闭时即便引擎选了 webgl 也降级用 canvas
 	#[serde(default = "default_gpu_acceleration")]
 	pub gpu_acceleration: bool,
+	/// SSH 会话日志自动记录开关，默认关闭以避免意外记录敏感输入。
+	#[serde(default)]
+	pub session_log_enabled: bool,
+	/// 会话日志默认保存目录；缺省为应用数据目录下的 session-logs。
+	#[serde(default = "default_session_log_directory")]
+	pub session_log_directory: String,
+	/// 日志格式：plain、ansi-vt 或 replay。
+	#[serde(default = "default_session_log_format")]
+	pub session_log_format: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -868,6 +877,9 @@ impl Default for Terminal {
 			auto_connect: true,
 			render_engine: "dom".into(),
 			gpu_acceleration: true,
+			session_log_enabled: false,
+			session_log_directory: default_session_log_directory(),
+			session_log_format: default_session_log_format(),
 		}
 	}
 }
@@ -1023,6 +1035,17 @@ fn default_render_engine() -> String {
 
 fn default_gpu_acceleration() -> bool {
 	true
+}
+
+fn default_session_log_directory() -> String {
+	crate::utils::path::app_data_dir()
+		.join("session-logs")
+		.to_string_lossy()
+		.into_owned()
+}
+
+fn default_session_log_format() -> String {
+	"plain".into()
 }
 
 impl Default for SshSettings {

@@ -19,6 +19,7 @@ import {
 import type { SessionEvent } from '../types/session';
 import { useConfigStore } from '../store/config';
 import { matchesShortcut, shortcutOrDefault } from '../lib/hotkeys';
+import { appendOutput, appendInput, forceStopSessionLog } from './sessionLog';
 
 export interface ConnectionStep {
   id: string;
@@ -168,6 +169,7 @@ export function createOrGetTerminal(
   } catch (e) {
     console.warn('[web-links] WebLinksAddon 加载失败:', e);
   }
+
   // 缓冲区查找（findNext/findPrevious + 高亮装饰，查找条 UI 在 TerminalView）
   const search = new SearchAddon();
   terminal.loadAddon(search);
@@ -214,6 +216,18 @@ export async function copyTerminalBufferToClipboard(sessionId: string): Promise<
   if (!text.trim()) return false;
   await writeText(text);
   return true;
+}
+
+/** 序列化当前 xterm 缓冲，供会话回放保存定位快照。 */
+export function serializeTerminalBuffer(sessionId: string): string | undefined {
+  const addon = pool[sessionId]?.serialize;
+  if (!addon) return undefined;
+  try {
+    return addon.serialize({ scrollback: 10000 });
+  } catch (e) {
+    console.warn(`[${sessionId}] Failed to serialize terminal buffer:`, e);
+    return undefined;
+  }
 }
 
 /**
@@ -309,6 +323,9 @@ function playBellSound() {
  */
 export function enqueueWriteToTargets(targets: string[], data: string) {
   for (const id of targets) {
+    // 会话日志记录：输入按目标会话记录（广播时每个接收会话都记，语义准确）；
+    // 录制未开启时 appendInput 内部直接返回。
+    appendInput(id, data);
     const write = () => {
       const st = getSessionType(id);
       if (st === 'telnet') return telnetWrite(id, data);
@@ -405,6 +422,11 @@ export async function attachListeners(sessionId: string) {
   try {
     item.unlistenSession = await listen<SessionEvent>(`session-${sessionId}`, (e) => {
       const event = e.payload;
+      // 会话日志记录：输出在分发前先喂给日志缓冲（不经 React，高频也不影响渲染）。
+      // 放在 handlers 判断之前，保证连接早期缓冲/重连间隙的输出也不漏记。
+      if (event.kind === 'output') {
+        appendOutput(sessionId, event.data);
+      }
       // 事件监听只建立一次，但回调始终转发到「当前挂载组件注册的最新回调」，
       // 这样标签合并/分屏重挂载后，断线/进度事件仍指向新组件实例而非已卸载的旧实例。
       const handlers = pool[sessionId]?.eventHandlers;
@@ -599,6 +621,8 @@ export function disposeTerminal(sessionId: string) {
   
   // 先取消所有监听器
   unattachListeners(sessionId);
+  // 会话日志兜底：tab 关闭/销毁时若仍在记录则收尾刷盘（fire-and-forget）
+  forceStopSessionLog(sessionId);
   
   // 销毁终端实例
   try { item.terminal.dispose(); } catch (e) {}

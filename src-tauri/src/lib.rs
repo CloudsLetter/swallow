@@ -1637,6 +1637,10 @@ pub fn run() {
             services::cloud_sync::cloud_sync_now,
             services::sessions::save_open_sessions,
             services::sessions::load_open_sessions,
+            services::session_log::session_log_start,
+            services::session_log::session_log_append,
+            services::session_log::session_log_close,
+            services::session_log::session_log_read,
             services::monitor_state::monitor_get_state,
             services::monitor_state::monitor_save_state,
         ])

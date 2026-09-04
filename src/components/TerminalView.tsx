@@ -44,9 +44,17 @@ import {
   setFindToggleHandler,
   focusTerminal,
   copyTerminalBufferToClipboard,
+  serializeTerminalBuffer,
   setSessionType,
   type ConnectionStep,
 } from './terminalPool';
+import {
+  isSessionLogging,
+  createSessionLogPath,
+  forceStopSessionLog,
+  appendReplaySnapshot,
+  startSessionLog,
+} from './sessionLog';
 import { SnippetPicker } from './SnippetPicker';
 import { useBroadcastStore } from '../store/broadcast';
 import { Button } from './ui/button';
@@ -151,6 +159,18 @@ async function connectSshWithHostKeyApproval(
   return result;
 }
 
+/** 按设置自动开始 SSH 会话日志；不弹出保存对话框。 */
+async function startConfiguredSshLog(sessionId: string, label: string): Promise<boolean> {
+  const cfg = useConfigStore.getState().config;
+  if (!cfg?.terminal.session_log_enabled || isSessionLogging(sessionId)) return false;
+  const directory = cfg.terminal.session_log_directory?.trim();
+  if (!directory) throw new Error('session log directory is empty');
+  const format = cfg.terminal.session_log_format ?? 'plain';
+  const path = await createSessionLogPath(directory, label, format);
+  await startSessionLog(sessionId, path, label, format);
+  return true;
+}
+
 export interface TerminalSshConfig {
   host: string;
   port: number;
@@ -189,6 +209,7 @@ interface TerminalViewProps {
 
 export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, isActive = true, resizeSignal, skipAutoConnect }: TerminalViewProps) {
   const { t } = useTranslation();
+  const config = useConfigStore((state) => state.config);
   const terminalRef = useRef<HTMLDivElement>(null);
   const isAttachedRef = useRef(false);
   // 广播模式（全局，跨终端标签）与快捷指令弹窗
@@ -204,6 +225,23 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
   } | null>(null);
   const findInputRef = useRef<HTMLInputElement>(null);
   const findEverOpenedRef = useRef(false);
+
+  // SSH 日志由设置中的开关控制：连接前自动开始，断开时由生命周期收尾。
+  const sessionLabel = sshConfig ? `${sshConfig.username}@${sshConfig.host}` : 'terminal';
+
+  useEffect(() => {
+    if (!sessionId || !sshConfig) return;
+    if (!config?.terminal.session_log_enabled) {
+      if (isSessionLogging(sessionId)) forceStopSessionLog(sessionId);
+      return;
+    }
+    // keep-alive / 分屏重挂载时，若 SSH 已经连接，补上自动记录。
+    if (isConnected(sessionId)) {
+      void startConfiguredSshLog(sessionId, sessionLabel).catch((e) => {
+        console.warn('[terminal] 自动开始 SSH 日志失败:', e);
+      });
+    }
+  }, [config?.terminal.session_log_enabled, sessionId, sshConfig, sessionLabel]);
 
   const openFind = () => {
     findEverOpenedRef.current = true;
@@ -310,7 +348,6 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
     handleRetryConnection,
   } = useSessionConnection(sessionId, sshSessionPool);
 
-  const config = useConfigStore((state) => state.config);
   // 终端外观派生（背景色/背景图/透明/顶栏延伸）+ URL 解析 + 顶栏对比前景注入（见 useTerminalBackground）
   const { terminalBackground, backgroundImageUrl, extendToTopbar } = useTerminalBackground(config, isActive);
 
@@ -367,6 +404,7 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
           cancelConnectionRef.current = false;
           const silentReconnect = getSilentReconnect(sessionId);
           setIsConnectingState(true);
+          let autoLogStarted = false;
 
           // 重置并初始化连接步骤
           const mode: TerminalConnectMode = isTelnet ? 'telnet' : isLocal ? 'local' : 'ssh';
@@ -402,6 +440,16 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
             const rows = terminal.rows;
 
             if (cancelConnectionRef.current) throw new Error(t('connection.cancelledByUser'));
+
+            // 在发起 SSH 连接前开始记录，避免漏掉登录提示等早期输出。
+            if (sshConfig && useConfigStore.getState().config?.terminal.session_log_enabled) {
+              try {
+                autoLogStarted = await startConfiguredSshLog(sessionId, sessionLabel);
+              } catch (e) {
+                // 日志是可选能力，落盘失败不阻断 SSH 连接。
+                console.warn('[terminal] 自动开始 SSH 日志失败:', e);
+              }
+            }
 
             let connectResult;
             if (isTelnet) {
@@ -474,6 +522,7 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
               });
             }, 1500);
           } catch (error) {
+            if (autoLogStarted) forceStopSessionLog(sessionId);
             const wasSilentReconnect = getSilentReconnect(sessionId);
             setSilentReconnect(sessionId, false);
             resetReconnectAttempts(sessionId);
@@ -519,12 +568,15 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
             try {
               // xterm.write 自带增量渲染；不要额外全屏 refresh——
               // 高频输出（motd/日志）时全量刷新会阻塞主线程导致终端「无响应」
-              terminal.write(data);
+              terminal.write(data, () => {
+                appendReplaySnapshot(sessionId, serializeTerminalBuffer(sessionId) ?? '');
+              });
             } catch (error) {
               console.error(`[${sessionId}] Failed to write data:`, error);
             }
           },
           onDisconnect: () => {
+            forceStopSessionLog(sessionId);
             // 断开：右下角 toast 提示，不在终端打印
             toast.warning(t('connection.connectionClosed'), {
               id: `conn-${sessionId}`,

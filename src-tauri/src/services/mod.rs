@@ -9,5 +9,6 @@ pub mod logs;
 pub mod monitor_state;
 pub mod port_forwardings;
 pub mod sessions;
+pub mod session_log;
 pub mod sftp_connections;
 pub mod snippets;

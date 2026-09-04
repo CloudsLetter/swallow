@@ -2,6 +2,8 @@
 import { useTranslation } from 'react-i18next';
 import i18n from '../i18n/i18n';
 import { getLogs, clearLogs, type LogEntry } from '../services/dataService';
+import { readSessionReplay } from '../services/sessionReplay';
+import { useTabStore } from '../store/tabStore';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -10,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Skeleton } from '../components/ui/skeleton';
 import { Search as IconSearch, RefreshCw as IconRefresh, Trash2 as IconTrash, ScrollText as IconScrollText, AlertTriangle as IconAlert } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { message, ask } from '@tauri-apps/plugin-dialog';
+import { message, ask, open as dialogOpen } from '@tauri-apps/plugin-dialog';
 
 type LevelFilter = 'all' | LogEntry['level'];
 
@@ -137,6 +139,27 @@ export function Logs() {
     }
   };
 
+  const handleOpenReplay = async () => {
+    try {
+      const selected = await dialogOpen({
+        multiple: false,
+        directory: false,
+        filters: [{ name: 'Swallow Session Logs', extensions: ['jsonl', 'replay', 'log'] }],
+      });
+      if (typeof selected !== 'string' || !selected) return;
+      const data = await readSessionReplay(selected);
+      useTabStore.getState().createTab({
+        type: 'replay',
+        name: `${t('logs.replayTitle')}: ${data.label || t('logs.replayTitle')}`,
+        sessionId: null,
+        replayConfig: { path: selected, replay: data },
+      });
+    } catch (openError) {
+      console.error('Failed to open session replay:', openError);
+      await message(t('logs.replayOpenFailed'), { title: t('common.error'), kind: 'error' });
+    }
+  };
+
   // ============ 分页计算 ============
   const totalPages = Math.max(1, Math.ceil(logs.length / pageSize));
   const startIndex = (currentPage - 1) * pageSize;
@@ -224,6 +247,10 @@ export function Logs() {
               className="w-full rounded-lg pl-8"
             />
           </div>
+          <Button variant="secondary" onClick={() => void handleOpenReplay()} title={t('logs.openReplay')}>
+            <IconScrollText size={16} />
+            {t('logs.openReplay')}
+          </Button>
           <Button variant="ghost" size="icon" onClick={() => void loadLogs()} aria-label={t('common.refresh')} title={t('common.refresh')}>
             <IconRefresh size={16} />
           </Button>
@@ -343,6 +370,7 @@ export function Logs() {
           </div>
         </div>
       )}
+
     </div>
   );
 }

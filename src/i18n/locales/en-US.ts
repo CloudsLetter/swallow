@@ -285,6 +285,20 @@ export default {
     compressionDesc: 'Can improve performance on slow networks',
     notEffective: 'Not effective yet',
 
+    // SSH session logs
+    sessionLogSettings: 'SSH Session Logs',
+    sessionLogEnabled: 'Automatically record SSH sessions',
+    sessionLogEnabledDesc: 'Start recording before SSH connects and finish on disconnect/reconnect; may include passwords or other sensitive input',
+    sessionLogDirectory: 'Default save directory',
+    sessionLogDirectoryPlaceholder: 'Application data directory/session-logs',
+    sessionLogDirectoryDesc: 'Files are named automatically as “user@host-time.log” and default to the application data directory',
+    selectDirectory: 'Choose directory',
+    sessionLogFormat: 'Log format',
+    sessionLogFormatPlain: 'Plain text (strip ANSI/VT control sequences)',
+    sessionLogFormatAnsiVt: 'ANSI/VT (preserve control sequences)',
+    sessionLogFormatReplay: 'Replay (ANSI/VT + timeline, JSONL)',
+    sessionLogFormatDesc: 'Plain text and ANSI/VT start each line with [time]; replay is stored as timeline JSONL',
+
     // Shortcuts
     shortcutsHint: 'Click a shortcut to rebind it',
     shortcutsDesc: 'Press the key combination you want, supporting Ctrl, Shift, Alt and other modifiers',
@@ -1113,6 +1127,15 @@ export default {
     entriesTotal: ' entries · {{count}} total',
     prevPage: 'Previous',
     nextPage: 'Next',
+    openReplay: 'Open Replay',
+    replayTitle: 'Session Replay',
+    replayOpenFailed: 'Could not open the replay file. Make sure it is a Swallow replay file.',
+    replayPlay: 'Play',
+    replayPause: 'Pause',
+    replayRestart: 'Restart',
+    replaySpeed: 'Playback speed',
+    replayTimeline: 'Replay timeline',
+    replayFormatHint: 'Replay reads output only; input in the log is never executed.',
   },
 
   snippets: {
@@ -1336,6 +1359,8 @@ export default {
     knownHostCleared: 'Cleared known_hosts entries',
     cloudUploaded: 'Cloud sync: data uploaded',
     cloudRestored: 'Cloud sync: data restored from cloud',
+    sessionLogStarted: 'Session log: recording started ({{sessionId}})',
+    sessionLogStopped: 'Session log: recording stopped ({{sessionId}})',
   },
   monitor: {
     title: 'Server Monitor',

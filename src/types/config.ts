@@ -206,6 +206,13 @@ export interface Terminal {
   render_engine: "dom" | "canvas" | "webgl";
   // GPU 加速总开关：关闭时即便引擎选了 webgl 也降级用 dom
   gpu_acceleration: boolean;
+
+  // SSH 会话日志：启用后连接建立前自动开始记录
+  session_log_enabled: boolean;
+  // 日志默认保存目录；缺省为应用数据目录下的 session-logs
+  session_log_directory: string;
+  // 日志格式：plain 清洗为纯文本，ansi-vt 保留 ANSI/VT 控制序列
+  session_log_format: 'plain' | 'ansi-vt' | 'replay';
 }
 
 export interface TerminalThemePreset {
