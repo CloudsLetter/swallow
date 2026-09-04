@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Search as IconSearch,
@@ -24,6 +24,7 @@ import {
 } from '../services/dataService';
 import { resolveHostSshAuth } from '../services/sshAuthResolver';
 import { serialListPorts } from '../services/sessionService';
+import { consumeQuickConnectIntent } from '../services/quickConnectIntent';
 import { useTabStore } from '../store/tabStore';
 import { useOnlineHosts } from '../store/uiState';
 import { cn } from '@/lib/utils';
@@ -64,8 +65,23 @@ export function QuickConnect() {
   const [serialStopBits, setSerialStopBits] = useState('1');
   const [serialParity, setSerialParity] = useState<'none' | 'odd' | 'even'>('none');
   const [serialFlow, setSerialFlow] = useState<'none' | 'hardware'>('none');
+  // 外部「串口终端」快捷入口定位：滚动到串口卡并短暂高亮
+  const serialCardRef = useRef<HTMLDivElement>(null);
+  const [serialHighlight, setSerialHighlight] = useState(false);
   const { createTab, closeTab, activeTabId } = useTabStore();
   const { t } = useTranslation();
+
+  // 消费一次性意图（Hosts 页点「串口终端」）：滚动 + 高亮串口卡
+  useEffect(() => {
+    if (consumeQuickConnectIntent() !== 'serial') return;
+    setSerialHighlight(true);
+    const timer = window.setTimeout(() => setSerialHighlight(false), 1800);
+    // 等本帧渲染完成后滚动（页面可能刚创建）
+    requestAnimationFrame(() => {
+      serialCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+    return () => window.clearTimeout(timer);
+  }, []);
 
   // 枚举本机串口
   const refreshSerialPorts = () => {
@@ -332,7 +348,13 @@ export function QuickConnect() {
         </div>
 
         {/* 串口（占满整行；高级参数折叠） */}
-        <div className="rounded-lg border border-border bg-card p-3 md:col-span-2">
+        <div
+          ref={serialCardRef}
+          className={cn(
+            'rounded-lg border bg-card p-3 transition-all duration-300 md:col-span-2',
+            serialHighlight ? 'border-primary ring-2 ring-primary/40' : 'border-border',
+          )}
+        >
           <div className="flex items-center gap-3">
             <span className="flex w-32 shrink-0 items-center gap-1.5 whitespace-nowrap text-sm font-medium">
               <IconUsb size={15} className="text-muted-foreground" />

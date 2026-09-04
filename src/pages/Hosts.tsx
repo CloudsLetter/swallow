@@ -34,6 +34,8 @@ import {
   Lock as IconLock,
   KeyRound as IconKeyRound,
   ShieldCheck as IconShieldCheck,
+  Monitor as IconMonitor,
+  Usb as IconUsb,
 } from 'lucide-react';
 import { useTabStore } from '../store/tabStore';
 import { Button } from '../components/ui/button';
@@ -43,6 +45,7 @@ import { Badge } from '../components/ui/badge';
 import { Switch } from '../components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '../components/ui/sheet';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Skeleton } from '../components/ui/skeleton';
 import {
@@ -56,6 +59,7 @@ import { cn } from '@/lib/utils';
 import { message, ask } from '@tauri-apps/plugin-dialog';
 import { toast } from 'sonner';
 import { resolveHostSshAuth } from '../services/sshAuthResolver';
+import { setQuickConnectIntent } from '../services/quickConnectIntent';
 
 type ViewMode = 'grid' | 'list';
 type AuthFilter = 'all' | 'password' | 'key' | 'certificate' | 'proxy';
@@ -369,6 +373,46 @@ export function Hosts() {
         remotePath: '/',
       },
     });
+  };
+
+  // ============ VNC 快捷连接（主机菜单入口） ============
+  const [vncDialogHost, setVncDialogHost] = useState<Host | null>(null);
+  const [vncDialogPort, setVncDialogPort] = useState(5900);
+  const [vncDialogPassword, setVncDialogPassword] = useState('');
+
+  /** 打开 VNC 连接对话框（目标主机固定为所选主机，端口/密码可填）。 */
+  const openVncDialog = (host: Host) => {
+    setVncDialogHost(host);
+    setVncDialogPort(5900);
+    setVncDialogPassword('');
+  };
+
+  /** 确认：用主机地址直连 VNC（noVNC 会处理密码认证）。 */
+  const handleVncConnect = () => {
+    const host = vncDialogHost;
+    if (!host) return;
+    const port = Number(vncDialogPort);
+    if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+      toast.warning(t('hosts.vncPortInvalid'));
+      return;
+    }
+    createTab({
+      name: `${host.name} (VNC)`,
+      type: 'vnc',
+      vncConfig: {
+        host: host.host,
+        port,
+        password: vncDialogPassword.trim() || undefined,
+        shared: true,
+      },
+    });
+    setVncDialogHost(null);
+  };
+
+  /** 顶部工具栏「串口终端」：跳到 QuickConnect 的串口卡（滚动+高亮）。 */
+  const handleSerialQuickConnect = () => {
+    setQuickConnectIntent('serial');
+    createTab({ name: t('quickConnect.serialTitle'), type: 'quick-connect' });
   };
 
   const handleRemove = async (id: string) => {
@@ -809,6 +853,9 @@ export function Hosts() {
               <DropdownMenuItem onClick={() => handleSftpConnect(host)}>
                 <IconFolderOpen size={15} className="mr-2" /> {t('hosts.openSftp')}
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openVncDialog(host)}>
+                <IconMonitor size={15} className="mr-2" /> {t('hosts.openVnc')}
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void openEdit(host)}>
                 <IconEdit size={15} className="mr-2" /> {t('common.edit')}
               </DropdownMenuItem>
@@ -894,6 +941,9 @@ export function Hosts() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onClick={() => openVncDialog(host)}>
+                  <IconMonitor size={15} className="mr-2" /> {t('hosts.openVnc')}
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => void openEdit(host)}>
                   <IconEdit size={15} className="mr-2" /> {t('common.edit')}
                 </DropdownMenuItem>
@@ -1085,6 +1135,10 @@ export function Hosts() {
           </div>
           <Button variant="ghost" size="icon" onClick={refresh} aria-label={t('common.refresh')} title={t('common.refresh')}>
             <IconRefresh size={16} />
+          </Button>
+          <Button variant="outline" onClick={handleSerialQuickConnect} title={t('hosts.serialTerminal')}>
+            <IconUsb size={15} strokeWidth={2} />
+            {t('hosts.serialTerminal')}
           </Button>
           <Button onClick={() => void openCreate()} title={t('hosts.createHost')}>
             <IconPlus size={16} strokeWidth={2} />
@@ -1623,6 +1677,64 @@ export function Hosts() {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      {/* VNC 快捷连接对话框：目标主机固定为所选主机，端口/密码可填 */}
+      <Dialog
+        open={!!vncDialogHost}
+        onOpenChange={(o) => {
+          if (!o) setVncDialogHost(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-sm" aria-describedby={undefined}>
+          <DialogHeader>
+            <DialogTitle>{t('hosts.vncDialogTitle')}</DialogTitle>
+          </DialogHeader>
+          {vncDialogHost && (
+            <div className="space-y-3 py-1">
+              <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-3 py-2">
+                <span className="shrink-0 text-sm text-muted-foreground">{t('hosts.vncTarget')}</span>
+                <span className="truncate font-mono text-sm font-medium">
+                  {vncDialogHost.name} · {vncDialogHost.host}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="vnc-port">{t('hosts.vncPort')}</Label>
+                  <Input
+                    id="vnc-port"
+                    type="number"
+                    min={1}
+                    max={65535}
+                    value={vncDialogPort}
+                    onChange={(e) => setVncDialogPort(Number(e.target.value))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="vnc-password">{t('hosts.vncPassword')}</Label>
+                  <Input
+                    id="vnc-password"
+                    type="password"
+                    value={vncDialogPassword}
+                    placeholder={t('hosts.vncPasswordPlaceholder')}
+                    onChange={(e) => setVncDialogPassword(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleVncConnect();
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setVncDialogHost(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button onClick={handleVncConnect} disabled={!vncDialogHost}>
+              {t('hosts.vncConnect')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
