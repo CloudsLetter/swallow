@@ -265,6 +265,40 @@ export function localFileSize(path: string): Promise<number> {
   return invoke<number>('local_file_size', { path });
 }
 
+// ==================== Serial (COM/tty) ====================
+
+export interface SerialSessionConfig {
+  port: string;
+  baudRate: number;
+  dataBits?: number;
+  stopBits?: number;
+  parity?: 'none' | 'odd' | 'even';
+  flowControl?: 'none' | 'hardware';
+}
+
+/** 枚举本机可用串口（Windows COM* / POSIX /dev/tty*）。 */
+export function serialListPorts(): Promise<string[]> {
+  return invoke<string[]>('serial_list_ports');
+}
+
+/** 打开串口会话（无认证；端口/波特率/校验等由 config 携带）。 */
+export function serialConnect(
+  sessionId: string,
+  config: SerialSessionConfig,
+): Promise<ConnectResult> {
+  return invoke<ConnectResult>('serial_connect', { sessionId, config });
+}
+
+/** 向串口写入输入。 */
+export function serialWrite(sessionId: string, data: string): Promise<void> {
+  return invoke<void>('serial_write', { sessionId, data });
+}
+
+/** 断开串口会话（幂等；重连前清死会话）。 */
+export function serialDisconnect(sessionId: string): Promise<void> {
+  return invoke<void>('serial_disconnect', { sessionId });
+}
+
 // ==================== VNC ====================
 
 /** SSH 隧道传输配置（经 SSH 访问内网 VNC 服务）。 */

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { disposeTerminal, unattachListeners } from '../components/terminalPool';
 import { disposeSftpSession } from '../components/sftpPool';
-import { disconnectSsh, disconnectSftp, telnetDisconnect, localShellDisconnect, vncDisconnect } from '../services/sessionService';
+import { disconnectSsh, disconnectSftp, telnetDisconnect, localShellDisconnect, serialDisconnect, vncDisconnect } from '../services/sessionService';
 import type { SessionReplayData } from '../services/sessionReplay';
 import {
   type SplitLayout,
@@ -15,7 +15,7 @@ import {
   MAX_SPLIT_PANES,
 } from './splitLayout';
 
-export type TabType = 'home' | 'terminal' | 'telnet' | 'local' | 'sftp' | 'vnc' | 'replay' | 'quick-connect' | 'split';
+export type TabType = 'home' | 'terminal' | 'telnet' | 'local' | 'serial' | 'sftp' | 'vnc' | 'replay' | 'quick-connect' | 'split';
 
 export interface SshTabConfig {
   host: string;
@@ -35,6 +35,16 @@ export interface SshTabConfig {
 export interface TelnetTabConfig {
   host: string;
   port: number;
+}
+
+/** 串口会话配置（端口/波特率/8N1 等；无凭据，重启可直接恢复重连）。 */
+export interface SerialTabConfig {
+  port: string;
+  baudRate: number;
+  dataBits?: number;
+  stopBits?: number;
+  parity?: 'none' | 'odd' | 'even';
+  flowControl?: 'none' | 'hardware';
 }
 
 export interface LocalTabConfig {
@@ -102,6 +112,7 @@ export interface Tab {
   sshConfig?: SshTabConfig;
   telnetConfig?: TelnetTabConfig;
   localConfig?: LocalTabConfig;
+  serialConfig?: SerialTabConfig;
   sftpConfig?: SftpTabConfig;
   vncConfig?: VncTabConfig;
   replayConfig?: ReplayTabConfig;
@@ -126,6 +137,7 @@ interface TabStore {
     sshConfig?: Tab['sshConfig'];
     telnetConfig?: Tab['telnetConfig'];
     localConfig?: Tab['localConfig'];
+    serialConfig?: Tab['serialConfig'];
     sftpConfig?: Tab['sftpConfig'];
     vncConfig?: Tab['vncConfig'];
     replayConfig?: Tab['replayConfig'];
@@ -168,7 +180,7 @@ function uniqueTabIds() {
 }
 
 /** 断开一个会话并清理对应资源（尽力而为，不抛异常）。 */
-function disposeSession(type: 'terminal' | 'telnet' | 'local' | 'sftp' | 'vnc', sessionId: string) {
+function disposeSession(type: 'terminal' | 'telnet' | 'local' | 'serial' | 'sftp' | 'vnc', sessionId: string) {
   if (type === 'vnc') {
     // VNC 不使用 terminalPool/sftpPool：仅请求后端停止本地桥并清理
     void vncDisconnect(sessionId).catch((error) => {
@@ -186,7 +198,7 @@ function disposeSession(type: 'terminal' | 'telnet' | 'local' | 'sftp' | 'vnc', 
       console.warn('Failed to dispose SFTP session:', error);
     }
   } else {
-    // terminal / telnet / local 共用 terminalPool（xterm + 事件监听），仅断开命令不同
+    // terminal / telnet / local / serial 共用 terminalPool（xterm + 事件监听），仅断开命令不同
     if (type === 'terminal') {
       void disconnectSsh(sessionId).catch((error) => {
         console.warn(`Failed to disconnect SSH session ${sessionId}:`, error);
@@ -194,6 +206,10 @@ function disposeSession(type: 'terminal' | 'telnet' | 'local' | 'sftp' | 'vnc', 
     } else if (type === 'telnet') {
       void telnetDisconnect(sessionId).catch((error) => {
         console.warn(`Failed to disconnect telnet session ${sessionId}:`, error);
+      });
+    } else if (type === 'serial') {
+      void serialDisconnect(sessionId).catch((error) => {
+        console.warn(`Failed to disconnect serial session ${sessionId}:`, error);
       });
     } else {
       void localShellDisconnect(sessionId).catch((error) => {
@@ -247,8 +263,9 @@ export function canMergeTabs(source: Tab, target: Tab): boolean {
   if (!source || !target) return false;
   if (target.type === 'home' || target.type === 'quick-connect') return false;
   if (source.type === 'home' || source.type === 'quick-connect' || source.type === 'split') return false;
-  // VNC 暂不支持分屏（SplitPane.type 仅 terminal|sftp），禁止任何合并
+  // VNC / 串口暂不支持分屏（SplitPane.type 仅 terminal|sftp），禁止任何合并
   if (source.type === 'vnc' || target.type === 'vnc') return false;
+  if (source.type === 'serial' || target.type === 'serial') return false;
   if (mergeGroupOfTab(target) !== mergeGroupOfTab(source)) return false;
   if (target.type === 'split') {
     const count = target.splitLayout ? leafCount(target.splitLayout) : (target.panes?.length ?? 0);
@@ -286,6 +303,7 @@ export const useTabStore = create<TabStore>((set, get) => ({
       sshConfig: config.sshConfig,
       telnetConfig: config.telnetConfig,
       localConfig: config.localConfig,
+      serialConfig: config.serialConfig,
       sftpConfig: config.sftpConfig,
       vncConfig: config.vncConfig,
       replayConfig: config.replayConfig,
@@ -321,13 +339,13 @@ export const useTabStore = create<TabStore>((set, get) => ({
       for (const pane of closedTab.panes || []) {
         disposeSession(pane.type, pane.sessionId);
       }
-    } else if (closedTab.sessionId && (closedTab.type === 'terminal' || closedTab.type === 'telnet' || closedTab.type === 'local' || closedTab.type === 'sftp' || closedTab.type === 'vnc')) {
+    } else if (closedTab.sessionId && (closedTab.type === 'terminal' || closedTab.type === 'telnet' || closedTab.type === 'local' || closedTab.type === 'serial' || closedTab.type === 'sftp' || closedTab.type === 'vnc')) {
       disposeSession(closedTab.type, closedTab.sessionId);
     }
 
-    // 记录到「最近关闭」栈（仅 terminal/telnet/local/sftp/vnc 单会话标签，最多保留 10 条）
+    // 记录到「最近关闭」栈（仅 terminal/telnet/local/serial/sftp/vnc 单会话标签，最多保留 10 条）
     let recentlyClosed = get().recentlyClosed;
-    if (closedTab.type === 'terminal' || closedTab.type === 'telnet' || closedTab.type === 'local' || closedTab.type === 'sftp' || closedTab.type === 'vnc') {
+    if (closedTab.type === 'terminal' || closedTab.type === 'telnet' || closedTab.type === 'local' || closedTab.type === 'serial' || closedTab.type === 'sftp' || closedTab.type === 'vnc') {
       recentlyClosed = [...recentlyClosed, closedTab];
       if (recentlyClosed.length > 10) recentlyClosed = recentlyClosed.slice(-10);
     }
@@ -588,6 +606,7 @@ export const useTabStore = create<TabStore>((set, get) => ({
       sshConfig: last.sshConfig,
       telnetConfig: last.telnetConfig,
       localConfig: last.localConfig,
+      serialConfig: last.serialConfig,
       sftpConfig: last.sftpConfig,
       vncConfig: last.vncConfig,
     };

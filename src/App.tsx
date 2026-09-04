@@ -138,10 +138,11 @@ function App() {
         const data = await loadOpenSessions();
         const sessions = JSON.parse(data) as Array<{
           name: string;
-          type: 'terminal' | 'telnet' | 'local' | 'sftp' | 'vnc';
+          type: 'terminal' | 'telnet' | 'local' | 'serial' | 'sftp' | 'vnc';
           sshConfig?: Tab['sshConfig'];
           telnetConfig?: Tab['telnetConfig'];
           localConfig?: Tab['localConfig'];
+          serialConfig?: Tab['serialConfig'];
           sftpConfig?: Tab['sftpConfig'];
           vncConfig?: Tab['vncConfig'];
         }>;
@@ -158,6 +159,7 @@ function App() {
             sshConfig: s.sshConfig,
             telnetConfig: s.telnetConfig,
             localConfig: s.localConfig,
+            serialConfig: s.serialConfig,
             sftpConfig: s.sftpConfig,
             vncConfig: s.vncConfig,
             skipAutoConnect: passwordAuth || sftpPasswordAuth || vncPasswordMissing,
@@ -174,13 +176,14 @@ function App() {
     const persist = () => {
       const { tabs } = useTabStore.getState();
       const sessions = tabs
-        .filter((t) => t.type === 'terminal' || t.type === 'telnet' || t.type === 'local' || t.type === 'sftp' || t.type === 'vnc')
+        .filter((t) => t.type === 'terminal' || t.type === 'telnet' || t.type === 'local' || t.type === 'serial' || t.type === 'sftp' || t.type === 'vnc')
         .map((t) => ({
           name: t.name,
           type: t.type,
           sshConfig: t.sshConfig ? { ...t.sshConfig, password: undefined, passphrase: undefined } : undefined,
           telnetConfig: t.telnetConfig,
           localConfig: t.localConfig,
+          serialConfig: t.serialConfig,
           sftpConfig: t.sftpConfig ? { ...t.sftpConfig, password: undefined, passphrase: undefined } : undefined,
           vncConfig: t.vncConfig
             ? {

@@ -12,7 +12,7 @@ import { useTerminalFit } from '../hooks/useTerminalFit';
 import { useTerminalBackground } from '../hooks/useTerminalBackground';
 import { TerminalBackdrop } from './TerminalBackdrop';
 import { useSessionConnection, sshSessionPool } from '../hooks/useSessionConnection';
-import { acceptHostKey, sshConnect, disconnectSsh, telnetConnect, telnetDisconnect, localShellConnect, localShellDisconnect } from '../services/sessionService';
+import { acceptHostKey, sshConnect, disconnectSsh, telnetConnect, telnetDisconnect, localShellConnect, localShellDisconnect, serialConnect, serialDisconnect } from '../services/sessionService';
 import { touchHostLastConnected } from '../services/dataService';
 import { useOnlineHosts } from '../store/uiState';
 import type { Config } from '../types/config';
@@ -107,12 +107,12 @@ function buildTerminalOptions(cfg: Config['terminal']): ITerminalOptions {
   return options;
 }
 
-export type TerminalConnectMode = 'ssh' | 'telnet' | 'local';
+export type TerminalConnectMode = 'ssh' | 'telnet' | 'local' | 'serial';
 
 /** 构建连接进度步骤（tcp/ssh/auth/shell/ready），顺序与后端 Progress 事件一致。 */
 function buildConnectionSteps(
   mode: TerminalConnectMode,
-  opts: { telnetHost?: string; shell?: string; authType?: string },
+  opts: { telnetHost?: string; shell?: string; authType?: string; serialPort?: string },
   t: TFunction,
 ): ConnectionStep[] {
   const authLabel =
@@ -120,7 +120,9 @@ function buildConnectionSteps(
       ? t('connection.stepConnect', { host: opts.telnetHost })
       : mode === 'local'
         ? t('connection.stepLocalShell', { shell: opts.shell })
-        : t('connection.stepAuth', { authType: opts.authType });
+        : mode === 'serial'
+          ? t('connection.stepConnect', { host: opts.serialPort })
+          : t('connection.stepAuth', { authType: opts.authType });
   return [
     { id: 'tcp', label: t('connection.stepTcp'), status: 'pending' },
     { id: 'ssh', label: t('connection.stepSsh'), status: 'pending' },
@@ -194,11 +196,21 @@ export interface TerminalLocalConfig {
   wslDistro?: string;
 }
 
+export interface TerminalSerialConfig {
+  port: string;
+  baudRate: number;
+  dataBits?: number;
+  stopBits?: number;
+  parity?: 'none' | 'odd' | 'even';
+  flowControl?: 'none' | 'hardware';
+}
+
 interface TerminalViewProps {
   sessionId?: string;
   sshConfig?: TerminalSshConfig;
   telnetConfig?: TerminalTelnetConfig;
   localConfig?: TerminalLocalConfig;
+  serialConfig?: TerminalSerialConfig;
   // 标签是否处于激活状态（keep-alive 下用于切回时重新 fit 终端）
   isActive?: boolean;
   // 外部尺寸变化信号（分屏拖分隔条后递增），触发重新 fit + resize PTY
@@ -207,7 +219,7 @@ interface TerminalViewProps {
   skipAutoConnect?: boolean;
 }
 
-export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, isActive = true, resizeSignal, skipAutoConnect }: TerminalViewProps) {
+export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, serialConfig, isActive = true, resizeSignal, skipAutoConnect }: TerminalViewProps) {
   const { t } = useTranslation();
   const config = useConfigStore((state) => state.config);
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -377,9 +389,13 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
 
         // 必须在 attach/fit 之前确定协议类型：已连接的 Telnet 标签重挂载时，
         // attachTerminal 可能立即触发 resize，不能让它按默认 ssh 分支发送 PTY resize。
-        const isTelnet = !!telnetConfig && !sshConfig && !localConfig;
-        const isLocal = !!localConfig && !sshConfig && !telnetConfig;
-        setSessionType(sessionId, isTelnet ? 'telnet' : isLocal ? 'local' : 'ssh');
+        const isTelnet = !!telnetConfig && !sshConfig && !localConfig && !serialConfig;
+        const isLocal = !!localConfig && !sshConfig && !telnetConfig && !serialConfig;
+        const isSerial = !!serialConfig && !sshConfig && !telnetConfig && !localConfig;
+        setSessionType(
+          sessionId,
+          isTelnet ? 'telnet' : isLocal ? 'local' : isSerial ? 'serial' : 'ssh',
+        );
 
         // 附加到 DOM
         attachTerminal(sessionId, terminalRef.current);
@@ -389,8 +405,8 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
         const alreadyConnected = isConnected(sessionId);
         const currentlyConnecting = checkIsConnecting(sessionId);
 
-        // 无 SSH/telnet/local 配置：无法发起连接，仅显示欢迎信息
-        if (!sshConfig && !telnetConfig && !localConfig) {
+        // 无 SSH/telnet/local/serial 配置：无法发起连接，仅显示欢迎信息
+        if (!sshConfig && !telnetConfig && !localConfig && !serialConfig) {
           terminal.writeln(t('connection.welcome'));
           terminal.writeln(t('connection.sessionIdLine', { sessionId }));
           terminal.writeln('');
@@ -407,13 +423,14 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
           let autoLogStarted = false;
 
           // 重置并初始化连接步骤
-          const mode: TerminalConnectMode = isTelnet ? 'telnet' : isLocal ? 'local' : 'ssh';
+          const mode: TerminalConnectMode = isTelnet ? 'telnet' : isLocal ? 'local' : isSerial ? 'serial' : 'ssh';
           const steps: ConnectionStep[] = buildConnectionSteps(
             mode,
             {
               telnetHost: telnetConfig?.host,
               shell: localConfig?.shell,
               authType: sshConfig?.auth_type,
+              serialPort: serialConfig?.port,
             },
             t,
           );
@@ -455,6 +472,16 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
             if (isTelnet) {
               // telnet 无认证、无主机密钥确认
               connectResult = await telnetConnect(sessionId, { host: telnetConfig!.host, port: telnetConfig!.port });
+            } else if (isSerial) {
+              // 串口无认证、无主机密钥确认（端口/波特率由配置携带）
+              connectResult = await serialConnect(sessionId, {
+                port: serialConfig!.port,
+                baudRate: serialConfig!.baudRate,
+                dataBits: serialConfig!.dataBits,
+                stopBits: serialConfig!.stopBits,
+                parity: serialConfig!.parity,
+                flowControl: serialConfig!.flowControl,
+              });
             } else if (isLocal) {
               // 本地 shell 无认证、无主机密钥确认
               connectResult = await localShellConnect(
@@ -473,6 +500,8 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
             if (cancelConnectionRef.current) {
               if (isTelnet) {
                 await telnetDisconnect(sessionId).catch(() => {});
+              } else if (isSerial) {
+                await serialDisconnect(sessionId).catch(() => {});
               } else if (isLocal) {
                 await localShellDisconnect(sessionId).catch(() => {});
               } else {

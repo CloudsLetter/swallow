@@ -15,6 +15,7 @@ import {
   LayoutGrid as IconLayoutGrid,
   PlayCircle as IconPlayCircle,
   Monitor as IconMonitor,
+  Usb as IconUsb,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from './ui/context-menu';
@@ -35,6 +36,8 @@ function tabIcon(type: Tab['type']) {
       return IconFolder;
     case 'vnc':
       return IconMonitor;
+    case 'serial':
+      return IconUsb;
     case 'telnet':
       return IconNetwork;
     case 'local':

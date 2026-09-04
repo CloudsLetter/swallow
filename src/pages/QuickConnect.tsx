@@ -7,6 +7,10 @@ import {
   Network as IconNetwork,
   Zap as IconZap,
   Monitor as IconMonitor,
+  Usb as IconUsb,
+  RefreshCw as IconRefresh,
+  ChevronDown as IconChevronDown,
+  ChevronUp as IconChevronUp,
 } from 'lucide-react';
 import {
   getHosts,
@@ -19,6 +23,7 @@ import {
   type Certificate,
 } from '../services/dataService';
 import { resolveHostSshAuth } from '../services/sshAuthResolver';
+import { serialListPorts } from '../services/sessionService';
 import { useTabStore } from '../store/tabStore';
 import { useOnlineHosts } from '../store/uiState';
 import { cn } from '@/lib/utils';
@@ -50,8 +55,31 @@ export function QuickConnect() {
   const [vncHost, setVncHost] = useState('');
   const [vncPort, setVncPort] = useState(5900);
   const [vncPassword, setVncPassword] = useState('');
+  // 串口快速连接
+  const [serialPort, setSerialPort] = useState('');
+  const [serialPorts, setSerialPorts] = useState<string[]>([]);
+  const [serialBaud, setSerialBaud] = useState('115200');
+  const [serialShowAdvanced, setSerialShowAdvanced] = useState(false);
+  const [serialDataBits, setSerialDataBits] = useState('8');
+  const [serialStopBits, setSerialStopBits] = useState('1');
+  const [serialParity, setSerialParity] = useState<'none' | 'odd' | 'even'>('none');
+  const [serialFlow, setSerialFlow] = useState<'none' | 'hardware'>('none');
   const { createTab, closeTab, activeTabId } = useTabStore();
   const { t } = useTranslation();
+
+  // 枚举本机串口
+  const refreshSerialPorts = () => {
+    void serialListPorts()
+      .then((list) => setSerialPorts(list))
+      .catch((e) => {
+        console.warn('Failed to list serial ports:', e);
+        setSerialPorts([]);
+      });
+  };
+  useEffect(() => {
+    refreshSerialPorts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const loadHosts = async () => {
@@ -70,7 +98,7 @@ export function QuickConnect() {
   }, []);
 
   /** 打开连接标签并关闭当前快速连接标签。 */
-  const openSessionTab = (name: string, type: 'terminal' | 'telnet' | 'local' | 'vnc', config: Record<string, unknown>) => {
+  const openSessionTab = (name: string, type: 'terminal' | 'telnet' | 'local' | 'vnc' | 'serial', config: Record<string, unknown>) => {
     createTab({ name, type, ...config } as Parameters<typeof createTab>[0]);
     if (activeTabId) closeTab(activeTabId);
   };
@@ -124,6 +152,25 @@ export function QuickConnect() {
         port: vncPort,
         password: vncPassword || undefined,
         shared: true,
+      },
+    });
+  };
+
+  // 快速连接串口（无认证；参数默认 8N1 无流控，高级区可调）
+  const handleConnectSerial = () => {
+    const port = serialPort.trim();
+    if (!port) {
+      void message(t('quickConnect.serialPortRequired'), { title: t('common.tip'), kind: 'warning' });
+      return;
+    }
+    openSessionTab(`serial:${port}`, 'serial', {
+      serialConfig: {
+        port,
+        baudRate: Number(serialBaud) || 115200,
+        dataBits: Number(serialDataBits) as 5 | 6 | 7 | 8,
+        stopBits: Number(serialStopBits) as 1 | 2,
+        parity: serialParity,
+        flowControl: serialFlow,
       },
     });
   };
@@ -247,7 +294,7 @@ export function QuickConnect() {
 
         {/* VNC（占满第二行） */}
         <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 md:col-span-2">
-          <span className="flex w-24 shrink-0 items-center gap-1.5 text-sm font-medium">
+          <span className="flex w-32 shrink-0 items-center gap-1.5 whitespace-nowrap text-sm font-medium">
             <IconMonitor size={15} className="text-muted-foreground" />
             {t('quickConnect.vncTitle')}
           </span>
@@ -259,7 +306,7 @@ export function QuickConnect() {
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleConnectVnc();
             }}
-            className="h-8 min-w-0 flex-1"
+            className="h-8 min-w-0 max-w-[24rem] flex-1"
           />
           <Input
             type="number"
@@ -282,6 +329,152 @@ export function QuickConnect() {
           <Button size="sm" className="h-8 shrink-0" onClick={() => void handleConnectVnc()}>
             {t('quickConnect.vncConnect')}
           </Button>
+        </div>
+
+        {/* 串口（占满整行；高级参数折叠） */}
+        <div className="rounded-lg border border-border bg-card p-3 md:col-span-2">
+          <div className="flex items-center gap-3">
+            <span className="flex w-32 shrink-0 items-center gap-1.5 whitespace-nowrap text-sm font-medium">
+              <IconUsb size={15} className="text-muted-foreground" />
+              {t('quickConnect.serialTitle')}
+            </span>
+            <Input
+              type="text"
+              placeholder={t('quickConnect.serialPort')}
+              value={serialPort}
+              onChange={(e) => setSerialPort(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleConnectSerial();
+              }}
+              className="h-8 w-40 shrink-0"
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0 text-muted-foreground"
+              title={t('quickConnect.serialRefresh')}
+              onClick={refreshSerialPorts}
+            >
+              <IconRefresh size={14} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 shrink-0 px-2 text-xs text-muted-foreground"
+              onClick={() => setSerialShowAdvanced((v) => !v)}
+            >
+              {t('quickConnect.serialAdvanced')}
+              {serialShowAdvanced ? <IconChevronUp size={13} /> : <IconChevronDown size={13} />}
+            </Button>
+            <Button size="sm" className="ml-auto h-8 shrink-0" onClick={() => void handleConnectSerial()}>
+              {t('quickConnect.serialConnect')}
+            </Button>
+          </div>
+
+          {/* 检测到的端口快捷选择 */}
+          {serialPorts.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-[7.5rem]">
+              <span className="text-xs text-muted-foreground">{t('quickConnect.serialDetected')}</span>
+              {serialPorts.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setSerialPort(p)}
+                  className={
+                    'h-6 rounded-md border px-2 font-mono text-xs transition-colors ' +
+                    (serialPort === p
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border text-muted-foreground hover:bg-accent')
+                  }
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* 高级参数（折叠）：波特率/数据位/停止位/校验/流控 */}
+          {serialShowAdvanced && (
+            <div className="mt-2.5 grid grid-cols-2 gap-2.5 pl-[7.5rem] sm:grid-cols-3 xl:grid-cols-5">
+              <div>
+                <p className="mb-1 text-xs text-muted-foreground">{t('quickConnect.serialBaud')}</p>
+                <Select value={serialBaud} onValueChange={setSerialBaud}>
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {['9600', '19200', '38400', '57600', '115200', '230400', '460800', '921600'].map(
+                      (b) => (
+                        <SelectItem key={b} value={b}>
+                          {b}
+                        </SelectItem>
+                      ),
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <p className="mb-1 text-xs text-muted-foreground">{t('quickConnect.serialDataBits')}</p>
+                <Select value={serialDataBits} onValueChange={setSerialDataBits}>
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {['5', '6', '7', '8'].map((v) => (
+                      <SelectItem key={v} value={v}>
+                        {v}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <p className="mb-1 text-xs text-muted-foreground">{t('quickConnect.serialStopBits')}</p>
+                <Select value={serialStopBits} onValueChange={setSerialStopBits}>
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {['1', '2'].map((v) => (
+                      <SelectItem key={v} value={v}>
+                        {v}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <p className="mb-1 text-xs text-muted-foreground">{t('quickConnect.serialParity')}</p>
+                <Select value={serialParity} onValueChange={(v) => setSerialParity(v as 'none' | 'odd' | 'even')}>
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(['none', 'odd', 'even'] as const).map((v) => (
+                      <SelectItem key={v} value={v}>
+                        {t(`quickConnect.parity.${v}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <p className="mb-1 text-xs text-muted-foreground">{t('quickConnect.serialFlow')}</p>
+                <Select value={serialFlow} onValueChange={(v) => setSerialFlow(v as 'none' | 'hardware')}>
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(['none', 'hardware'] as const).map((v) => (
+                      <SelectItem key={v} value={v}>
+                        {t(`quickConnect.flow.${v}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

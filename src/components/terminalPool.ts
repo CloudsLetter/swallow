@@ -16,6 +16,7 @@ import {
   telnetWrite,
   localShellWrite,
   localShellResize,
+  serialWrite,
 } from '../services/sessionService';
 import type { SessionEvent } from '../types/session';
 import { useConfigStore } from '../store/config';
@@ -88,16 +89,16 @@ const pool: Record<string, PoolItem> = {};
 const writeQueues: Record<string, Promise<unknown>> = {};
 
 // 会话协议类型（ssh / telnet / local），广播写入时据此选择正确的后端命令
-const sessionTypes: Record<string, 'ssh' | 'telnet' | 'local'> = {};
+const sessionTypes: Record<string, 'ssh' | 'telnet' | 'local' | 'serial'> = {};
 
 // 最近一次已发出的 PTY 尺寸，避免一次 fit 触发多个重复 IPC。
 const lastPtyResize: Record<string, string> = {};
 
-export function setSessionType(sessionId: string, type: 'ssh' | 'telnet' | 'local') {
+export function setSessionType(sessionId: string, type: 'ssh' | 'telnet' | 'local' | 'serial') {
   sessionTypes[sessionId] = type;
 }
 
-export function getSessionType(sessionId: string): 'ssh' | 'telnet' | 'local' {
+export function getSessionType(sessionId: string): 'ssh' | 'telnet' | 'local' | 'serial' {
   return sessionTypes[sessionId] ?? 'ssh';
 }
 
@@ -340,6 +341,7 @@ export function enqueueWriteToTargets(targets: string[], data: string) {
       const st = getSessionType(id);
       if (st === 'telnet') return telnetWrite(id, data);
       if (st === 'local') return localShellWrite(id, data);
+      if (st === 'serial') return serialWrite(id, data);
       return sshWrite(id, data);
     };
     enqueueWrite(id, () =>

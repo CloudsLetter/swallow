@@ -124,6 +124,13 @@ export function Home() {
                   skipAutoConnect={tab.skipAutoConnect}
                   isActive={isActive}
                 />
+              ) : tab.type === 'serial' && tab.serialConfig ? (
+                <TerminalView
+                  sessionId={tab.sessionId || undefined}
+                  serialConfig={tab.serialConfig}
+                  skipAutoConnect={tab.skipAutoConnect}
+                  isActive={isActive}
+                />
               ) : tab.type === 'sftp' ? (
                 <SftpView
                   sessionId={tab.sessionId || undefined}
