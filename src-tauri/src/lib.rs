@@ -1058,9 +1058,17 @@ async fn serial_connect(
     if session_id.trim().is_empty() {
         return Err("串口 session id 不能为空。".to_string());
     }
+    let port = config.port.clone();
+
+    // 复用已建立会话（切换标签/重挂载重复 connect 时避免重复打开设备）
+    {
+        let manager = state.serial.lock().map_err(|e| e.to_string())?;
+        if manager.get_session(&session_id).is_some() {
+            return Ok(ConnectResult::connected(port.clone(), 0));
+        }
+    }
 
     // 打开串口是阻塞系统调用（设备占用/驱动），放阻塞线程池
-    let port = config.port.clone();
     let open_cfg = config.clone();
     let sid_for_open = session_id.clone();
     let session = tauri::async_runtime::spawn_blocking(move || {
@@ -1071,11 +1079,12 @@ async fn serial_connect(
     .await
     .map_err(|e| format!("串口打开任务异常: {e}"))??;
 
-    // 复用已建立会话（切换标签/重挂载重复 connect 时避免重复打开设备）
+    // 竞态兜底：打开期间若已有同 id 会话（并发 connect），丢弃本次新开句柄
+    // （session 在此处 drop → 端口立即释放），避免两个会话抢占同一设备
     {
         let manager = state.serial.lock().map_err(|e| e.to_string())?;
         if manager.get_session(&session_id).is_some() {
-            return Ok(ConnectResult::connected(port, 0));
+            return Ok(ConnectResult::connected(port.clone(), 0));
         }
         manager.insert_session(session_id.clone(), session);
     }
