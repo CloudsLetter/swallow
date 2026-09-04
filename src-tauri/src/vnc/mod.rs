@@ -47,6 +47,11 @@ pub struct VncConnectRequest {
     pub shared: Option<bool>,
     /// SSH 隧道传输（None = 直连 VNC）
     pub ssh: Option<SshTransportConfig>,
+    /// 连接代际：前端每次发起连接递增。后端按代管理会话——同 sessionId 只允许
+    /// 新代覆盖旧代，旧代请求乱序迟到时被拒（不杀新会话）；按代停止防误清。
+    /// 缺省 0（兼容旧调用，视为任意代）。
+    #[serde(default)]
+    pub generation: u64,
 }
 
 /// 连接命令返回。

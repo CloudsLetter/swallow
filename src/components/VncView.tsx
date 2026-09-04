@@ -30,7 +30,13 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const rfbRef = useRef<RFB | null>(null);
-  const cancelledRef = useRef(false);
+  /**
+   * 连接代际：每次 startConnect 发起时 ++genRef 占位；组件卸载/主动断开时也 ++ 使旧代作废。
+   * 所有 await 之后与 RFB 事件回调一律校验「gen === genRef.current」——旧代（StrictMode
+   * 双挂载 / 快速重连留下的在途流程或旧 RFB）任何状态回写都忽略，杜绝「新连接实际存活、
+   * 旧实例断开事件把界面打成已断开」的误报。不能用布尔 cancelledRef：它会被下一次 mount 重置。
+   */
+  const genRef = useRef(0);
   // 连接配置在连接开始时固定；vncConfig 对象身份变化不触发自动重连
   const configRef = useRef<VncTabConfig | undefined>(vncConfig);
   configRef.current = vncConfig;
@@ -44,7 +50,7 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
   const [passwordInput, setPasswordInput] = useState('');
   const [remoteClipboard, setRemoteClipboard] = useState<string | null>(null);
 
-  /** 关闭当前 RFB 与后端桥（不置 cancelled，供按钮手动断连/重连） */
+  /** 关闭当前 RFB（不递增代际，供 startConnect 前清理旧实例） */
   const teardownRfb = useCallback(() => {
     const rfb = rfbRef.current;
     if (rfb) {
@@ -67,7 +73,9 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
       setErrorMsg(t('vnc.missingConfig'));
       return;
     }
-    // 断掉旧实例
+    // 本代占位：作废所有旧代在途流程与旧 RFB 的状态回写
+    const gen = ++genRef.current;
+    // 断掉旧实例（先摘监听，旧实例 disconnect 事件不会到达本代）
     teardownRfb();
     setStatus('starting');
     setErrorMsg(null);
@@ -83,7 +91,13 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
         password: cfg.password || undefined,
         shared: cfg.shared ?? true,
         ssh: cfg.ssh,
+        generation: gen,
       });
+      // 本代已被取代/组件已卸载：精确清掉本代刚建的桥（后端仅停本代，不误伤新代）
+      if (gen !== genRef.current) {
+        void vncDisconnect(sessionId, gen).catch(() => {});
+        return;
+      }
       // SSH 隧道首次遇到未知主机密钥：确认指纹后（写入 known_hosts）重试连接
       if (!result.wsUrl && result.hostKeyToken) {
         const confirmed = await ask(
@@ -95,7 +109,7 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
             cancelLabel: t('vnc.hostKeyCancel'),
           },
         );
-        if (cancelledRef.current) return;
+        if (gen !== genRef.current) return;
         if (!confirmed) {
           setStatus('disconnected');
           return;
@@ -103,22 +117,25 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
         try {
           await acceptHostKey(result.hostKeyToken, result.fingerprint || '');
         } catch (err) {
+          if (gen !== genRef.current) return;
           setStatus('error');
           setErrorMsg(String(err));
           return;
         }
-        // 指纹已信任：重试本连接（将复用已写入的 known_hosts）
+        if (gen !== genRef.current) return;
+        // 指纹已信任：重试本连接（将复用已写入的 known_hosts）；重试即新一代
         void startConnect();
         return;
       }
       wsUrl = result.wsUrl;
     } catch (err) {
-      if (cancelledRef.current) return;
+      // 过期代失败静默（后端可能已由新代接管，无需提示）
+      if (gen !== genRef.current) return;
       setStatus('error');
       setErrorMsg(String(err));
       return;
     }
-    if (cancelledRef.current || !containerRef.current) return;
+    if (gen !== genRef.current || !containerRef.current) return;
     if (!wsUrl) {
       setStatus('error');
       setErrorMsg(t('vnc.error'));
@@ -136,6 +153,7 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
         shared: cfg.shared ?? true,
       });
     } catch (err) {
+      if (gen !== genRef.current) return;
       setStatus('error');
       setErrorMsg(String(err));
       return;
@@ -148,33 +166,36 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
     rfb.viewOnly = viewOnly;
     rfb.resizeSession = false;
 
+    // 事件一律只认本代：旧 RFB 的任何迟到事件不得覆盖新代状态（防「新连接存活却报断」）
     onRfb(rfb, 'connect', () => {
-      if (cancelledRef.current) return;
+      if (gen !== genRef.current) return;
       setStatus('connected');
       setNeedPassword(false);
     });
     onRfb(rfb, 'disconnect', (detail) => {
-      if (cancelledRef.current) return;
+      if (gen !== genRef.current) return;
       setStatus('disconnected');
       if (detail.clean === false && detail.message) {
         setErrorMsg(String(detail.message));
       }
-      rfbRef.current = null;
+      if (rfbRef.current === rfb) rfbRef.current = null;
     });
     onRfb(rfb, 'credentialsrequired', () => {
-      if (cancelledRef.current) return;
+      if (gen !== genRef.current) return;
       // 未预先提供密码：弹输入框，sendCredentials 补交
       setNeedPassword(true);
     });
     onRfb(rfb, 'securityfailure', (detail) => {
-      if (cancelledRef.current) return;
+      if (gen !== genRef.current) return;
       setStatus('error');
       setErrorMsg((detail.reason as string) || t('vnc.securityFailure'));
     });
     onRfb(rfb, 'desktopname', (detail) => {
+      if (gen !== genRef.current) return;
       if (detail.name) setDesktopName(String(detail.name));
     });
     onRfb(rfb, 'clipboard', (detail) => {
+      if (gen !== genRef.current) return;
       if (typeof detail.text === 'string') setRemoteClipboard(detail.text);
     });
     // bell 无操作（后续可做提示音）
@@ -182,22 +203,23 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
 
   // 挂载自动连接（skipAutoConnect = 恢复会话缺密码，等待手动）
   useEffect(() => {
-    cancelledRef.current = false;
     if (skipAutoConnect) {
       setStatus('disconnected');
       return;
     }
     void startConnect();
     return () => {
-      cancelledRef.current = true;
-      // 卸载：关 noVNC 并通知后端停止桥（WebSocket/TCP/listener 一起释放）
+      // 卸载 / StrictMode 重挂：作废在途流程与旧 RFB 事件，按代停掉本组件实例
+      // 最后一代已建的桥（staleGen 与新一代不等则后端不误杀）
+      const staleGen = genRef.current;
+      genRef.current += 1;
       try {
         rfbRef.current?.disconnect();
       } catch {
         /* noop */
       }
       rfbRef.current = null;
-      if (sessionId) void vncDisconnect(sessionId).catch(() => {});
+      if (sessionId) void vncDisconnect(sessionId, staleGen).catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
@@ -225,6 +247,8 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
   };
 
   const handleDisconnect = () => {
+    // 作废在途流程与旧 RFB 事件（断开后再点重连会开新一代）
+    genRef.current += 1;
     teardownRfb();
     setStatus('disconnected');
     if (sessionId) void vncDisconnect(sessionId).catch(() => {});

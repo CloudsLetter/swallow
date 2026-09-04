@@ -15,6 +15,8 @@ use super::ssh::SshTunnelGuard;
 struct VncEntry {
     /// 一次性随机 token（WebSocket 握手鉴权用，不落日志）
     token: String,
+    /// 连接代际：同 sessionId 多代并发时区分新旧（只允许新代覆盖旧代）
+    generation: u64,
     stop: Arc<AtomicBool>,
     /// listener/转发后台任务；stop 后 abort
     task: JoinHandle<()>,
@@ -67,20 +69,38 @@ impl VncManager {
     /// 网络等待（连 VNC、bind listener、SSH 隧道建立）都必须在调用侧完成后再进锁调用
     /// 本方法：`listener` 必须绑定 127.0.0.1（本模块不在此处 bind，避免锁内 await）。
     /// `tunnel` 仅 SSH 传输模式传入，随会话存活（直连为 None）。
-    /// 重复 session_id：先停旧会话再建新会话，避免端口/任务泄漏。
+    /// 重复 session_id 且 `generation` 更新：先停旧会话再建新会话，避免端口/任务泄漏；
+    /// 若已有会话的代际 ≥ `generation`（旧代/乱序请求迟到），拒绝覆盖——防止前端
+    /// StrictMode 双挂载或重连竞态下旧请求杀掉新会话。
     pub fn start(
         &self,
         session_id: &str,
         listener: tokio::net::TcpListener,
         tcp: TcpStream,
         tunnel: Option<SshTunnelGuard>,
+        generation: u64,
     ) -> Result<VncConnectResult, String> {
         // 校验
         if session_id.trim().is_empty() {
             return Err("VNC session id 不能为空。".into());
         }
 
-        // 同 id 先清理旧会话
+        // 代际守门：已有更新代会话时拒绝旧代覆盖（旧请求让路，新会话不被误杀）
+        {
+            let map = self
+                .sessions
+                .lock()
+                .map_err(|_| "VNC 会话表已中毒".to_string())?;
+            if let Some(old) = map.get(session_id) {
+                if old.generation >= generation {
+                    return Err(format!(
+                        "VNC 会话 {session_id} 已被更新的连接占用（代际 {} ≥ {}），本次请求已过期。",
+                        old.generation, generation
+                    ));
+                }
+            }
+        }
+        // 同 id 旧代会话（gen < 新 gen）：清理后重建
         let _ = self.stop(session_id);
 
         let local_port = listener
@@ -116,6 +136,7 @@ impl VncManager {
                 session_id.to_string(),
                 VncEntry {
                     token,
+                    generation,
                     stop,
                     task,
                     _tunnel: tunnel,
@@ -139,6 +160,23 @@ impl VncManager {
         let entry = {
             let mut map = self.sessions.lock().map_err(|_| "VNC 会话表已中毒".to_string())?;
             map.remove(session_id)
+        };
+        if let Some(entry) = entry {
+            entry.stop.store(true, Ordering::Relaxed);
+            entry.task.abort();
+        }
+        Ok(())
+    }
+
+    /// 仅当该 session 当前登记的是 `generation` 代会话时才停止（幂等）。
+    /// 用于前端旧代清理：若会话已被新一代接管则不误杀。
+    pub fn stop_generation(&self, session_id: &str, generation: u64) -> Result<(), String> {
+        let entry = {
+            let mut map = self.sessions.lock().map_err(|_| "VNC 会话表已中毒".to_string())?;
+            match map.get(session_id) {
+                Some(e) if e.generation == generation => map.remove(session_id),
+                _ => None,
+            }
         };
         if let Some(entry) = entry {
             entry.stop.store(true, Ordering::Relaxed);
@@ -234,7 +272,7 @@ mod tests {
     async fn binary_roundtrip_and_cleanup() {
         let echo = spawn_echo_server().await;
         let m = VncManager::new();
-        let res = m.start("sess-1", bind_loopback().await, TcpStream::connect(echo).await.unwrap(), None).unwrap();
+        let res = m.start("sess-1", bind_loopback().await, TcpStream::connect(echo).await.unwrap(), None, 1).unwrap();
         assert_eq!(res.session_id, "sess-1");
         assert!(res.ws_url.as_ref().unwrap().starts_with("ws://127.0.0.1:"));
         assert!(m.contains("sess-1"));
@@ -264,7 +302,7 @@ mod tests {
     async fn wrong_token_rejected() {
         let echo = spawn_echo_server().await;
         let m = VncManager::new();
-        let res = m.start("sess-2", bind_loopback().await, TcpStream::connect(echo).await.unwrap(), None).unwrap();
+        let res = m.start("sess-2", bind_loopback().await, TcpStream::connect(echo).await.unwrap(), None, 1).unwrap();
         // 替换 token
         let bad_url = res.ws_url.as_ref().unwrap().replacen("token=", "token=deadbeef", 1);
         // 错误 token 无法完成握手（连接/握手失败）
@@ -277,7 +315,7 @@ mod tests {
     async fn wrong_session_rejected() {
         let echo = spawn_echo_server().await;
         let m = VncManager::new();
-        let res = m.start("sess-3", bind_loopback().await, TcpStream::connect(echo).await.unwrap(), None).unwrap();
+        let res = m.start("sess-3", bind_loopback().await, TcpStream::connect(echo).await.unwrap(), None, 1).unwrap();
         // 路径换成别的 session
         let bad_url = res.ws_url.as_ref().unwrap().replace("/vnc/sess-3", "/vnc/sess-other");
         let result = ws_connect(&bad_url).await;
@@ -289,10 +327,10 @@ mod tests {
     async fn duplicate_session_replaces() {
         let echo = spawn_echo_server().await;
         let m = VncManager::new();
-        let r1 = m.start("sess-4", bind_loopback().await, TcpStream::connect(echo).await.unwrap(), None).unwrap();
+        let r1 = m.start("sess-4", bind_loopback().await, TcpStream::connect(echo).await.unwrap(), None, 1).unwrap();
         assert!(m.contains("sess-4"));
-        // 相同 id 重新 start：旧 listener 关闭、新 URL 可连
-        let r2 = m.start("sess-4", bind_loopback().await, TcpStream::connect(echo).await.unwrap(), None).unwrap();
+        // 相同 id 以更新的代际（2）重新 start：旧 listener 关闭、新 URL 可连
+        let r2 = m.start("sess-4", bind_loopback().await, TcpStream::connect(echo).await.unwrap(), None, 2).unwrap();
         assert!(m.contains("sess-4"));
         assert_ne!(r1.ws_url, r2.ws_url);
         // 旧 URL 应已不可连
@@ -315,7 +353,7 @@ mod tests {
         });
 
         let m = VncManager::new();
-        let res = m.start("sess-5", bind_loopback().await, TcpStream::connect(addr).await.unwrap(), None).unwrap();
+        let res = m.start("sess-5", bind_loopback().await, TcpStream::connect(addr).await.unwrap(), None, 1).unwrap();
         let (mut ws, _) = tokio_tungstenite::connect_async(res.ws_url.as_ref().unwrap()).await.unwrap();
         use futures_util::{SinkExt, StreamExt};
         ws.send(tokio_tungstenite::tungstenite::protocol::Message::Binary(vec![9].into()))
@@ -353,7 +391,7 @@ mod tests {
         });
 
         let m = VncManager::new();
-        let res = m.start("sess-6", bind_loopback().await, TcpStream::connect(addr).await.unwrap(), None).unwrap();
+        let res = m.start("sess-6", bind_loopback().await, TcpStream::connect(addr).await.unwrap(), None, 1).unwrap();
         let (mut ws, _) = tokio_tungstenite::connect_async(res.ws_url.as_ref().unwrap()).await.unwrap();
         use futures_util::StreamExt;
         // 客户端主动关 WebSocket
@@ -372,7 +410,7 @@ mod tests {
     async fn text_message_rejected() {
         let echo = spawn_echo_server().await;
         let m = VncManager::new();
-        let res = m.start("sess-7", bind_loopback().await, TcpStream::connect(echo).await.unwrap(), None).unwrap();
+        let res = m.start("sess-7", bind_loopback().await, TcpStream::connect(echo).await.unwrap(), None, 1).unwrap();
         let (mut ws, _) = tokio_tungstenite::connect_async(res.ws_url.as_ref().unwrap()).await.unwrap();
         use futures_util::{SinkExt, StreamExt};
         ws.send(tokio_tungstenite::tungstenite::protocol::Message::Text("hi".into()))
@@ -387,5 +425,33 @@ mod tests {
             other => panic!("Text 消息应被拒绝, got {other:?}"),
         }
         m.stop("sess-7").unwrap();
+    }
+
+    #[tokio::test]
+    async fn stale_generation_rejected_does_not_kill_newer() {
+        let echo = spawn_echo_server().await;
+        let m = VncManager::new();
+        // gen 2 先建（较新的请求先到）
+        let r2 = m.start("sess-8", bind_loopback().await, TcpStream::connect(echo).await.unwrap(), None, 2).unwrap();
+        assert!(m.contains("sess-8"));
+        // gen 1 的旧请求乱序迟到：必须被拒，且不能覆盖/杀掉 gen 2 的会话
+        let stale = m.start("sess-8", bind_loopback().await, TcpStream::connect(echo).await.unwrap(), None, 1);
+        assert!(stale.is_err(), "旧代请求应被拒绝");
+        assert!(m.contains("sess-8"), "新会话不应被旧代覆盖");
+        // gen 2 的 URL 仍可连（新会话活着）
+        let (mut ws, _) = tokio_tungstenite::connect_async(r2.ws_url.as_ref().unwrap()).await.unwrap();
+        use futures_util::{SinkExt, StreamExt};
+        ws.send(tokio_tungstenite::tungstenite::protocol::Message::Binary(vec![5].into()))
+            .await
+            .unwrap();
+        let msg = ws.next().await.unwrap().unwrap();
+        assert_eq!(msg, tokio_tungstenite::tungstenite::protocol::Message::Binary(vec![5].into()));
+        let _ = ws.close(None).await;
+
+        // stop_generation 只停指定代：用错代不停，正确代停
+        m.stop_generation("sess-8", 1).unwrap();
+        assert!(m.contains("sess-8"), "停止错代不应影响现有会话");
+        m.stop_generation("sess-8", 2).unwrap();
+        assert!(!m.contains("sess-8"));
     }
 }

@@ -321,6 +321,11 @@ export interface VncSessionConfig {
   password?: string;
   shared?: boolean;
   ssh?: VncSshTransportConfig;
+  /**
+   * 连接代际（每次发起连接 +1）。后端会话按代管理：同 sessionId 只允许新代覆盖旧代，
+   * 旧代乱序到达被拒；vnc_disconnect 按代停止，避免旧代清理误杀新一代（防误报断）。
+   */
+  generation?: number;
 }
 
 export interface VncConnectResult {
@@ -344,9 +349,12 @@ export function vncConnect(
   });
 }
 
-/** 断开 VNC 会话（幂等）。 */
-export function vncDisconnect(sessionId: string): Promise<void> {
-  return invoke<void>('vnc_disconnect', { sessionId });
+/**
+ * 断开 VNC 会话（幂等）。
+ * @param generation 仅停止该代际的会话；省略则停止当前注册会话（手动断开/标签关闭用）。
+ */
+export function vncDisconnect(sessionId: string, generation?: number): Promise<void> {
+  return invoke<void>('vnc_disconnect', { sessionId, generation: generation ?? null });
 }
 
 /** 列出当前 VNC 会话 id。 */

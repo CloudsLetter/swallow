@@ -979,7 +979,7 @@ async fn vnc_connect(
                     .await
                     .map_err(|e| format!("无法创建本地监听端口: {e}"))?;
                 let manager = state.vnc.lock().map_err(|e| e.to_string())?;
-                return manager.start(&sid, listener, tcp, Some(guard));
+                return manager.start(&sid, listener, tcp, Some(guard), request.generation);
             }
             Err(e) => {
                 // SSH 主机密钥待确认：复用 ssh/session 的 pending 机制与 accept_host_key
@@ -1024,13 +1024,21 @@ async fn vnc_connect(
         .map_err(|e| format!("无法创建本地监听端口: {e}"))?;
 
     let manager = state.vnc.lock().map_err(|e| e.to_string())?;
-    manager.start(&request.session_id, listener, tcp, None)
+    manager.start(&request.session_id, listener, tcp, None, request.generation)
 }
 
 #[tauri::command]
-async fn vnc_disconnect(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
+async fn vnc_disconnect(
+    state: State<'_, AppState>,
+    session_id: String,
+    // 只停止该代际的会话；None = 停止当前注册会话（手动断开/标签关闭）
+    generation: Option<u64>,
+) -> Result<(), String> {
     let manager = state.vnc.lock().map_err(|e| e.to_string())?;
-    manager.stop(&session_id)
+    match generation {
+        Some(gen) => manager.stop_generation(&session_id, gen),
+        None => manager.stop(&session_id),
+    }
 }
 
 #[tauri::command]
