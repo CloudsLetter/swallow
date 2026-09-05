@@ -102,6 +102,14 @@ export default {
     expandSidebar: 'Expand menu',
   },
 
+  palette: {
+    placeholder: 'Search hosts, pages or actions…',
+    pages: 'Pages',
+    actions: 'Actions',
+    openQuickConnect: 'Open Quick Connect',
+    empty: 'No matching results',
+  },
+
   settings: {
     title: 'Settings',
     subtitle: 'Application appearance and behavior configuration',

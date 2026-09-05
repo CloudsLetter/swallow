@@ -72,6 +72,19 @@ export function Home() {
     });
   };
 
+  // 全局命令条等外部入口的跳转请求：激活 home 标签并切到目标页面
+  const pendingNav = useUiPage((s) => s.pendingNav);
+  useEffect(() => {
+    if (!pendingNav) return;
+    useUiPage.getState().setPendingNav(null);
+    const homeTabId = homeTab?.id ?? 'home-tab';
+    if (activeTabId !== homeTabId) {
+      useTabStore.getState().focusTab(homeTabId);
+    }
+    handleMenuItemClick(pendingNav);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingNav]);
+
   return (
     <div className="home-grid flex" style={{ width: '100%', height: '100%' }}>
       {/* 侧边菜单：home 标签激活时显示（keep-alive 保留折叠状态） */}

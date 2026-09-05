@@ -7,9 +7,14 @@ import { create } from 'zustand';
 interface UiPageState {
   homePage: string | null;
   setHomePage: (page: string | null) => void;
+  /** 待处理的页面跳转请求（全局命令条等外部入口发起，Home 消费后清空） */
+  pendingNav: string | null;
+  setPendingNav: (page: string | null) => void;
 }
 
 export const useUiPage = create<UiPageState>((set) => ({
   homePage: null,
   setHomePage: (page) => set({ homePage: page }),
+  pendingNav: null,
+  setPendingNav: (page) => set({ pendingNav: page }),
 }));

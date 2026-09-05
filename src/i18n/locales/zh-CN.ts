@@ -102,6 +102,14 @@ export default {
     expandSidebar: '展开菜单',
   },
 
+  palette: {
+    placeholder: '搜索主机、页面或操作…',
+    pages: '页面',
+    actions: '操作',
+    openQuickConnect: '打开快速连接',
+    empty: '没有匹配的结果',
+  },
+
   settings: {
     title: '设置',
     subtitle: '应用外观与行为配置',

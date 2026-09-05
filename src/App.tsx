@@ -9,6 +9,7 @@ import { Home } from './pages/Home';
 import { Toaster } from './components/ui/sonner';
 import { OnboardingDialog } from './components/OnboardingDialog';
 import { DebugConsole } from './components/DebugConsole';
+import { CommandPalette } from './components/CommandPalette';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import './App.css';
 import { useConfigStore } from './store/config';
@@ -235,6 +236,7 @@ function App() {
             <DebugConsole />
           </ErrorBoundary>
         )}
+        <CommandPalette />
       </DndProvider>
     </I18nextProvider>
   );
