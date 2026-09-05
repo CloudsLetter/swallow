@@ -8,6 +8,9 @@ name: Release
 #              （内嵌 WebView2 离线安装器，供未预装 WebView2 的机器离线安装）
 #   macOS   —— dmg（aarch64 + x86_64）
 #   Linux   —— deb / AppImage（ubuntu-22.04）
+# 同一份构建产物同时上传 CrabNebula Cloud（CDN + 内置更新服务器，配合
+# tauri-plugin-updater 自动更新分发）——CN 未配置时自动跳过相关步骤，
+# 退化为纯 GitHub 发布（原独立的 crabnebula-cloud.yml 已并入本文件）。
 
 on:
   push:
@@ -17,6 +20,14 @@ on:
 
 permissions:
   contents: write
+
+env:
+  # CrabNebula Cloud org/app 标识，形如 cloudsletter/swallow（来自 repo Variables）
+  CN_APPLICATION: "${{ vars.CN_APPLICATION }}"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   create-release:
@@ -39,8 +50,32 @@ jobs:
           name: Swallow ${{ steps.version.outputs.tag }}
           generate_release_notes: true
 
+  # CrabNebula 守卫 + 预建 draft。CN_API_KEY 的检查必须在 step 内做
+  #（job 级 if 无法访问 secrets），结果经 outputs 传给下游步骤。
+  cn-draft:
+    # CN_APPLICATION 变量未配置时整个 job 跳过（下游据此跳过 CN 步骤）
+    if: ${{ vars.CN_APPLICATION != '' }}
+    runs-on: ubuntu-22.04
+    outputs:
+      enabled: ${{ steps.guard.outputs.enabled }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: guard
+        name: Guard (CN_API_KEY configured?)
+        env:
+          CN_API_KEY: ${{ secrets.CN_API_KEY }}
+        run: echo "enabled=${{ env.CN_API_KEY != '' }}" >> "$GITHUB_OUTPUT"
+      - name: Create draft release
+        if: ${{ steps.guard.outputs.enabled == 'true' }}
+        uses: crabnebula-dev/cloud-release@v0
+        with:
+          command: release draft ${{ env.CN_APPLICATION }} --framework tauri
+          api-key: ${{ secrets.CN_API_KEY }}
+
   build:
-    needs: [create-release]
+    needs: [create-release, cn-draft]
+    # cn-draft 失败（CN 平台故障）不阻断 GitHub 发布，故用 !cancelled() 放行
+    if: ${{ !cancelled() && needs.create-release.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -90,7 +125,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
-            librsvg2-dev patchelf libdbus-1-dev
+            librsvg2-dev patchelf libdbus-1-dev libudev-dev
 
       # vendored OpenSSL 构建需要 perl + nasm：缺 nasm 会退化成 no-asm 纯软加密
       # （SFTP 限速、CPU 高）。用专用 action 显式安装，不依赖 runner 预装 Strawberry Perl。
@@ -113,7 +148,7 @@ jobs:
           nasm -v
           perl -v
 
-      - name: Build & upload (tauri-action)
+      - name: Build & upload to GitHub release (tauri-action)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.TOKEN }}
@@ -126,6 +161,14 @@ jobs:
           projectPath: src-tauri
           releaseId: ${{ needs.create-release.outputs.releaseId }}
           args: ${{ matrix.args }}
+
+      - name: Upload assets to CrabNebula Cloud
+        if: needs.cn-draft.outputs.enabled == 'true'
+        uses: crabnebula-dev/cloud-release@v0
+        with:
+          command: release upload ${{ env.CN_APPLICATION }} --framework tauri
+          api-key: ${{ secrets.CN_API_KEY }}
+          working-directory: src-tauri
 
   # Windows -full：NSIS 内嵌 WebView2 离线安装器（~150MB），供无网/未装 WebView2 的机器
   build-full-windows:
@@ -193,3 +236,16 @@ jobs:
           cd src-tauri/target/release/bundle/nsis
           mv swallow_${ver}_x64-setup.exe swallow_${ver}_x64-full-setup.exe
           gh release upload "v${ver}" swallow_${ver}_x64-full-setup.exe --clobber
+
+  # CrabNebula Cloud：标记 publish，启用更新分发（仅 CN 启用且构建成功时）
+  publish-cn:
+    needs: [build, cn-draft]
+    if: needs.build.result == 'success' && needs.cn-draft.outputs.enabled == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish release
+        uses: crabnebula-dev/cloud-release@v0
+        with:
+          command: release publish ${{ env.CN_APPLICATION }} --framework tauri
+          api-key: ${{ secrets.CN_API_KEY }}
