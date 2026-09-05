@@ -138,13 +138,14 @@ function App() {
         const data = await loadOpenSessions();
         const sessions = JSON.parse(data) as Array<{
           name: string;
-          type: 'terminal' | 'telnet' | 'local' | 'serial' | 'sftp' | 'vnc';
+          type: 'terminal' | 'telnet' | 'local' | 'serial' | 'sftp' | 'vnc' | 'rdp';
           sshConfig?: Tab['sshConfig'];
           telnetConfig?: Tab['telnetConfig'];
           localConfig?: Tab['localConfig'];
           serialConfig?: Tab['serialConfig'];
           sftpConfig?: Tab['sftpConfig'];
           vncConfig?: Tab['vncConfig'];
+          rdpConfig?: Tab['rdpConfig'];
         }>;
         const { createTab } = useTabStore.getState();
         for (const s of sessions) {
@@ -160,6 +161,9 @@ function App() {
             !!s.vncConfig?.ssh &&
             s.vncConfig.ssh.sshAuthType === 'password' &&
             !s.vncConfig.ssh.sshPassword;
+          // RDP：NLA 密码从不落盘 → 恢复后必然认证失败 → 跳过自动连接，
+          // RdpView 弹密码输入框兜底（用户补交后连接）
+          const rdpPasswordMissing = s.type === 'rdp' && !s.rdpConfig?.password;
           createTab({
             name: s.name,
             type: s.type,
@@ -169,7 +173,8 @@ function App() {
             serialConfig: s.serialConfig,
             sftpConfig: s.sftpConfig,
             vncConfig: s.vncConfig,
-            skipAutoConnect: passwordAuth || sftpPasswordAuth || vncSshPasswordMissing,
+            rdpConfig: s.rdpConfig,
+            skipAutoConnect: passwordAuth || sftpPasswordAuth || vncSshPasswordMissing || rdpPasswordMissing,
           });
         }
       } catch (e) {
@@ -178,12 +183,12 @@ function App() {
     })();
   }, [config]);
 
-  // 标签变化时持久化当前打开的会话（仅 terminal/sftp/vnc，密码/passphrase 不落盘）
+  // 标签变化时持久化当前打开的会话（仅 terminal/sftp/vnc/rdp，密码/passphrase 不落盘）
   useEffect(() => {
     const persist = () => {
       const { tabs } = useTabStore.getState();
       const sessions = tabs
-        .filter((t) => t.type === 'terminal' || t.type === 'telnet' || t.type === 'local' || t.type === 'serial' || t.type === 'sftp' || t.type === 'vnc')
+        .filter((t) => t.type === 'terminal' || t.type === 'telnet' || t.type === 'local' || t.type === 'serial' || t.type === 'sftp' || t.type === 'vnc' || t.type === 'rdp')
         .map((t) => ({
           name: t.name,
           type: t.type,
@@ -201,6 +206,7 @@ function App() {
                   : undefined,
               }
             : undefined,
+          rdpConfig: t.rdpConfig ? { ...t.rdpConfig, password: undefined } : undefined,
         }));
       void saveOpenSessions(JSON.stringify(sessions)).catch(() => {});
     };

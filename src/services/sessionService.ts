@@ -361,3 +361,47 @@ export function vncDisconnect(sessionId: string, generation?: number): Promise<v
 export function vncListSessions(): Promise<string[]> {
   return invoke<string[]>('vnc_list_sessions');
 }
+
+// ==================== RDP ====================
+
+export interface RdpSessionConfig {
+  host: string;
+  port: number;
+  username: string;
+  /** NLA/CredSSP 密码：仅内存持有，不落 URL、日志或持久化会话文件 */
+  password: string;
+  /** 初始桌面分辨率（按容器尺寸计算）；省略则用 IronRDP 默认 */
+  width?: number;
+  height?: number;
+  /** 连接代际（每次发起连接 +1），语义与 VNC 相同 */
+  generation?: number;
+}
+
+export interface RdpConnectResult {
+  sessionId: string;
+  /** 本地 WebSocket 地址（帧/控制消息协议见 rdp/session.rs 与 RdpView） */
+  wsUrl: string;
+}
+
+/** 建立 RDP 会话：Rust 侧跑 IronRDP 协议客户端（NLA 认证 + 帧解码），前端经本地 WebSocket 收发。 */
+export function rdpConnect(
+  sessionId: string,
+  config: RdpSessionConfig,
+): Promise<RdpConnectResult> {
+  return invoke<RdpConnectResult>('rdp_connect', {
+    request: { sessionId, ...config },
+  });
+}
+
+/**
+ * 断开 RDP 会话（幂等）。
+ * @param generation 仅停止该代际的会话；省略则停止当前注册会话（手动断开/标签关闭用）。
+ */
+export function rdpDisconnect(sessionId: string, generation?: number): Promise<void> {
+  return invoke<void>('rdp_disconnect', { sessionId, generation: generation ?? null });
+}
+
+/** 列出当前 RDP 会话 id。 */
+export function rdpListSessions(): Promise<string[]> {
+  return invoke<string[]>('rdp_list_sessions');
+}

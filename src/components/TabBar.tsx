@@ -16,6 +16,7 @@ import {
   PlayCircle as IconPlayCircle,
   Monitor as IconMonitor,
   Usb as IconUsb,
+  ScreenShare as IconScreenShare,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from './ui/context-menu';
@@ -36,6 +37,8 @@ function tabIcon(type: Tab['type']) {
       return IconFolder;
     case 'vnc':
       return IconMonitor;
+    case 'rdp':
+      return IconScreenShare;
     case 'serial':
       return IconUsb;
     case 'telnet':

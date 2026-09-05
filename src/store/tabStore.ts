@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { disposeTerminal, unattachListeners } from '../components/terminalPool';
 import { disposeSftpSession } from '../components/sftpPool';
-import { disconnectSsh, disconnectSftp, telnetDisconnect, localShellDisconnect, serialDisconnect, vncDisconnect } from '../services/sessionService';
+import { disconnectSsh, disconnectSftp, telnetDisconnect, localShellDisconnect, serialDisconnect, vncDisconnect, rdpDisconnect } from '../services/sessionService';
 import type { SessionReplayData } from '../services/sessionReplay';
 import {
   type SplitLayout,
@@ -15,7 +15,7 @@ import {
   MAX_SPLIT_PANES,
 } from './splitLayout';
 
-export type TabType = 'home' | 'terminal' | 'telnet' | 'local' | 'serial' | 'sftp' | 'vnc' | 'replay' | 'quick-connect' | 'split';
+export type TabType = 'home' | 'terminal' | 'telnet' | 'local' | 'serial' | 'sftp' | 'vnc' | 'rdp' | 'replay' | 'quick-connect' | 'split';
 
 export interface SshTabConfig {
   host: string;
@@ -88,6 +88,17 @@ export interface VncTabConfig {
   };
 }
 
+/** RDP 会话配置（IronRDP 协议端在 Rust；password 不落盘）。 */
+export interface RdpTabConfig {
+  host: string;
+  port: number;
+  username: string;
+  password?: string;
+  /** 恢复的会话缺密码时由 RdpView 弹窗补交后连接 */
+  width?: number;
+  height?: number;
+}
+
 export interface ReplayTabConfig {
   path: string;
   replay: SessionReplayData;
@@ -115,6 +126,7 @@ export interface Tab {
   serialConfig?: SerialTabConfig;
   sftpConfig?: SftpTabConfig;
   vncConfig?: VncTabConfig;
+  rdpConfig?: RdpTabConfig;
   replayConfig?: ReplayTabConfig;
   // 仅 split 标签使用：pane 扁平列表（供查找）+ 布局树（供渲染）
   panes?: SplitPane[];
@@ -140,6 +152,7 @@ interface TabStore {
     serialConfig?: Tab['serialConfig'];
     sftpConfig?: Tab['sftpConfig'];
     vncConfig?: Tab['vncConfig'];
+    rdpConfig?: Tab['rdpConfig'];
     replayConfig?: Tab['replayConfig'];
     skipAutoConnect?: boolean;
   }) => string;
@@ -180,11 +193,18 @@ function uniqueTabIds() {
 }
 
 /** 断开一个会话并清理对应资源（尽力而为，不抛异常）。 */
-function disposeSession(type: 'terminal' | 'telnet' | 'local' | 'serial' | 'sftp' | 'vnc', sessionId: string) {
+function disposeSession(type: 'terminal' | 'telnet' | 'local' | 'serial' | 'sftp' | 'vnc' | 'rdp', sessionId: string) {
   if (type === 'vnc') {
     // VNC 不使用 terminalPool/sftpPool：仅请求后端停止本地桥并清理
     void vncDisconnect(sessionId).catch((error) => {
       console.warn(`Failed to disconnect VNC session ${sessionId}:`, error);
+    });
+    return;
+  }
+  if (type === 'rdp') {
+    // RDP 同样不使用 terminalPool/sftpPool：请求后端停止协议泵并优雅断开
+    void rdpDisconnect(sessionId).catch((error) => {
+      console.warn(`Failed to disconnect RDP session ${sessionId}:`, error);
     });
     return;
   }
@@ -263,8 +283,9 @@ export function canMergeTabs(source: Tab, target: Tab): boolean {
   if (!source || !target) return false;
   if (target.type === 'home' || target.type === 'quick-connect') return false;
   if (source.type === 'home' || source.type === 'quick-connect' || source.type === 'split') return false;
-  // VNC / 串口暂不支持分屏（SplitPane.type 仅 terminal|sftp），禁止任何合并
+  // VNC / RDP / 串口暂不支持分屏（SplitPane.type 仅 terminal|sftp），禁止任何合并
   if (source.type === 'vnc' || target.type === 'vnc') return false;
+  if (source.type === 'rdp' || target.type === 'rdp') return false;
   if (source.type === 'serial' || target.type === 'serial') return false;
   if (mergeGroupOfTab(target) !== mergeGroupOfTab(source)) return false;
   if (target.type === 'split') {
@@ -306,6 +327,7 @@ export const useTabStore = create<TabStore>((set, get) => ({
       serialConfig: config.serialConfig,
       sftpConfig: config.sftpConfig,
       vncConfig: config.vncConfig,
+      rdpConfig: config.rdpConfig,
       replayConfig: config.replayConfig,
       skipAutoConnect: config.skipAutoConnect,
     };
@@ -339,13 +361,13 @@ export const useTabStore = create<TabStore>((set, get) => ({
       for (const pane of closedTab.panes || []) {
         disposeSession(pane.type, pane.sessionId);
       }
-    } else if (closedTab.sessionId && (closedTab.type === 'terminal' || closedTab.type === 'telnet' || closedTab.type === 'local' || closedTab.type === 'serial' || closedTab.type === 'sftp' || closedTab.type === 'vnc')) {
+    } else if (closedTab.sessionId && (closedTab.type === 'terminal' || closedTab.type === 'telnet' || closedTab.type === 'local' || closedTab.type === 'serial' || closedTab.type === 'sftp' || closedTab.type === 'vnc' || closedTab.type === 'rdp')) {
       disposeSession(closedTab.type, closedTab.sessionId);
     }
 
-    // 记录到「最近关闭」栈（仅 terminal/telnet/local/serial/sftp/vnc 单会话标签，最多保留 10 条）
+    // 记录到「最近关闭」栈（仅 terminal/telnet/local/serial/sftp/vnc/rdp 单会话标签，最多保留 10 条）
     let recentlyClosed = get().recentlyClosed;
-    if (closedTab.type === 'terminal' || closedTab.type === 'telnet' || closedTab.type === 'local' || closedTab.type === 'serial' || closedTab.type === 'sftp' || closedTab.type === 'vnc') {
+    if (closedTab.type === 'terminal' || closedTab.type === 'telnet' || closedTab.type === 'local' || closedTab.type === 'serial' || closedTab.type === 'sftp' || closedTab.type === 'vnc' || closedTab.type === 'rdp') {
       recentlyClosed = [...recentlyClosed, closedTab];
       if (recentlyClosed.length > 10) recentlyClosed = recentlyClosed.slice(-10);
     }
@@ -609,6 +631,7 @@ export const useTabStore = create<TabStore>((set, get) => ({
       serialConfig: last.serialConfig,
       sftpConfig: last.sftpConfig,
       vncConfig: last.vncConfig,
+      rdpConfig: last.rdpConfig,
     };
     set((state: TabStore) => ({
       tabs: [...state.tabs, newTab],

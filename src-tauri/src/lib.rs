@@ -10,6 +10,7 @@ mod utils;
 mod monitor;
 mod serial;
 mod vnc;
+mod rdp;
 #[cfg(target_os = "windows")]
 mod os_drop_paths;
 
@@ -20,6 +21,7 @@ use local::{LocalShellConfig, LocalShellManager, LocalShellSession};
 use monitor::{MonitorManager, MonitorSession, MonitorSnapshot};
 use serial::{SerialConfig, SerialManager, SerialSession};
 use vnc::{VncConnectRequest, VncConnectResult, VncManager};
+use rdp::{RdpConnectRequest, RdpConnectResult, RdpManager};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -46,6 +48,7 @@ struct AppState {
     monitor: Mutex<MonitorManager>,
     serial: Mutex<SerialManager>,
     vnc: Mutex<VncManager>,
+    rdp: Mutex<RdpManager>,
     /// 传输取消标志表：cancel_token -> AtomicBool（下载中断用）
     transfer_cancels: Mutex<HashMap<String, Arc<AtomicBool>>>,
 }
@@ -61,6 +64,7 @@ impl AppState {
             monitor: Mutex::new(MonitorManager::new()),
             serial: Mutex::new(SerialManager::new()),
             vnc: Mutex::new(VncManager::new()),
+            rdp: Mutex::new(RdpManager::new()),
             transfer_cancels: Mutex::new(HashMap::new()),
         }
     }
@@ -1047,6 +1051,75 @@ async fn vnc_list_sessions(state: State<'_, AppState>) -> Result<Vec<String>, St
     Ok(manager.list())
 }
 
+// ==================== RDP Commands ====================
+
+#[tauri::command]
+async fn rdp_connect(
+    state: State<'_, AppState>,
+    request: RdpConnectRequest,
+) -> Result<RdpConnectResult, String> {
+    // 输入校验
+    if request.session_id.trim().is_empty() {
+        return Err("RDP session id 不能为空。".to_string());
+    }
+    if request.host.trim().is_empty() {
+        return Err("RDP 主机地址不能为空。".to_string());
+    }
+    if request.port == 0 {
+        return Err("RDP 端口无效。".to_string());
+    }
+    if request.username.trim().is_empty() {
+        return Err("RDP 用户名不能为空。".to_string());
+    }
+
+    // 构建协议配置（纯内存；IronRDP 内部完成 NLA/CredSSP 认证与 TLS）
+    let destination =
+        ironrdp_client::config::Destination::new(format!("{}:{}", request.host.trim(), request.port))
+            .map_err(|e| format!("RDP 目标地址无效: {e}"))?;
+    let mut builder = ironrdp_client::config::ConfigBuilder::new()
+        .with_destination(destination)
+        .with_username(request.username.trim())
+        .with_password(request.password)
+        .with_client_build(14) // 0.1.4
+        .with_client_dir("C:\\Windows\\System32\\mstscax.dll")
+        .with_client_name("swallow")
+        .with_platform(ironrdp_pdu::rdp::capability_sets::MajorPlatformType::WINDOWS);
+    if let (Some(w), Some(h)) = (request.width, request.height) {
+        if w > 0 && h > 0 {
+            builder = builder.with_desktop_width(w).with_desktop_height(h);
+        }
+    }
+    let config = builder.build().map_err(|e| format!("RDP 配置无效: {e}"))?;
+
+    // 只绑定 loopback（禁止 0.0.0.0/局域网）；RDP 连接本身由会话任务异步完成
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| format!("无法创建本地监听端口: {e}"))?;
+
+    let manager = state.rdp.lock().map_err(|e| e.to_string())?;
+    manager.start(&request.session_id, listener, config, request.generation)
+}
+
+#[tauri::command]
+async fn rdp_disconnect(
+    state: State<'_, AppState>,
+    session_id: String,
+    // 只停止该代际的会话；None = 停止当前注册会话（手动断开/标签关闭）
+    generation: Option<u64>,
+) -> Result<(), String> {
+    let manager = state.rdp.lock().map_err(|e| e.to_string())?;
+    match generation {
+        Some(gen) => manager.stop_generation(&session_id, gen),
+        None => manager.stop(&session_id),
+    }
+}
+
+#[tauri::command]
+async fn rdp_list_sessions(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let manager = state.rdp.lock().map_err(|e| e.to_string())?;
+    Ok(manager.list())
+}
+
 // ==================== Serial Commands ====================
 
 #[tauri::command]
@@ -1793,6 +1866,9 @@ pub fn run() {
             vnc_connect,
             vnc_disconnect,
             vnc_list_sessions,
+            rdp_connect,
+            rdp_disconnect,
+            rdp_list_sessions,
             serial_list_ports,
             serial_connect,
             serial_write,
@@ -1877,6 +1953,12 @@ pub fn run() {
             services::monitor_state::monitor_save_state,
         ])
         .setup(|_app| {
+            // rustls 0.23 CryptoProvider：依赖图同时启用 ring（reqwest 链）与 aws-lc-rs
+            //（ironrdp-tls 链），rustls 无法自动二选一，任何使用方首次建 TLS 时会 panic。
+            // 进程级显式安装一次（RDP / 云同步 / 更新器等所有 rustls 使用方共用）；
+            // 已安装过则 Err，忽略即可。
+            let _ = rustls::crypto::ring::default_provider().install_default();
+
             // WebView2 默认是不透明白色背景，会盖住 transparent 窗口的毛玻璃/壁纸，
             // 启动时必须显式设为全透明（否则透明窗口表现为白底）
             #[cfg(target_os = "windows")]
@@ -1973,6 +2055,10 @@ pub fn run() {
                 }
                 let vnc_guard = state.vnc.lock();
                 if let Ok(manager) = vnc_guard {
+                    manager.stop_all();
+                }
+                let rdp_guard = state.rdp.lock();
+                if let Ok(manager) = rdp_guard {
                     manager.stop_all();
                 }
             }

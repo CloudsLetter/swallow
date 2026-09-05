@@ -25,6 +25,11 @@ const VncView = lazy(() =>
   import('../components/VncView').then((m) => ({ default: m.VncView })),
 );
 
+// RDP 按需加载：与 VNC 同理（协议端在 Rust，此处只是 canvas 渲染器）
+const RdpView = lazy(() =>
+  import('../components/RdpView').then((m) => ({ default: m.RdpView })),
+);
+
 // home 侧边栏页面（全部常驻挂载，按 currentPage 显隐，保留各页面内部状态）
 const HOME_PAGES: Record<string, ReactNode> = {
   hosts: <Hosts />,
@@ -142,6 +147,14 @@ export function Home() {
                   <VncView
                     sessionId={tab.sessionId || undefined}
                     vncConfig={tab.vncConfig}
+                    skipAutoConnect={tab.skipAutoConnect}
+                  />
+                </Suspense>
+              ) : tab.type === 'rdp' && tab.rdpConfig ? (
+                <Suspense fallback={null}>
+                  <RdpView
+                    sessionId={tab.sessionId || undefined}
+                    rdpConfig={tab.rdpConfig}
                     skipAutoConnect={tab.skipAutoConnect}
                   />
                 </Suspense>
