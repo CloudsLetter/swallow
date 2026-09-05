@@ -1,16 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { LucideIcon } from 'lucide-react';
 import {
   Search as IconSearch,
   Server as IconServer,
   Clock as IconClock,
   Network as IconNetwork,
-  Zap as IconZap,
   Monitor as IconMonitor,
+  ScreenShare as IconScreenShare,
+  Radio as IconRadio,
   Usb as IconUsb,
-  RefreshCw as IconRefresh,
-  ChevronDown as IconChevronDown,
-  ChevronUp as IconChevronUp,
 } from 'lucide-react';
 import {
   getHosts,
@@ -23,25 +22,36 @@ import {
   type Certificate,
 } from '../services/dataService';
 import { resolveHostSshAuth } from '../services/sshAuthResolver';
-import { serialListPorts } from '../services/sessionService';
 import { consumeQuickConnectIntent } from '../services/quickConnectIntent';
-import { useTabStore, type VncTabConfig } from '../store/tabStore';
+import { useTabStore, type TabType } from '../store/tabStore';
 import { useOnlineHosts } from '../store/uiState';
 import { cn } from '@/lib/utils';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { message } from '@tauri-apps/plugin-dialog';
+import { LocalShellChips } from './quickConnect/LocalShellChips';
+import { TelnetCard } from './quickConnect/TelnetCard';
+import { VncCard } from './quickConnect/VncCard';
+import { RdpCard } from './quickConnect/RdpCard';
+import { MoshCard } from './quickConnect/MoshCard';
+import { SerialCard } from './quickConnect/SerialCard';
+import type { QuickConnectCardProps } from './quickConnect/types';
 
-/** 本地终端可选的 shell 类型。 */
-const SHELL_OPTIONS = [
-  { value: 'cmd', label: 'cmd' },
-  { value: 'powershell', label: 'PowerShell' },
-  { value: 'pwsh', label: 'PowerShell 7' },
-  { value: 'wsl', label: 'WSL' },
-  { value: 'bash', label: 'Git Bash' },
-] as const;
+/** 协议磁贴注册表：加新协议 = 新建卡片组件 + 此处注册一行（表单按需展开渲染）。 */
+const PROTOCOL_TILES: {
+  id: string;
+  icon: LucideIcon;
+  titleKey: string;
+  descKey: string;
+  Component: React.ComponentType<QuickConnectCardProps>;
+}[] = [
+  { id: 'telnet', icon: IconNetwork, titleKey: 'quickConnect.telnetTitle', descKey: 'quickConnect.telnetDesc', Component: TelnetCard },
+  { id: 'vnc', icon: IconMonitor, titleKey: 'quickConnect.vncTitle', descKey: 'quickConnect.vncDesc', Component: VncCard },
+  { id: 'rdp', icon: IconScreenShare, titleKey: 'quickConnect.rdpTitle', descKey: 'quickConnect.rdpDesc', Component: RdpCard },
+  { id: 'mosh', icon: IconRadio, titleKey: 'quickConnect.moshTitle', descKey: 'quickConnect.moshDesc', Component: MoshCard },
+  { id: 'serial', icon: IconUsb, titleKey: 'quickConnect.serialTitle', descKey: 'quickConnect.serialDesc', Component: SerialCard },
+];
 
 export function QuickConnect() {
   const [hosts, setHosts] = useState<Host[]>([]);
@@ -49,54 +59,24 @@ export function QuickConnect() {
   const [keys, setKeys] = useState<Key[]>([]);
   const [certs, setCerts] = useState<Certificate[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [telnetHost, setTelnetHost] = useState('');
-  const [telnetPort, setTelnetPort] = useState(23);
-  const [localShell, setLocalShell] = useState('cmd');
-  // VNC 快速连接（直连；可展开经 SSH 隧道）
-  const [vncHost, setVncHost] = useState('');
-  const [vncPort, setVncPort] = useState(5900);
-  const [vncPassword, setVncPassword] = useState('');
-  const [vncViaSsh, setVncViaSsh] = useState(false);
-  const [vncSshHostId, setVncSshHostId] = useState('');
-  // 串口快速连接
-  const [serialPort, setSerialPort] = useState('');
-  const [serialPorts, setSerialPorts] = useState<string[]>([]);
-  const [serialBaud, setSerialBaud] = useState('115200');
-  const [serialShowAdvanced, setSerialShowAdvanced] = useState(false);
-  const [serialDataBits, setSerialDataBits] = useState('8');
-  const [serialStopBits, setSerialStopBits] = useState('1');
-  const [serialParity, setSerialParity] = useState<'none' | 'odd' | 'even'>('none');
-  const [serialFlow, setSerialFlow] = useState<'none' | 'hardware'>('none');
-  // 外部「串口终端」快捷入口定位：滚动到串口卡并短暂高亮
-  const serialCardRef = useRef<HTMLDivElement>(null);
+  // 当前展开的协议磁贴（单开；null = 全部收起）
+  const [openProtocol, setOpenProtocol] = useState<string | null>(null);
+  // 外部「串口终端」快捷入口定位：展开串口卡并短暂高亮
+  const expandedRef = useRef<HTMLDivElement>(null);
   const [serialHighlight, setSerialHighlight] = useState(false);
   const { createTab, closeTab, activeTabId } = useTabStore();
   const { t } = useTranslation();
 
-  // 消费一次性意图（Hosts 页点「串口终端」）：滚动 + 高亮串口卡
+  // 消费一次性意图（Hosts 页点「串口终端」）：展开串口磁贴 + 滚动 + 高亮
   useEffect(() => {
     if (consumeQuickConnectIntent() !== 'serial') return;
+    setOpenProtocol('serial');
     setSerialHighlight(true);
     const timer = window.setTimeout(() => setSerialHighlight(false), 1800);
-    // 等本帧渲染完成后滚动（页面可能刚创建）
     requestAnimationFrame(() => {
-      serialCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      expandedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
     return () => window.clearTimeout(timer);
-  }, []);
-
-  // 枚举本机串口
-  const refreshSerialPorts = () => {
-    void serialListPorts()
-      .then((list) => setSerialPorts(list))
-      .catch((e) => {
-        console.warn('Failed to list serial ports:', e);
-        setSerialPorts([]);
-      });
-  };
-  useEffect(() => {
-    refreshSerialPorts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -116,7 +96,7 @@ export function QuickConnect() {
   }, []);
 
   /** 打开连接标签并关闭当前快速连接标签。 */
-  const openSessionTab = (name: string, type: 'terminal' | 'telnet' | 'local' | 'vnc' | 'serial', config: Record<string, unknown>) => {
+  const openSessionTab = (name: string, type: TabType, config: Record<string, unknown>) => {
     createTab({ name, type, ...config } as Parameters<typeof createTab>[0]);
     if (activeTabId) closeTab(activeTabId);
   };
@@ -138,86 +118,6 @@ export function QuickConnect() {
         cert_id: auth.authType === 'certificate' ? auth.certId : undefined,
         passphrase: undefined,
         hostId: host.id,
-      },
-    });
-  };
-
-  // 快速 telnet 连接（无认证，明文协议）
-  const handleConnectTelnet = async () => {
-    const host = telnetHost.trim();
-    if (!host) {
-      await message(t('quickConnect.telnetHostRequired'), { title: t('common.tip'), kind: 'warning' });
-      return;
-    }
-    openSessionTab(`telnet:${host}`, 'telnet', { telnetConfig: { host, port: telnetPort } });
-  };
-
-  // 启动本地终端（cmd/powershell/pwsh/wsl/bash）
-  const handleConnectLocal = () => {
-    openSessionTab(`${localShell} (local)`, 'local', { localConfig: { shell: localShell } });
-  };
-
-  // 快速连接 VNC（无密码留空：连接后如服务端要求再由 noVNC 弹窗补交）。
-  // vncViaSsh = 经 SSH 隧道：跳板主机复用其已存认证（密码/密钥），目标为上方 VNC 主机:端口。
-  const handleConnectVnc = async () => {
-    const host = vncHost.trim();
-    if (!host) {
-      void message(t('quickConnect.vncHostRequired'), { title: t('common.tip'), kind: 'warning' });
-      return;
-    }
-    let sshConfig: VncTabConfig['ssh'];
-    if (vncViaSsh) {
-      const jump = hosts.find((h) => h.id === vncSshHostId);
-      if (!jump) {
-        void message(t('quickConnect.vncJumpRequired'), { title: t('common.tip'), kind: 'warning' });
-        return;
-      }
-      const auth = resolveHostSshAuth(jump, accounts, keys, certs);
-      if (auth.error) {
-        void message(auth.error, { title: t('quickConnect.cannotConnect'), kind: 'warning' });
-        return;
-      }
-      if (auth.authType === 'certificate' || auth.authType === 'none') {
-        void message(t('quickConnect.vncJumpUnsupported'), { title: t('common.tip'), kind: 'warning' });
-        return;
-      }
-      sshConfig = {
-        sshHost: jump.host,
-        sshPort: jump.port,
-        sshUsername: auth.username,
-        sshAuthType: auth.authType === 'key' ? 'key' : 'password',
-        sshPassword: auth.password,
-        sshKeyId: auth.authType === 'key' ? auth.keyId : undefined,
-        targetHost: host,
-        targetPort: vncPort,
-      };
-    }
-    openSessionTab(`vnc:${host}:${vncPort}`, 'vnc', {
-      vncConfig: {
-        host,
-        port: vncPort,
-        password: vncPassword || undefined,
-        shared: true,
-        ssh: sshConfig,
-      },
-    });
-  };
-
-  // 快速连接串口（无认证；参数默认 8N1 无流控，高级区可调）
-  const handleConnectSerial = () => {
-    const port = serialPort.trim();
-    if (!port) {
-      void message(t('quickConnect.serialPortRequired'), { title: t('common.tip'), kind: 'warning' });
-      return;
-    }
-    openSessionTab(`serial:${port}`, 'serial', {
-      serialConfig: {
-        port,
-        baudRate: Number(serialBaud) || 115200,
-        dataBits: Number(serialDataBits) as 5 | 6 | 7 | 8,
-        stopBits: Number(serialStopBits) as 1 | 2,
-        parity: serialParity,
-        flowControl: serialFlow,
       },
     });
   };
@@ -265,6 +165,16 @@ export function QuickConnect() {
     });
   };
 
+  const openTile = PROTOCOL_TILES.find((tile) => tile.id === openProtocol) ?? null;
+  const cardProps: QuickConnectCardProps = {
+    onOpenSession: openSessionTab,
+    hosts,
+    accounts,
+    keys,
+    certs,
+    highlight: serialHighlight,
+  };
+
   return (
     <div className="flex h-full flex-col">
       {/* 页头：标题 + 搜索 */}
@@ -285,280 +195,59 @@ export function QuickConnect() {
         </div>
       </div>
 
-      {/* 快捷入口：Telnet + 本地终端并排卡片（单行紧凑） */}
-      <div className="grid shrink-0 grid-cols-1 gap-3 border-b border-border px-6 py-4 md:grid-cols-2">
-        {/* Telnet */}
-        <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-3">
-          <span className="flex w-24 shrink-0 items-center gap-1.5 text-sm font-medium">
-            <IconNetwork size={15} className="text-muted-foreground" />
-            {t('quickConnect.telnetTitle')}
-          </span>
-          <Input
-            type="text"
-            placeholder={t('quickConnect.telnetHost')}
-            value={telnetHost}
-            onChange={(e) => setTelnetHost(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void handleConnectTelnet();
-            }}
-            className="h-8 min-w-0 flex-1"
-          />
-          <Input
-            type="number"
-            value={telnetPort}
-            min={1}
-            max={65535}
-            onChange={(e) => setTelnetPort(Number(e.target.value) || 23)}
-            className="h-8 w-16 shrink-0"
-          />
-          <Button size="sm" className="h-8 shrink-0" onClick={() => void handleConnectTelnet()}>
-            {t('quickConnect.telnetConnect')}
-          </Button>
-        </div>
+      <div className="shrink-0 border-b border-border pb-4">
+        {/* 本地终端：一键 chips（点击直接打开对应 shell） */}
+        <LocalShellChips onOpenSession={openSessionTab} />
 
-        {/* 本地终端 */}
-        <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-3">
-          <span className="flex w-24 shrink-0 items-center gap-1.5 text-sm font-medium">
-            <IconZap size={15} className="text-muted-foreground" />
-            {t('quickConnect.localShell')}
-          </span>
-          <Select value={localShell} onValueChange={setLocalShell}>
-            <SelectTrigger className="h-8 min-w-0 flex-1">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SHELL_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button size="sm" className="h-8 shrink-0" onClick={() => void handleConnectLocal()}>
-            {t('quickConnect.localConnect')}
-          </Button>
-        </div>
-
-        {/* VNC（占满第二行；可经 SSH 隧道） */}
-        <div className="rounded-lg border border-border bg-card p-3 md:col-span-2">
-          <div className="flex items-center gap-3">
-            <span className="flex w-32 shrink-0 items-center gap-1.5 whitespace-nowrap text-sm font-medium">
-              <IconMonitor size={15} className="text-muted-foreground" />
-              {t('quickConnect.vncTitle')}
-            </span>
-          <Input
-            type="text"
-            placeholder={t('quickConnect.vncHost')}
-            value={vncHost}
-            onChange={(e) => setVncHost(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleConnectVnc();
-            }}
-            className="h-8 min-w-0 max-w-[24rem] flex-1"
-          />
-          <Input
-            type="number"
-            value={vncPort}
-            min={1}
-            max={65535}
-            onChange={(e) => setVncPort(Number(e.target.value) || 5900)}
-            className="h-8 w-16 shrink-0"
-          />
-          <Input
-            type="password"
-            placeholder={t('quickConnect.vncPassword')}
-            value={vncPassword}
-            onChange={(e) => setVncPassword(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void handleConnectVnc();
-            }}
-            className="h-8 w-40 shrink-0"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn('h-8 shrink-0 px-2 text-xs', vncViaSsh && 'bg-primary/10 text-primary')}
-            onClick={() => setVncViaSsh((v) => !v)}
-            title={t('quickConnect.vncViaSshHint')}
-          >
-            {t('quickConnect.vncViaSsh')}
-          </Button>
-          <Button size="sm" className="h-8 shrink-0" onClick={() => void handleConnectVnc()}>
-            {t('quickConnect.vncConnect')}
-          </Button>
-          </div>
-
-          {/* SSH 隧道展开：跳板主机（复用其已存认证），目标 = 上方 VNC 主机:端口 */}
-          {vncViaSsh && (
-            <div className="mt-2 flex flex-wrap items-center gap-2 pl-[8.75rem]">
-              <span className="text-xs text-muted-foreground">{t('quickConnect.vncJumpHost')}</span>
-              <Select value={vncSshHostId} onValueChange={setVncSshHostId}>
-                <SelectTrigger className="h-8 w-64">
-                  <SelectValue placeholder={t('quickConnect.vncJumpPlaceholder')} />
-                </SelectTrigger>
-                <SelectContent className="max-h-72">
-                  {hosts
-                    .filter((h) => !h.useProxy)
-                    .map((h) => (
-                      <SelectItem key={h.id} value={h.id}>
-                        {h.name} · {h.host}:{h.port}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-              <span className="text-xs text-muted-foreground">{t('quickConnect.vncTargetHint')}</span>
-            </div>
-          )}
-        </div>
-
-        {/* 串口（占满整行；高级参数折叠） */}
-        <div
-          ref={serialCardRef}
-          className={cn(
-            'rounded-lg border bg-card p-3 transition-all duration-300 md:col-span-2',
-            serialHighlight ? 'border-primary ring-2 ring-primary/40' : 'border-border',
-          )}
-        >
-          <div className="flex items-center gap-3">
-            <span className="flex w-32 shrink-0 items-center gap-1.5 whitespace-nowrap text-sm font-medium">
-              <IconUsb size={15} className="text-muted-foreground" />
-              {t('quickConnect.serialTitle')}
-            </span>
-            <Input
-              type="text"
-              placeholder={t('quickConnect.serialPort')}
-              value={serialPort}
-              onChange={(e) => setSerialPort(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleConnectSerial();
-              }}
-              className="h-8 w-40 shrink-0"
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 shrink-0 text-muted-foreground"
-              title={t('quickConnect.serialRefresh')}
-              onClick={refreshSerialPorts}
-            >
-              <IconRefresh size={14} />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 shrink-0 px-2 text-xs text-muted-foreground"
-              onClick={() => setSerialShowAdvanced((v) => !v)}
-            >
-              {t('quickConnect.serialAdvanced')}
-              {serialShowAdvanced ? <IconChevronUp size={13} /> : <IconChevronDown size={13} />}
-            </Button>
-            <Button size="sm" className="ml-auto h-8 shrink-0" onClick={() => void handleConnectSerial()}>
-              {t('quickConnect.serialConnect')}
-            </Button>
-          </div>
-
-          {/* 检测到的端口快捷选择 */}
-          {serialPorts.length > 0 && (
-            <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-[7.5rem]">
-              <span className="text-xs text-muted-foreground">{t('quickConnect.serialDetected')}</span>
-              {serialPorts.map((p) => (
+        {/* 远程协议磁贴：点选展开表单（单开），收起时只占两行高度 */}
+        <div className="px-6 pt-1">
+          <p className="mb-2 text-sm font-medium text-muted-foreground">
+            {t('quickConnect.protocolsSection')}
+          </p>
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-5">
+            {PROTOCOL_TILES.map((tile) => {
+              const active = openProtocol === tile.id;
+              const Icon = tile.icon;
+              return (
                 <button
-                  key={p}
+                  key={tile.id}
                   type="button"
-                  onClick={() => setSerialPort(p)}
-                  className={
-                    'h-6 rounded-md border px-2 font-mono text-xs transition-colors ' +
-                    (serialPort === p
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-border text-muted-foreground hover:bg-accent')
-                  }
+                  onClick={() => setOpenProtocol(active ? null : tile.id)}
+                  className={cn(
+                    'group flex flex-col gap-1 rounded-lg border p-3 text-left transition-all',
+                    active
+                      ? 'border-primary bg-primary/5 ring-1 ring-primary/40'
+                      : 'border-border bg-card hover:border-primary/40 hover:bg-accent',
+                  )}
                 >
-                  {p}
+                  <span className="flex items-center gap-2 text-sm font-medium">
+                    <Icon size={15} className={cn(active ? 'text-primary' : 'text-muted-foreground')} />
+                    {t(tile.titleKey)}
+                  </span>
+                  <span className="text-xs leading-snug text-muted-foreground">
+                    {t(tile.descKey)}
+                  </span>
                 </button>
-              ))}
-            </div>
-          )}
+              );
+            })}
+          </div>
 
-          {/* 高级参数（折叠）：波特率/数据位/停止位/校验/流控 */}
-          {serialShowAdvanced && (
-            <div className="mt-2.5 grid grid-cols-2 gap-2.5 pl-[7.5rem] sm:grid-cols-3 xl:grid-cols-5">
-              <div>
-                <p className="mb-1 text-xs text-muted-foreground">{t('quickConnect.serialBaud')}</p>
-                <Select value={serialBaud} onValueChange={setSerialBaud}>
-                  <SelectTrigger className="h-8">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {['9600', '19200', '38400', '57600', '115200', '230400', '460800', '921600'].map(
-                      (b) => (
-                        <SelectItem key={b} value={b}>
-                          {b}
-                        </SelectItem>
-                      ),
-                    )}
-                  </SelectContent>
-                </Select>
+          {/* 展开的协议表单（单开） */}
+          {openTile && (
+            <div
+              ref={expandedRef}
+              className={cn(
+                'mt-3 rounded-lg border bg-card p-3',
+                openTile.id === 'serial' && serialHighlight
+                  ? 'border-primary ring-2 ring-primary/40'
+                  : 'border-border',
+              )}
+            >
+              <div className="mb-2.5 flex items-center gap-1.5 text-sm font-medium">
+                <openTile.icon size={15} className="text-primary" />
+                {t(openTile.titleKey)}
               </div>
-              <div>
-                <p className="mb-1 text-xs text-muted-foreground">{t('quickConnect.serialDataBits')}</p>
-                <Select value={serialDataBits} onValueChange={setSerialDataBits}>
-                  <SelectTrigger className="h-8">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {['5', '6', '7', '8'].map((v) => (
-                      <SelectItem key={v} value={v}>
-                        {v}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <p className="mb-1 text-xs text-muted-foreground">{t('quickConnect.serialStopBits')}</p>
-                <Select value={serialStopBits} onValueChange={setSerialStopBits}>
-                  <SelectTrigger className="h-8">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {['1', '2'].map((v) => (
-                      <SelectItem key={v} value={v}>
-                        {v}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <p className="mb-1 text-xs text-muted-foreground">{t('quickConnect.serialParity')}</p>
-                <Select value={serialParity} onValueChange={(v) => setSerialParity(v as 'none' | 'odd' | 'even')}>
-                  <SelectTrigger className="h-8">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(['none', 'odd', 'even'] as const).map((v) => (
-                      <SelectItem key={v} value={v}>
-                        {t(`quickConnect.parity.${v}`)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <p className="mb-1 text-xs text-muted-foreground">{t('quickConnect.serialFlow')}</p>
-                <Select value={serialFlow} onValueChange={(v) => setSerialFlow(v as 'none' | 'hardware')}>
-                  <SelectTrigger className="h-8">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(['none', 'hardware'] as const).map((v) => (
-                      <SelectItem key={v} value={v}>
-                        {t(`quickConnect.flow.${v}`)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <openTile.Component {...cardProps} />
             </div>
           )}
         </div>
