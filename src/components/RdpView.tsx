@@ -72,7 +72,9 @@ export function RdpView({ sessionId, rdpConfig, skipAutoConnect }: RdpViewProps)
   const viewOnlyRef = useRef(false);
   const composingRef = useRef(false);
   const patchRafRef = useRef(0);
-  const dirtyRectRef = useRef<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  // 鼠标移动合并：pointermove 事件频率远高于需要，rAF 内只发最新位置
+  const pendingMoveRef = useRef<{ x: number; y: number } | null>(null);
+  const moveRafRef = useRef(0);
 
   /**
    * 连接代际：与 VncView 同语义。每次 startConnect 占位、卸载/断开作废旧代；
@@ -122,27 +124,20 @@ export function RdpView({ sessionId, rdpConfig, skipAutoConnect }: RdpViewProps)
     ws.send(JSON.stringify({ type: 'resize', width: w, height: h }));
   }, []);
 
-  /** 把脏矩形内的像素刷到画布（rAF 合帧：一次消息流只 put 一次）。 */
+  /** 把最新帧原子刷到画布（rAF 合帧：一次消息流只 put 一次）。
+   *  整帧 put 而非脏矩形局部 put——局部画会随远端拆分出现可见的块状渐进刷新
+   *  （官方 viewer 即为每次 redraw 整窗 blit 的原子呈现模型），整帧 8MB put
+   *  在 1080p 下 ~3ms，与官方等价。 */
   const scheduleFlush = useCallback(() => {
     if (patchRafRef.current) return;
     patchRafRef.current = requestAnimationFrame(() => {
       patchRafRef.current = 0;
       const canvas = canvasRef.current;
       const imgData = imgDataRef.current;
-      const rect = dirtyRectRef.current;
-      if (!canvas || !imgData || !rect) return;
-      dirtyRectRef.current = null;
+      if (!canvas || !imgData) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
-      ctx.putImageData(
-        imgData,
-        0,
-        0,
-        rect.x0,
-        rect.y0,
-        Math.min(imgData.width, rect.x1 - rect.x0),
-        Math.min(imgData.height, rect.y1 - rect.y0),
-      );
+      ctx.putImageData(imgData, 0, 0);
     });
   }, []);
 
@@ -166,25 +161,13 @@ export function RdpView({ sessionId, rdpConfig, skipAutoConnect }: RdpViewProps)
       const imgData = imgDataRef.current;
       if (!imgData) return;
       const w = frame.width;
-      let x0 = w;
-      let y0 = frame.height;
-      let x1 = 0;
-      let y1 = 0;
       for (const tile of frame.tiles) {
         for (let r = 0; r < tile.h; r++) {
           const src = r * tile.w * 4;
           const dst = ((tile.y + r) * w + tile.x) * 4;
           imgData.data.set(tile.data.subarray(src, src + tile.w * 4), dst);
         }
-        x0 = Math.min(x0, tile.x);
-        y0 = Math.min(y0, tile.y);
-        x1 = Math.max(x1, tile.x + tile.w);
-        y1 = Math.max(y1, tile.y + tile.h);
       }
-      const rect = dirtyRectRef.current;
-      dirtyRectRef.current = rect
-        ? { x0: Math.min(rect.x0, x0), y0: Math.min(rect.y0, y0), x1: Math.max(rect.x1, x1), y1: Math.max(rect.y1, y1) }
-        : { x0, y0, x1, y1 };
       scheduleFlush();
     },
     [scheduleFlush],
@@ -433,6 +416,7 @@ export function RdpView({ sessionId, rdpConfig, skipAutoConnect }: RdpViewProps)
   useEffect(
     () => () => {
       if (patchRafRef.current) cancelAnimationFrame(patchRafRef.current);
+      if (moveRafRef.current) cancelAnimationFrame(moveRafRef.current);
     },
     [],
   );
@@ -453,7 +437,16 @@ export function RdpView({ sessionId, rdpConfig, skipAutoConnect }: RdpViewProps)
 
   const handlePointerMove = (e: React.PointerEvent) => {
     const pos = toRemote(e);
-    if (pos) sendInput({ kind: 'mouseMove', x: pos.x, y: pos.y });
+    if (!pos) return;
+    // rAF 合并：一场移动风暴只发最新坐标（远端 20/s 足够，且减轻后端队列）
+    pendingMoveRef.current = pos;
+    if (moveRafRef.current) return;
+    moveRafRef.current = requestAnimationFrame(() => {
+      moveRafRef.current = 0;
+      const pending = pendingMoveRef.current;
+      pendingMoveRef.current = null;
+      if (pending) sendInput({ kind: 'mouseMove', x: pending.x, y: pending.y });
+    });
   };
 
   const handlePointerButton = (e: React.PointerEvent, pressed: boolean) => {
