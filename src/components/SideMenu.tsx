@@ -139,8 +139,8 @@ export function SideMenu({ onItemClick, activePage }: SideMenuProps) {
                           collapsed
                             ? 'justify-center gap-0 rounded-none! p-0!'
                             : 'justify-start gap-3 rounded-md py-0! px-3',
-                          // 柔光选中态：半透明主色胶囊 + 顶部微内高光，替代实心色块
-                          'data-active:bg-primary/10! data-active:text-foreground! data-active:ring-1! data-active:ring-primary/20! data-active:shadow-[inset_0_1px_0_0_color-mix(in_oklab,var(--primary)_18%,transparent)]!',
+                          // 柔光选中态：半透明主色胶囊 + 淡描边，替代实心色块
+                          'data-active:bg-primary/10! data-active:text-foreground! data-active:ring-1! data-active:ring-primary/20!',
                         )}
                       >
                         {/* 统一图标容器尺寸，折叠/展开状态视觉一致 */}
