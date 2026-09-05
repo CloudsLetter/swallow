@@ -7,11 +7,63 @@ import {
 } from 'lucide-react';
 import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { serialListPorts } from '../../services/sessionService';
 import { message } from '@tauri-apps/plugin-dialog';
 import { cn } from '@/lib/utils';
 import type { QuickConnectCardProps } from './types';
+
+/** 串口会话可选字符集（encoding_rs 标签，按语区分组；默认 UTF-8）。
+ *  注：WHATWG 标准中 latin1/us-ascii 标签映射到 windows-1252/UTF-8，故不单列。 */
+const SERIAL_CHARSET_GROUPS: {
+  groupKey: string;
+  items: { value: string; labelKey: string }[];
+}[] = [
+  {
+    groupKey: 'quickConnect.charsetGroup.general',
+    items: [{ value: 'utf-8', labelKey: 'quickConnect.charset.utf8' }],
+  },
+  {
+    groupKey: 'quickConnect.charsetGroup.chinese',
+    items: [
+      { value: 'gb18030', labelKey: 'quickConnect.charset.gb18030' },
+      { value: 'big5', labelKey: 'quickConnect.charset.big5' },
+    ],
+  },
+  {
+    groupKey: 'quickConnect.charsetGroup.cjk',
+    items: [
+      { value: 'shift_jis', labelKey: 'quickConnect.charset.shiftJis' },
+      { value: 'euc-jp', labelKey: 'quickConnect.charset.eucJp' },
+      { value: 'euc-kr', labelKey: 'quickConnect.charset.eucKr' },
+    ],
+  },
+  {
+    groupKey: 'quickConnect.charsetGroup.cyrillic',
+    items: [
+      { value: 'windows-1251', labelKey: 'quickConnect.charset.cp1251' },
+      { value: 'koi8-r', labelKey: 'quickConnect.charset.koi8r' },
+    ],
+  },
+  {
+    groupKey: 'quickConnect.charsetGroup.european',
+    items: [
+      { value: 'windows-1252', labelKey: 'quickConnect.charset.cp1252' },
+      { value: 'windows-1250', labelKey: 'quickConnect.charset.cp1250' },
+      { value: 'windows-1253', labelKey: 'quickConnect.charset.cp1253' },
+      { value: 'windows-1254', labelKey: 'quickConnect.charset.cp1254' },
+      { value: 'windows-1257', labelKey: 'quickConnect.charset.cp1257' },
+    ],
+  },
+  {
+    groupKey: 'quickConnect.charsetGroup.middleEast',
+    items: [
+      { value: 'windows-1255', labelKey: 'quickConnect.charset.cp1255' },
+      { value: 'windows-1256', labelKey: 'quickConnect.charset.cp1256' },
+      { value: 'tis-620', labelKey: 'quickConnect.charset.tis620' },
+    ],
+  },
+];
 
 /** 串口快速连接（无认证；参数默认 8N1 无流控，高级区可调；端口列表按需扫描）。 */
 export function SerialCard({ onOpenSession, highlight }: QuickConnectCardProps) {
@@ -22,8 +74,9 @@ export function SerialCard({ onOpenSession, highlight }: QuickConnectCardProps) 
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [dataBits, setDataBits] = useState('8');
   const [stopBits, setStopBits] = useState('1');
-  const [parity, setParity] = useState<'none' | 'odd' | 'even'>('none');
-  const [flow, setFlow] = useState<'none' | 'hardware'>('none');
+  const [parity, setParity] = useState<'none' | 'odd' | 'even' | 'mark' | 'space'>('none');
+  const [flow, setFlow] = useState<'none' | 'hardware' | 'software'>('none');
+  const [charset, setCharset] = useState('utf-8');
 
   // 展开时才枚举本机串口（按需扫描，不再常驻页面时提前跑）
   useEffect(() => {
@@ -49,6 +102,7 @@ export function SerialCard({ onOpenSession, highlight }: QuickConnectCardProps) 
         stopBits: Number(stopBits) as 1 | 2,
         parity,
         flowControl: flow,
+        charset,
       },
     });
   };
@@ -122,7 +176,7 @@ export function SerialCard({ onOpenSession, highlight }: QuickConnectCardProps) 
 
       {/* 高级参数（折叠）：波特率/数据位/停止位/校验/流控 */}
       {showAdvanced && (
-        <div className="mt-2.5 grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-5">
+        <div className="mt-2.5 grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6">
           <div>
             <p className="mb-1 text-xs text-muted-foreground">{t('quickConnect.serialBaud')}</p>
             <Select value={baud} onValueChange={setBaud}>
@@ -170,12 +224,19 @@ export function SerialCard({ onOpenSession, highlight }: QuickConnectCardProps) 
           </div>
           <div>
             <p className="mb-1 text-xs text-muted-foreground">{t('quickConnect.serialParity')}</p>
-            <Select value={parity} onValueChange={(v) => setParity(v as 'none' | 'odd' | 'even')}>
+            <Select
+              value={parity}
+              onValueChange={(v) => {
+                setParity(v as 'none' | 'odd' | 'even' | 'mark' | 'space');
+                // mark/space 为软件模拟（7 数据位帧），数据位强制为 7
+                if (v === 'mark' || v === 'space') setDataBits('7');
+              }}
+            >
               <SelectTrigger className="h-8">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(['none', 'odd', 'even'] as const).map((v) => (
+                {(['none', 'odd', 'even', 'mark', 'space'] as const).map((v) => (
                   <SelectItem key={v} value={v}>
                     {t(`quickConnect.parity.${v}`)}
                   </SelectItem>
@@ -185,15 +246,37 @@ export function SerialCard({ onOpenSession, highlight }: QuickConnectCardProps) 
           </div>
           <div>
             <p className="mb-1 text-xs text-muted-foreground">{t('quickConnect.serialFlow')}</p>
-            <Select value={flow} onValueChange={(v) => setFlow(v as 'none' | 'hardware')}>
+            <Select value={flow} onValueChange={(v) => setFlow(v as 'none' | 'hardware' | 'software')}>
               <SelectTrigger className="h-8">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(['none', 'hardware'] as const).map((v) => (
+                {(['none', 'hardware', 'software'] as const).map((v) => (
                   <SelectItem key={v} value={v}>
                     {t(`quickConnect.flow.${v}`)}
                   </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <p className="mb-1 text-xs text-muted-foreground">{t('quickConnect.serialCharset')}</p>
+            <Select value={charset} onValueChange={setCharset}>
+              <SelectTrigger className="h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
+                {SERIAL_CHARSET_GROUPS.map((group) => (
+                  <SelectGroup key={group.groupKey}>
+                    <SelectLabel className="text-xs text-muted-foreground">
+                      {t(group.groupKey)}
+                    </SelectLabel>
+                    {group.items.map((c) => (
+                      <SelectItem key={c.value} value={c.value}>
+                        {t(c.labelKey)}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
                 ))}
               </SelectContent>
             </Select>

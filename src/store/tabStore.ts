@@ -43,8 +43,10 @@ export interface SerialTabConfig {
   baudRate: number;
   dataBits?: number;
   stopBits?: number;
-  parity?: 'none' | 'odd' | 'even';
-  flowControl?: 'none' | 'hardware';
+  parity?: 'none' | 'odd' | 'even' | 'mark' | 'space';
+  flowControl?: 'none' | 'hardware' | 'software';
+  /** 设备端字符集（默认 utf-8；gb18030/big5/latin1 等 encoding_rs 标签） */
+  charset?: string;
 }
 
 export interface LocalTabConfig {

@@ -231,8 +231,10 @@ export interface TerminalSerialConfig {
   baudRate: number;
   dataBits?: number;
   stopBits?: number;
-  parity?: 'none' | 'odd' | 'even';
-  flowControl?: 'none' | 'hardware';
+  parity?: 'none' | 'odd' | 'even' | 'mark' | 'space';
+  flowControl?: 'none' | 'hardware' | 'software';
+  /** 设备端字符集（默认 utf-8；gb18030/big5/latin1 等 encoding_rs 标签） */
+  charset?: string;
 }
 
 interface TerminalViewProps {
@@ -514,6 +516,7 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
                 stopBits: serialConfig!.stopBits,
                 parity: serialConfig!.parity,
                 flowControl: serialConfig!.flowControl,
+                charset: serialConfig!.charset,
               });
             } else if (isLocal) {
               // 本地 shell 无认证、无主机密钥确认

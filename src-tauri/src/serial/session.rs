@@ -2,6 +2,7 @@
 
 use crate::serial::PORT_READ_TIMEOUT_MS;
 use crate::session_events::{emit_session_event, SessionEvent};
+use encoding_rs::{CoderResult, Encoding};
 use serialport::{DataBits, FlowControl, Parity, StopBits};
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
@@ -24,16 +25,102 @@ pub struct SerialConfig {
     pub data_bits: Option<u8>,
     /// 停止位：1/2（默认 1）
     pub stop_bits: Option<u8>,
-    /// 校验：none/odd/even（默认 none）
+    /// 校验：none/odd/even + mark/space（软件模拟，见 MsbMode；默认 none）
     pub parity: Option<String>,
-    /// 流控：none/hardware（默认 none）
+    /// 流控：none/hardware/software（默认 none；software = XON/XOFF）
     pub flow_control: Option<String>,
+    /// 字符集（默认 utf-8）：设备端输出/输入的编码，如 gb18030（GBK/GB2312 兼容）、big5、latin1
+    pub charset: Option<String>,
 }
 
-/// 校验 + 归一化串口参数（返回可直接 open 的参数）。
+/// Mark/Space 校验的软件模拟模式。
+///
+/// serialport crate 不支持 mark/space parity，但「7 数据位 + 恒定校验位」的帧
+/// 与「8 数据位、最高位恒定」逐位相同：底层开 8N1，用第 8 数据位充当校验位——
+/// 发方向把 MSB 置成校验值（mark=1 / space=0），收方向剥掉 MSB 再解码。
+/// 仅支持 7 数据位帧（8 数据位 + mark/space = 9-bit 帧，标准 UART 无法表达）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MsbMode {
+    /// Mark：校验位恒 1（发方向 |0x80）
+    Force1,
+    /// Space：校验位恒 0（发方向 &0x7F）
+    Force0,
+}
+
+impl MsbMode {
+    fn from_parity(p: &str) -> Option<Self> {
+        match p {
+            "mark" => Some(Self::Force1),
+            "space" => Some(Self::Force0),
+            _ => None,
+        }
+    }
+
+    /// 发方向：把每字节最高位修成校验位值。
+    pub fn apply_msb(&self, bytes: &mut [u8]) {
+        for b in bytes.iter_mut() {
+            *b = match self {
+                Self::Force1 => *b | 0x80,
+                Self::Force0 => *b & 0x7F,
+            };
+        }
+    }
+}
+
+/// 收方向：剥掉最高位（mark 帧的 b7 恒 1、space 恒 0，均非数据）。
+fn strip_msb(bytes: &mut [u8]) {
+    for b in bytes.iter_mut() {
+        *b &= 0x7F;
+    }
+}
+
+/// 流式解码一段设备端字节到 UTF-8（append 到 out）。
+///
+/// `decode_to_string` 只写入 dst 的空闲容量、不自动扩容——容量不足时返回
+/// OutputFull 且剩余输入不消费。因此这里循环扩容重试直到输入全部消费；
+/// 多字节字符跨读边界由 decoder 内部缓冲处理，malformed 字节替换 U+FFFD。
+fn decode_chunk(decoder: &mut encoding_rs::Decoder, chunk: &[u8], out: &mut String) {
+    let mut src = chunk;
+    loop {
+        if src.is_empty() {
+            return;
+        }
+        out.reserve(src.len() * 4 + 4);
+        let (result, read, _replaced) = decoder.decode_to_string(src, out, false);
+        src = &src[read..];
+        match result {
+            CoderResult::InputEmpty => return,
+            CoderResult::OutputFull => continue,
+        }
+    }
+}
+
+/// 流式编码 UTF-8 文本为设备端字节（append 到 out）。
+///
+/// 同样循环扩容重试：unmappable 字符会替换成数字字符引用（如 &#128512;），
+/// 输出可能比输入膨胀数倍。注意必须用 `encode_from_utf8_to_vec`（写入 Vec 的
+/// 空闲容量）——裸的 `encode_from_utf8(&mut [u8])` 只按切片长度写，传入空
+/// Vec 会永远 OutputFull（死循环）。
+fn encode_chunk(encoder: &mut encoding_rs::Encoder, src: &str, out: &mut Vec<u8>) {
+    let mut input = src;
+    loop {
+        if input.is_empty() {
+            return;
+        }
+        out.reserve(input.len() * 4 + 8);
+        let (result, read, _had_errors) = encoder.encode_from_utf8_to_vec(input, out, true);
+        input = &input[read..];
+        match result {
+            CoderResult::InputEmpty => return,
+            CoderResult::OutputFull => continue,
+        }
+    }
+}
+
+/// 校验 + 归一化串口参数（返回可直接 open 的参数；mark/space 返回 8N1 + MSB 模式）。
 pub fn normalized_params(
     cfg: &SerialConfig,
-) -> Result<(String, u32, DataBits, StopBits, Parity, FlowControl), String> {
+) -> Result<(String, u32, DataBits, StopBits, Parity, FlowControl, Option<MsbMode>), String> {
     let port = cfg.port.trim();
     if port.is_empty() {
         return Err("串口端口不能为空，请先选择 COM/tty 端口。".to_string());
@@ -53,18 +140,37 @@ pub fn normalized_params(
         2 => StopBits::Two,
         _ => return Err("停止位仅支持 1/2。".to_string()),
     };
-    let parity = match cfg.parity.as_deref().unwrap_or("none") {
-        "none" => Parity::None,
-        "odd" => Parity::Odd,
-        "even" => Parity::Even,
-        other => return Err(format!("不支持的校验方式: {other}")),
+    let parity_str = cfg.parity.as_deref().unwrap_or("none");
+    let msb = MsbMode::from_parity(parity_str);
+    let (data_bits, parity) = match (parity_str, msb) {
+        ("none", _) => (data_bits, Parity::None),
+        ("odd", _) => (data_bits, Parity::Odd),
+        ("even", _) => (data_bits, Parity::Even),
+        (_, Some(mode)) => {
+            // 软件模拟：底层开 8N1（第 8 数据位当恒定校验位），要求设备为 7 数据位帧
+            if cfg.data_bits.unwrap_or(7) != 7 {
+                return Err(
+                    "mark/space 校验（软件模拟）仅支持 7 数据位帧，请把数据位设为 7。".to_string(),
+                );
+            }
+            let _ = mode;
+            (DataBits::Eight, Parity::None)
+        }
+        (_, None) => return Err(format!("不支持的校验方式: {parity_str}")),
     };
     let flow_control = match cfg.flow_control.as_deref().unwrap_or("none") {
         "none" => FlowControl::None,
         "hardware" => FlowControl::Hardware,
+        "software" => FlowControl::Software,
         other => return Err(format!("不支持的流控方式: {other}")),
     };
-    Ok((port.to_string(), cfg.baud_rate, data_bits, stop_bits, parity, flow_control))
+    Ok((port.to_string(), cfg.baud_rate, data_bits, stop_bits, parity, flow_control, msb))
+}
+
+/// 解析字符集标签（utf-8/gb18030/big5/latin1 等 encoding_rs 支持的标签）。
+pub fn resolve_charset(label: Option<&str>) -> Result<&'static Encoding, String> {
+    Encoding::for_label(label.unwrap_or("utf-8").as_bytes())
+        .ok_or_else(|| format!("不支持的字符集: {}", label.unwrap_or_default()))
 }
 
 pub struct SerialSession {
@@ -73,13 +179,18 @@ pub struct SerialSession {
     session_id: String,
     is_connected: Arc<Mutex<bool>>,
     disconnect_handler: Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>,
+    /// 设备端字符集：读 = 解码成 UTF-8 发前端；写 = 前端 UTF-8 编码回设备端编码
+    encoding: &'static Encoding,
+    /// mark/space 软件模拟模式（None = 真实校验位由硬件处理）
+    msb: Option<MsbMode>,
 }
 
 impl SerialSession {
     /// 打开串口（阻塞、短时）。不启动读线程；由 connect 命令 open 后调 start_read_loop。
     pub fn open(config: &SerialConfig) -> Result<Self, String> {
-        let (port_name, baud_rate, data_bits, stop_bits, parity, flow_control) =
+        let (port_name, baud_rate, data_bits, stop_bits, parity, flow_control, msb) =
             normalized_params(config)?;
+        let encoding = resolve_charset(config.charset.as_deref())?;
 
         let port = serialport::new(&port_name, baud_rate)
             .data_bits(data_bits)
@@ -96,6 +207,8 @@ impl SerialSession {
             session_id: String::new(),
             is_connected: Arc::new(Mutex::new(true)),
             disconnect_handler: Arc::new(Mutex::new(None)),
+            encoding,
+            msb,
         })
     }
 
@@ -109,16 +222,19 @@ impl SerialSession {
         *self.disconnect_handler.lock().unwrap() = Some(handler);
     }
 
-    /// 启动输出读取线程：阻塞读（100ms 超时轮询）→ UTF-8 增量解码 → Output 事件。
+    /// 启动输出读取线程：阻塞读（100ms 超时轮询）→ 按会话字符集流式解码 → Output 事件。
     pub fn start_read_loop<R: tauri::Runtime>(&self, app_handle: tauri::AppHandle<R>) {
         let session_id = self.session_id.clone();
         let port_arc = self.port.clone();
         let is_connected = self.is_connected.clone();
         let disconnect_handler = self.disconnect_handler.clone();
+        // &'static Encoding 可跨线程 Copy；流式解码器内部处理多字节字符跨读边界
+        let mut decoder = self.encoding.new_decoder();
+        let msb = self.msb;
 
         thread::spawn(move || {
             let mut buffer = [0u8; 8192];
-            let mut utf8_pending: Vec<u8> = Vec::with_capacity(8192 + 4);
+            let mut decoded_buf: Vec<u8> = Vec::with_capacity(8192);
             let mut disconnected: Option<String> = None;
 
             loop {
@@ -141,8 +257,20 @@ impl SerialSession {
                         thread::sleep(Duration::from_millis(10));
                     }
                     Ok(n) => {
-                        utf8_pending.extend_from_slice(&buffer[..n]);
-                        flush_utf8(&mut utf8_pending, &app_handle, &session_id, &mut disconnected);
+                        // mark/space 软件模拟：先剥掉恒定校验位（第 8 位）再解码
+                        let chunk: &[u8] = if msb.is_some() {
+                            decoded_buf.clear();
+                            decoded_buf.extend_from_slice(&buffer[..n]);
+                            strip_msb(&mut decoded_buf);
+                            &decoded_buf
+                        } else {
+                            &buffer[..n]
+                        };
+                        let mut s = String::new();
+                        decode_chunk(&mut decoder, chunk, &mut s);
+                        if !s.is_empty() {
+                            emit_session_event(&app_handle, &session_id, &SessionEvent::Output { data: s });
+                        }
                     }
                     Err(e)
                         if e.kind() == std::io::ErrorKind::WouldBlock
@@ -178,11 +306,21 @@ impl SerialSession {
     }
 
     /// 写入数据（阻塞句柄 + 退避重试，与 telnet 写路径一致）。
+    /// 前端输入为 UTF-8，先按会话字符集编码成设备端字节流。
     pub fn write_data(&self, data: &str) -> Result<(), String> {
         if data.is_empty() {
             return Ok(());
         }
-        let bytes = data.as_bytes();
+        let mut encoded = Vec::new();
+        {
+            let mut encoder = self.encoding.new_encoder();
+            encode_chunk(&mut encoder, data, &mut encoded);
+        }
+        // mark/space 软件模拟：把第 8 数据位修成恒定校验位值
+        if let Some(mode) = self.msb {
+            mode.apply_msb(&mut encoded);
+        }
+        let bytes = encoded.as_slice();
         let mut remaining = bytes;
         let mut backoff_ms: u64 = 1;
         let deadline = std::time::Instant::now() + Duration::from_secs(WRITE_DEADLINE_SECS);
@@ -224,54 +362,6 @@ impl SerialSession {
     }
 }
 
-/// 把累积字节按 UTF-8 增量边界刷成 Output 事件；非法字节替换 U+FFFD。
-fn flush_utf8<R: tauri::Runtime>(
-    pending: &mut Vec<u8>,
-    app: &tauri::AppHandle<R>,
-    session_id: &str,
-    disconnected: &mut Option<String>,
-) {
-    let mut idx = 0;
-    loop {
-        if idx >= pending.len() {
-            break;
-        }
-        match std::str::from_utf8(&pending[idx..]) {
-            Ok(_) => {
-                let s = String::from_utf8(pending.split_off(idx)).unwrap_or_default();
-                if !s.is_empty() {
-                    emit_session_event(app, session_id, &SessionEvent::Output { data: s });
-                }
-                break;
-            }
-            Err(e) => {
-                let valid = e.valid_up_to();
-                if valid > 0 {
-                    let s = String::from_utf8(pending[idx..idx + valid].to_vec()).unwrap_or_default();
-                    emit_session_event(app, session_id, &SessionEvent::Output { data: s });
-                    idx += valid;
-                } else if e.error_len().is_none() {
-                    break; // 不完整，等下次数据补齐
-                } else {
-                    let bad = e.error_len().unwrap_or(1);
-                    idx += bad;
-                    emit_session_event(
-                        app,
-                        session_id,
-                        &SessionEvent::Output {
-                            data: "\u{FFFD}".to_string(),
-                        },
-                    );
-                }
-            }
-        }
-    }
-    if idx > 0 {
-        pending.drain(..idx);
-    }
-    let _ = disconnected;
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,6 +374,7 @@ mod tests {
             stop_bits: None,
             parity: None,
             flow_control: None,
+            charset: None,
         }
     }
 
@@ -318,23 +409,133 @@ mod tests {
     #[test]
     fn bad_parity_rejected() {
         let mut c = base();
-        c.parity = Some("mark".into());
+        c.parity = Some("invalid".into());
         assert!(normalized_params(&c).is_err());
+    }
+
+    #[test]
+    fn mark_space_emulated_as_8n1() {
+        for (p, mode) in [("mark", MsbMode::Force1), ("space", MsbMode::Force0)] {
+            let mut c = base();
+            c.parity = Some(p.into());
+            // 未显式指定数据位时默认按 7 数据位帧处理
+            let (_, _, db, _, parity, _, msb) = normalized_params(&c).unwrap();
+            assert_eq!(db, DataBits::Eight, "底层应开 8 数据位");
+            assert_eq!(parity, Parity::None, "校验位由软件模拟");
+            assert_eq!(msb, Some(mode));
+        }
+    }
+
+    #[test]
+    fn mark_space_requires_7_data_bits() {
+        let mut c = base();
+        c.parity = Some("mark".into());
+        c.data_bits = Some(8);
+        assert!(normalized_params(&c).is_err());
+        c.data_bits = Some(7);
+        assert!(normalized_params(&c).is_ok());
+    }
+
+    #[test]
+    fn msb_transform_roundtrip() {
+        // mark：发方向置 1
+        let mut bytes = b"ABC\x00".to_vec();
+        MsbMode::Force1.apply_msb(&mut bytes);
+        assert_eq!(bytes, vec![0xC1, 0xC2, 0xC3, 0x80]);
+        // space：发方向清 0
+        let mut bytes = b"ABC".to_vec();
+        MsbMode::Force0.apply_msb(&mut bytes);
+        assert_eq!(bytes, b"ABC".to_vec());
+        // 收方向剥位：mark 帧还原成 ASCII
+        let mut bytes = vec![0xC1u8, 0xC2, 0xC3];
+        strip_msb(&mut bytes);
+        assert_eq!(bytes, b"ABC".to_vec());
     }
 
     #[test]
     fn bad_flow_control_rejected() {
         let mut c = base();
-        c.flow_control = Some("soft".into());
+        c.flow_control = Some("foo".into());
         assert!(normalized_params(&c).is_err());
     }
 
     #[test]
     fn defaults_normalized_to_8n1() {
-        let (_, _, db, sb, p, fc) = normalized_params(&base()).unwrap();
+        let (_, _, db, sb, p, fc, msb) = normalized_params(&base()).unwrap();
         assert_eq!(db, DataBits::Eight);
         assert_eq!(sb, StopBits::One);
         assert_eq!(p, Parity::None);
         assert_eq!(fc, FlowControl::None);
+        assert_eq!(msb, None);
+    }
+
+    #[test]
+    fn flow_and_charset_variants_accepted() {
+        let mut c = base();
+        c.flow_control = Some("software".into());
+        let (_, _, _, _, _, fc, _) = normalized_params(&c).unwrap();
+        assert_eq!(fc, FlowControl::Software);
+        c.flow_control = Some("hardware".into());
+        let (_, _, _, _, _, fc, _) = normalized_params(&c).unwrap();
+        assert_eq!(fc, FlowControl::Hardware);
+    }
+
+    #[test]
+    fn charset_resolved_and_rejected() {
+        assert_eq!(resolve_charset(None).unwrap(), encoding_rs::UTF_8);
+        assert_eq!(resolve_charset(Some("gb18030")).unwrap(), encoding_rs::GB18030);
+        assert_eq!(resolve_charset(Some("big5")).unwrap(), encoding_rs::BIG5);
+        assert_eq!(resolve_charset(Some("shift_jis")).unwrap(), encoding_rs::SHIFT_JIS);
+        assert_eq!(resolve_charset(Some("euc-jp")).unwrap(), encoding_rs::EUC_JP);
+        assert_eq!(resolve_charset(Some("euc-kr")).unwrap(), encoding_rs::EUC_KR);
+        assert_eq!(resolve_charset(Some("koi8-r")).unwrap(), encoding_rs::KOI8_R);
+        assert_eq!(resolve_charset(Some("windows-1251")).unwrap(), encoding_rs::WINDOWS_1251);
+        // WHATWG 标准：latin1/iso-8859-1 标签映射到 windows-1252；
+        // encoding_rs 实测 us-ascii 亦映射到 windows-1252（与规范的 UTF-8 不同），勿当 7 位 ASCII 用
+        assert_eq!(resolve_charset(Some("latin1")).unwrap(), encoding_rs::WINDOWS_1252);
+        assert_eq!(resolve_charset(Some("us-ascii")).unwrap(), encoding_rs::WINDOWS_1252);
+        assert!(resolve_charset(Some("not-a-charset")).is_err());
+    }
+
+    #[test]
+    fn decode_chunk_survives_capacity_expansion() {
+        // 回归：decode_to_string 只用 dst 空闲容量，GB18030 的 0x80 → U+20AC（1 字节膨胀
+        // 成 3 字节 UTF-8），大块输入若不循环扩容会静默丢数据
+        let mut decoder = encoding_rs::GB18030.new_decoder();
+        let input = vec![0x80u8; 30_000];
+        let mut out = String::new();
+        decode_chunk(&mut decoder, &input, &mut out);
+        assert_eq!(out, "\u{20AC}".repeat(30_000));
+    }
+
+    #[test]
+    fn decode_chunk_buffers_partial_multibyte_across_reads() {
+        // GB18030「中」= D6 D0（2 字节），拆到两次读入不丢字
+        let mut decoder = encoding_rs::GB18030.new_decoder();
+        let mut out = String::new();
+        decode_chunk(&mut decoder, &[0xD6], &mut out);
+        assert!(out.is_empty());
+        decode_chunk(&mut decoder, &[0xD0], &mut out);
+        assert_eq!(out, "中");
+    }
+
+    #[test]
+    fn encode_chunk_survives_unmappable_expansion() {
+        // 回归：unmappable 字符替换成数字字符引用（4 字节 UTF-8 → 10 字节 ASCII），
+        // 大块文本不循环扩容会静默丢数据
+        let mut encoder = encoding_rs::BIG5.new_encoder();
+        let input = "\u{1F600}".repeat(20_000);
+        let mut out = Vec::new();
+        encode_chunk(&mut encoder, &input, &mut out);
+        assert_eq!(out, b"&#128512;".repeat(20_000));
+    }
+
+    #[test]
+    fn encode_chunk_gb18030_bytes() {
+        let mut encoder = encoding_rs::GB18030.new_encoder();
+        let mut out = Vec::new();
+        encode_chunk(&mut encoder, "hello 你好", &mut out);
+        // 「你」= C4 E3、「好」= BA C3（GB18030 双字节，与 GBK 兼容）；ASCII 段 1:1
+        assert_eq!(out, b"hello \xC4\xE3\xBA\xC3".to_vec());
     }
 }
