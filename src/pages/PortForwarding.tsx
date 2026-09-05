@@ -55,7 +55,7 @@ type ViewMode = 'grid' | 'list';
 type RuleType = PortForwarding['type'];
 type TypeFilter = 'all' | RuleType;
 
-const sectionClass = 'flex flex-col gap-3 rounded-lg border border-border bg-card p-4';
+const sectionClass = 'flex flex-col gap-3 rounded-lg bg-muted/40 p-4';
 
 function normalizeRuleStatus(status?: PortForwarding['status']): 'connected' | 'disconnected' | 'error' {
   if (status === 'connected') return 'connected';
@@ -64,8 +64,8 @@ function normalizeRuleStatus(status?: PortForwarding['status']): 'connected' | '
 }
 
 const TYPE_META: Record<RuleType, { label: string; desc: string; cls: string }> = {
-  local: { label: 'portForwarding.typeLocal', desc: 'portForwarding.typeLocalDesc', cls: 'bg-blue-500/10 text-blue-600 dark:text-blue-400' },
-  remote: { label: 'portForwarding.typeRemote', desc: 'portForwarding.typeRemoteDesc', cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
+  local: { label: 'portForwarding.typeLocal', desc: 'portForwarding.typeLocalDesc', cls: 'bg-info/10 text-info' },
+  remote: { label: 'portForwarding.typeRemote', desc: 'portForwarding.typeRemoteDesc', cls: 'bg-warning/10 text-warning' },
   dynamic: { label: 'portForwarding.typeDynamic', desc: 'portForwarding.typeDynamicDesc', cls: 'bg-purple-500/10 text-purple-600 dark:text-purple-400' },
 };
 
@@ -93,7 +93,7 @@ const statusDot = (status: PortForwarding['status']) => {
   );
   const cls =
     normalized === 'connected'
-      ? 'bg-emerald-500 ring-2 ring-emerald-500/20'
+      ? 'bg-success ring-2 ring-success/20'
       : normalized === 'error'
         ? 'bg-destructive ring-2 ring-destructive/20'
         : 'bg-muted-foreground/40';
@@ -486,17 +486,17 @@ export function PortForwarding() {
     return (
       <div
         key={rule.id}
-        className="group flex items-center gap-2.5 rounded-lg border border-border bg-card p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md"
+        className="group flex items-center gap-2.5 rounded-lg bg-card p-3 transition-all duration-200 hover:-translate-y-0.5 hover:bg-accent/50 hover:shadow-md"
       >
         <div className="relative shrink-0">
-          <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
+          <div className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-accent">
             <IconCable size={15} strokeWidth={2} />
           </div>
           <span
             className={cn(
               'absolute -right-0.5 -top-0.5 size-2 rounded-full ring-2 ring-card',
               normalizeRuleStatus(rule.status) === 'connected'
-                ? 'bg-emerald-500 ring-emerald-500/20'
+                ? 'bg-success ring-success/20'
                 : normalizeRuleStatus(rule.status) === 'error'
                   ? 'bg-destructive ring-destructive/20'
                   : 'bg-muted-foreground/40',
@@ -578,7 +578,7 @@ export function PortForwarding() {
     <TableRow key={rule.id} className="group transition-colors hover:bg-accent/40 focus-within:bg-accent/40">
       <TableCell className="min-w-0">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-accent">
             <IconCable size={15} strokeWidth={2} />
           </div>
           <div className="min-w-0">
@@ -667,20 +667,20 @@ export function PortForwarding() {
     );
 
   const renderEmpty = () => (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="mb-4 flex size-16 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-        <IconCable size={30} strokeWidth={1.5} />
+    <div className="flex flex-col items-center justify-center py-14 text-center">
+      <div className="mb-3.5 flex size-14 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+        <IconCable size={24} strokeWidth={1.5} />
       </div>
-      <h3 className="text-base font-semibold">
+      <h3 className="text-sm font-semibold tracking-tight">
         {searchQuery || typeFilter !== 'all' ? t('portForwarding.emptySearch') : t('portForwarding.emptyNone')}
       </h3>
-      <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">
+      <p className="mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">
         {searchQuery || typeFilter !== 'all'
           ? t('portForwarding.emptySearchDesc', { query: searchQuery || t('common.currentFilter') })
           : t('portForwarding.emptyNoneDesc')}
       </p>
       {!(searchQuery || typeFilter !== 'all') && (
-        <div className="mt-6 flex items-center gap-2">
+        <div className="mt-5 flex items-center gap-2">
           <Button onClick={openCreate}>
             <IconPlus size={16} /> {t('portForwarding.createRule')}
           </Button>
@@ -690,13 +690,13 @@ export function PortForwarding() {
   );
 
   const renderError = () => (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="mb-4 flex size-16 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
-        <IconAlert size={30} strokeWidth={1.5} />
+    <div className="flex flex-col items-center justify-center py-14 text-center">
+      <div className="mb-3.5 flex size-14 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+        <IconAlert size={24} strokeWidth={1.5} />
       </div>
-      <h3 className="text-base font-semibold">{t('common.loadFailed')}</h3>
+      <h3 className="text-sm font-semibold tracking-tight">{t('common.loadFailed')}</h3>
       <p className="mt-1.5 text-sm text-muted-foreground">{error || t('portForwarding.loadFailedDesc')}</p>
-      <Button variant="secondary" className="mt-6" onClick={() => void refresh()}>
+      <Button variant="secondary" className="mt-5" onClick={() => void refresh()}>
         <IconRefresh size={16} /> {t('common.retry')}
       </Button>
     </div>
@@ -707,7 +707,7 @@ export function PortForwarding() {
       {/* ===== 页头 ===== */}
       <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4">
         <div className="flex min-w-0 items-baseline gap-2">
-          <h2 className="shrink-0 text-base font-semibold text-foreground">{t('portForwarding.title')}</h2>
+          <h2 className="shrink-0 text-[15px] font-semibold tracking-tight text-foreground">{t('portForwarding.title')}</h2>
           <p className="truncate text-xs text-muted-foreground">{t('portForwarding.ruleCount', { count: filteredRules.length })}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -802,7 +802,7 @@ export function PortForwarding() {
                     {group.items.map((rule) => renderRuleCard(rule))}
                   </div>
                 ) : (
-                  <div className="overflow-hidden rounded-lg border border-border bg-card">
+                  <div className="overflow-hidden rounded-lg bg-card ring-1 ring-border/60">
                     <Table>
                       <TableHeader className="[&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground">
                         <TableRow className="bg-muted/40 hover:bg-muted/40">

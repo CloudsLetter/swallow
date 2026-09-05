@@ -34,13 +34,13 @@ import { message, ask, save } from '@tauri-apps/plugin-dialog';
 
 type ViewMode = 'grid' | 'list';
 
-const sectionClass = 'flex flex-col gap-3 rounded-lg border border-border bg-card p-4';
+const sectionClass = 'flex flex-col gap-3 rounded-lg bg-muted/40 p-4';
 
 const keyTypeBadge = (type: string) => {
   const map: Record<string, string> = {
-    RSA: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-    ED25519: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-    ECDSA: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+    RSA: 'bg-info/10 text-info',
+    ED25519: 'bg-success/10 text-success',
+    ECDSA: 'bg-warning/10 text-warning',
   };
   return <Badge variant="outline" className={cn('font-normal', map[type] ?? 'bg-muted text-muted-foreground')}>{type}</Badge>;
 };
@@ -247,12 +247,12 @@ export function Certificates() {
     );
 
   const renderEmpty = () => (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="mb-4 flex size-16 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-        <FileBadge size={30} strokeWidth={1.5} />
+    <div className="flex flex-col items-center justify-center py-14 text-center">
+      <div className="mb-3.5 flex size-14 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+        <FileBadge size={24} strokeWidth={1.5} />
       </div>
-      <h3 className="text-base font-semibold">{searchQuery ? t('certificates.emptySearch') : t('certificates.emptyNone')}</h3>
-      <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">
+      <h3 className="text-sm font-semibold tracking-tight">{searchQuery ? t('certificates.emptySearch') : t('certificates.emptyNone')}</h3>
+      <p className="mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">
         {searchQuery
           ? t('certificates.emptySearchDesc', { query: searchQuery })
           : t('certificates.emptyNoneDesc')}
@@ -272,9 +272,9 @@ export function Certificates() {
     return (
       <div
         key={cert.id}
-        className="group flex items-center gap-2.5 rounded-lg border border-border bg-card p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md"
+        className="group flex items-center gap-2.5 rounded-lg bg-card p-3 transition-all duration-200 hover:-translate-y-0.5 hover:bg-accent/50 hover:shadow-md"
       >
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-accent">
           <FileBadge size={15} strokeWidth={2} />
         </div>
         <div className="min-w-0 flex-1">
@@ -282,7 +282,7 @@ export function Certificates() {
             <span className="truncate text-sm font-medium text-foreground">{cert.name}</span>
             {certTypeBadge(cert.certType)}
             {expired && (
-              <Badge variant="outline" className="gap-1 font-normal bg-red-500/10 text-red-600 dark:text-red-400">
+              <Badge variant="outline" className="gap-1 font-normal bg-destructive/10 text-destructive">
                 {t('common.expired')}
               </Badge>
             )}
@@ -327,7 +327,7 @@ export function Certificates() {
       {/* ===== 页头 ===== */}
       <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4">
         <div className="flex min-w-0 items-baseline gap-2">
-          <h2 className="shrink-0 text-base font-semibold text-foreground">{t('certificates.title')}</h2>
+          <h2 className="shrink-0 text-[15px] font-semibold tracking-tight text-foreground">{t('certificates.title')}</h2>
           <p className="truncate text-xs text-muted-foreground">{t('certificates.certCount', { count: filteredCerts.length })}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -391,7 +391,7 @@ export function Certificates() {
             {filteredCerts.map((cert) => renderCertCard(cert))}
           </div>
         ) : (
-          <div className="overflow-hidden rounded-lg border border-border bg-card">
+          <div className="overflow-hidden rounded-lg bg-card ring-1 ring-border/60">
             <Table>
               <TableHeader className="[&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground">
                 <TableRow className="bg-muted/40 hover:bg-muted/40">
@@ -407,7 +407,7 @@ export function Certificates() {
                   <TableRow key={cert.id} className="group transition-colors hover:bg-accent/40 focus-within:bg-accent/40">
                     <TableCell className="min-w-0">
                       <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
                           <FileBadge size={16} strokeWidth={2} />
                         </div>
                         <div className="min-w-0">
@@ -433,7 +433,7 @@ export function Certificates() {
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {isExpired(cert) ? (
-                        <Badge variant="outline" className="font-normal bg-red-500/10 text-red-600 dark:text-red-400">
+                        <Badge variant="outline" className="font-normal bg-destructive/10 text-destructive">
                           {t('common.expired')}
                         </Badge>
                       ) : cert.validBefore ? (
@@ -570,7 +570,7 @@ export function Certificates() {
                   {certTypeBadge(detailCert.certType)}
                   {keyTypeBadge(detailCert.type)}
                   {isExpired(detailCert) && (
-                    <Badge variant="outline" className="font-normal bg-red-500/10 text-red-600 dark:text-red-400">
+                    <Badge variant="outline" className="font-normal bg-destructive/10 text-destructive">
                       {t('common.expired')}
                     </Badge>
                   )}

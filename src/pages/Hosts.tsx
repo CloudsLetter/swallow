@@ -68,9 +68,9 @@ type ProxyMode = 'existing' | 'manual';
 type AuthSource = 'account' | 'manual';
 type SupportedAccount = Account & { authType: 'password' | 'key' | 'certificate' };
 
-const sectionClass = 'flex flex-col gap-3 rounded-lg border border-border bg-card p-4';
+const sectionClass = 'flex flex-col gap-3 rounded-lg bg-muted/40 p-4';
 const noticeWarningClass =
-  'rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300';
+  'rounded-lg border border-warning/20 bg-warning/10 p-3 text-sm text-warning';
 
 function getAuthTypeText(authType?: Host['authType'] | Account['authType']) {
   switch (authType) {
@@ -111,9 +111,9 @@ function findHostAccount(host: Host, accounts: SupportedAccount[]): SupportedAcc
 
 const authBadge = (authType: 'password' | 'key' | 'certificate' | 'none') => {
   const map = {
-    password: { label: i18n.t('hosts.authTypePassword'), cls: 'bg-sky-500/10 text-sky-600 dark:text-sky-400' },
+    password: { label: i18n.t('hosts.authTypePassword'), cls: 'bg-info/10 text-info' },
     key: { label: i18n.t('hosts.authTypeKey'), cls: 'bg-violet-500/10 text-violet-600 dark:text-violet-400' },
-    certificate: { label: i18n.t('hosts.authTypeCertificate'), cls: 'bg-blue-500/10 text-blue-600 dark:text-blue-400' },
+    certificate: { label: i18n.t('hosts.authTypeCertificate'), cls: 'bg-teal-500/10 text-teal-600 dark:text-teal-400' },
     none: { label: i18n.t('hosts.authNone'), cls: 'bg-muted text-muted-foreground' },
   } as const;
   const item = map[authType];
@@ -124,7 +124,7 @@ const authBadge = (authType: 'password' | 'key' | 'certificate' | 'none') => {
 const statusDotClass = (status: Host['status']) => {
   const normalized = normalizeHostStatus(status);
   return normalized === 'connected'
-    ? 'bg-emerald-500 ring-2 ring-emerald-500/20'
+    ? 'bg-success ring-2 ring-success/20'
     : normalized === 'error'
       ? 'bg-destructive ring-2 ring-destructive/20'
       : 'bg-muted-foreground/40';
@@ -154,7 +154,7 @@ const statusCornerBadge = (status: Host['status']) => {
   if (normalizeHostStatus(status) === 'connected') {
     return (
       <span
-        className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full bg-emerald-500 text-white ring-2 ring-card"
+        className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full bg-success text-white ring-2 ring-card"
         title={title}
       >
         <IconCheck size={8} strokeWidth={3.5} />
@@ -172,9 +172,9 @@ const statusCornerBadge = (status: Host['status']) => {
 /** 认证方式小图标（卡片/列表信息补充，比徽章轻量）：密码=锁 / 密钥=钥匙 / 证书=盾牌。 */
 const authIcon = (authType: 'password' | 'key' | 'certificate' | 'none') => {
   const map = {
-    password: { Icon: IconLock, cls: 'text-sky-600 dark:text-sky-400', label: i18n.t('hosts.authTypePassword') },
+    password: { Icon: IconLock, cls: 'text-info', label: i18n.t('hosts.authTypePassword') },
     key: { Icon: IconKeyRound, cls: 'text-violet-600 dark:text-violet-400', label: i18n.t('hosts.authTypeKey') },
-    certificate: { Icon: IconShieldCheck, cls: 'text-blue-600 dark:text-blue-400', label: i18n.t('hosts.authTypeCertificate') },
+    certificate: { Icon: IconShieldCheck, cls: 'text-teal-600 dark:text-teal-400', label: i18n.t('hosts.authTypeCertificate') },
     none: { Icon: IconLock, cls: 'text-muted-foreground', label: i18n.t('hosts.authNone') },
   } as const;
   const { Icon, cls, label } = map[authType];
@@ -833,11 +833,11 @@ export function Hosts() {
     return (
       <div
         key={host.id}
-        className="group flex items-center gap-2.5 rounded-lg border border-border bg-card p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md"
+        className="group flex items-center gap-2.5 rounded-lg bg-card p-3 ring-1 ring-foreground/[0.06] transition-all duration-200 hover:-translate-y-0.5 hover:bg-accent/50 hover:shadow-md"
       >
         {/* 图标块 + 状态角标 */}
         <div className="relative shrink-0">
-          <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
+          <div className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-accent">
             <IconServer size={15} strokeWidth={2} />
           </div>
           {statusCornerBadge(liveHostStatus(host))}
@@ -848,7 +848,7 @@ export function Hosts() {
           <div className="flex items-center gap-1.5">
             <span className="truncate text-sm font-medium text-foreground">{host.name}</span>
             {authIcon(resolveHostAuthType(host))}
-            {host.useProxy && <IconServer size={12} className="shrink-0 text-amber-500" />}
+            {host.useProxy && <IconServer size={12} className="shrink-0 text-warning" />}
           </div>
           <div className="mt-0.5 flex items-center gap-1 truncate font-mono text-xs text-muted-foreground">
             <IconGlobe size={10} className="shrink-0 opacity-60" />
@@ -892,7 +892,7 @@ export function Hosts() {
                 <IconEdit size={15} className="mr-2" /> {t('common.edit')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void handleCopyCommand(host)}>
-                {copiedId === host.id ? <IconCheck size={15} className="mr-2 text-emerald-500" /> : <IconCopy size={15} className="mr-2" />}
+                {copiedId === host.id ? <IconCheck size={15} className="mr-2 text-success" /> : <IconCopy size={15} className="mr-2" />}
                 {copiedId === host.id ? t('hosts.copiedCommand') : t('hosts.copySshCommand')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -912,13 +912,13 @@ export function Hosts() {
       <TableRow key={host.id} className="group transition-colors hover:bg-accent/40 focus-within:bg-accent/40">
         <TableCell className="min-w-0">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-accent">
               <IconServer size={15} strokeWidth={2} />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
                 <span className="truncate text-sm font-medium text-foreground">{host.name}</span>
-                {host.useProxy && <IconServer size={12} className="shrink-0 text-amber-500" />}
+                {host.useProxy && <IconServer size={12} className="shrink-0 text-warning" />}
               </div>
               <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
                 {resolveHostUsername(host)}@{host.host}
@@ -933,7 +933,7 @@ export function Hosts() {
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             {authBadge(authType)}
             {host.useProxy && (
-              <Badge variant="outline" className="gap-1 font-normal text-amber-600 dark:text-amber-400">
+              <Badge variant="outline" className="gap-1 font-normal text-warning">
                 <IconServer size={11} /> {t('hosts.jump')}
               </Badge>
             )}
@@ -943,7 +943,7 @@ export function Hosts() {
           </div>
         </TableCell>
         <TableCell>{statusIcon(liveHostStatus(host))}</TableCell>
-        <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+        <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">
           {formatLastConnected(host.lastConnected)}
         </TableCell>
         <TableCell className="text-right">
@@ -983,7 +983,7 @@ export function Hosts() {
                   <IconEdit size={15} className="mr-2" /> {t('common.edit')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => void handleCopyCommand(host)}>
-                  {copiedId === host.id ? <IconCheck size={15} className="mr-2 text-emerald-500" /> : <IconCopy size={15} className="mr-2" />}
+                  {copiedId === host.id ? <IconCheck size={15} className="mr-2 text-success" /> : <IconCopy size={15} className="mr-2" />}
                   {copiedId === host.id ? t('hosts.copiedCommand') : t('hosts.copySshCommand')}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
@@ -1000,7 +1000,7 @@ export function Hosts() {
 
   const renderLoading = () => {
     const cardSkeleton = (i: number) => (
-      <div key={i} className="flex items-center gap-2.5 rounded-lg border border-border bg-card p-3">
+      <div key={i} className="flex items-center gap-2.5 rounded-lg bg-card p-3">
         <div className="relative shrink-0">
           <Skeleton className="size-8 rounded-lg" />
           <span className="absolute -right-1 -top-1 size-3 rounded-full bg-muted-foreground/10" />
@@ -1062,7 +1062,7 @@ export function Hosts() {
               {Array.from({ length: 6 }).map((_, i) => cardSkeleton(i))}
             </div>
           ) : (
-            <div className="overflow-hidden rounded-lg border border-border bg-card">
+            <div className="overflow-hidden rounded-lg bg-card ring-1 ring-border/60">
               <Table>
                 <TableHeader className="[&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground">
                   <TableRow className="bg-muted/40 hover:bg-muted/40">
@@ -1084,18 +1084,18 @@ export function Hosts() {
   };
 
   const renderEmpty = () => (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="mb-4 flex size-16 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-        <IconServer size={30} strokeWidth={1.5} />
+    <div className="flex flex-col items-center justify-center py-14 text-center">
+      <div className="mb-3.5 flex size-14 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+        <IconServer size={24} strokeWidth={1.5} />
       </div>
-      <h3 className="text-base font-semibold">{searchQuery || authFilter !== 'all' ? t('hosts.emptySearch') : t('hosts.emptyNone')}</h3>
-      <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">
+      <h3 className="text-sm font-semibold tracking-tight">{searchQuery || authFilter !== 'all' ? t('hosts.emptySearch') : t('hosts.emptyNone')}</h3>
+      <p className="mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">
         {searchQuery || authFilter !== 'all'
           ? t('hosts.emptySearchDesc', { query: searchQuery || t('common.currentFilter') })
           : t('hosts.emptyNoneDesc')}
       </p>
       {!(searchQuery || authFilter !== 'all') && (
-        <div className="mt-6 flex items-center gap-2">
+        <div className="mt-5 flex items-center gap-2">
           <Button onClick={() => void openCreate()}>
             <IconPlus size={16} /> {t('hosts.createHost')}
           </Button>
@@ -1105,13 +1105,13 @@ export function Hosts() {
   );
 
   const renderError = () => (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="mb-4 flex size-16 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
-        <IconAlert size={30} strokeWidth={1.5} />
+    <div className="flex flex-col items-center justify-center py-14 text-center">
+      <div className="mb-3.5 flex size-14 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+        <IconAlert size={24} strokeWidth={1.5} />
       </div>
-      <h3 className="text-base font-semibold">{t('common.loadFailed')}</h3>
+      <h3 className="text-sm font-semibold tracking-tight">{t('common.loadFailed')}</h3>
       <p className="mt-1.5 text-sm text-muted-foreground">{error || t('hosts.loadFailed')}</p>
-      <Button variant="secondary" className="mt-6" onClick={refresh}>
+      <Button variant="secondary" className="mt-5" onClick={refresh}>
         <IconRefresh size={16} /> {t('common.retry')}
       </Button>
     </div>
@@ -1122,7 +1122,7 @@ export function Hosts() {
       {/* ===== 页头 ===== */}
       <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4">
         <div className="flex min-w-0 items-baseline gap-2">
-          <h2 className="shrink-0 text-base font-semibold text-foreground">{t('hosts.title')}</h2>
+          <h2 className="shrink-0 text-[15px] font-semibold tracking-tight text-foreground">{t('hosts.title')}</h2>
           <p className="truncate text-xs text-muted-foreground">
             {t('hosts.hostCount', { count: filteredHosts.length })}
             {connectedCount > 0 && t('hosts.connectedCountSuffix', { count: connectedCount })}
@@ -1137,10 +1137,10 @@ export function Hosts() {
               placeholder={t('hosts.searchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-lg pl-8"
+              className="w-full pl-8"
             />
           </div>
-          <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
+          <div className="flex items-center gap-1 rounded-lg bg-muted/60 p-0.5">
             <Button
               variant="ghost"
               size="icon"
@@ -1218,7 +1218,7 @@ export function Hosts() {
                     className={cn(
                       'size-1.5 rounded-full',
                       group.key === 'connected'
-                        ? 'bg-emerald-500'
+                        ? 'bg-success'
                         : group.key === 'error'
                           ? 'bg-destructive'
                           : 'bg-muted-foreground/40',
@@ -1237,7 +1237,7 @@ export function Hosts() {
                     {group.items.map((host) => renderHostCard(host))}
                   </div>
                 ) : (
-                  <div className="overflow-hidden rounded-lg border border-border bg-card">
+                  <div className="overflow-hidden rounded-lg bg-card ring-1 ring-border/60">
                     <Table>
                       <TableHeader className="[&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground">
                         <TableRow className="bg-muted/40 hover:bg-muted/40">

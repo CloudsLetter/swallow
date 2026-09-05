@@ -12,9 +12,9 @@ interface Entry {
 
 const LEVEL_COLOR: Record<Level, string> = {
   log: 'text-foreground/80',
-  info: 'text-sky-500',
-  warn: 'text-amber-500',
-  error: 'text-red-500',
+  info: 'text-info',
+  warn: 'text-warning',
+  error: 'text-destructive',
   debug: 'text-muted-foreground',
 };
 

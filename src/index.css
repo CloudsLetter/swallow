@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 
 /* ============================================================
    Swallow
@@ -43,6 +44,11 @@
 
   --color-destructive: var(--destructive);
 
+  /* 语义状态色：运行时由 themeUtils 注入当前主题值，这里只是兜底 */
+  --color-success: var(--success, #10b981);
+  --color-warning: var(--warning, #f59e0b);
+  --color-info: var(--info, #06b6d4);
+
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-accent: var(--sidebar-accent);
@@ -50,15 +56,16 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* -------------------- Radius -------------------- */
+  /* -------------------- Radius --------------------
+     统一节奏：控件 6px（md）、卡片 8px（lg）、浮层 10–12px（xl/2xl） */
 
   --radius-xs: 0.25rem;
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
-  --radius-2xl: 1.25rem;
-  --radius: 0.5rem;
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.625rem;
+  --radius-2xl: 0.75rem;
+  --radius: 0.375rem;
 
   /* -------------------- Fonts -------------------- */
 
@@ -74,6 +81,15 @@
     "Geist Variable",
     system-ui,
     sans-serif;
+
+  /* 数据字体：IP / 端口 / 路径 / 时间戳等一律等宽（Termius/Warp 风格的关键信号） */
+  --font-mono:
+    "Geist Mono Variable",
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
 
   /* -------------------- Font sizes -------------------- */
 

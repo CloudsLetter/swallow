@@ -30,8 +30,8 @@ export function LocalShellChips({ onOpenSession }: Pick<QuickConnectCardProps, '
             onOpenSession(`${opt.value} (local)`, 'local', { localConfig: { shell: opt.value } })
           }
           className={cn(
-            'h-7 rounded-md border border-border bg-card px-2.5 text-xs font-medium text-muted-foreground',
-            'transition-colors hover:border-primary/50 hover:bg-accent hover:text-foreground',
+            'h-7 rounded-md bg-card px-2.5 text-xs font-medium text-muted-foreground',
+            'transition-colors hover:bg-accent hover:text-foreground',
           )}
         >
           {opt.label}

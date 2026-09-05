@@ -54,7 +54,7 @@ export function SettingsPage() {
       {/* ===== 页头 ===== */}
       <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4">
         <div className="flex min-w-0 items-baseline gap-2">
-          <h2 className="shrink-0 text-base font-semibold text-foreground">{t('settings.title')}</h2>
+          <h2 className="shrink-0 text-[15px] font-semibold tracking-tight text-foreground">{t('settings.title')}</h2>
           <p className="truncate text-xs text-muted-foreground">{t('settings.subtitle')}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

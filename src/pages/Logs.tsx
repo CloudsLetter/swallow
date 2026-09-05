@@ -27,8 +27,8 @@ const filterChips: { key: LevelFilter; label: string }[] = [
 const levelBadge = (level: LogEntry['level']) => {
   const map = {
     error: { text: i18n.t('logs.levelError'), cls: 'bg-destructive/10 text-destructive' },
-    warn: { text: i18n.t('logs.levelWarn'), cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
-    info: { text: i18n.t('logs.levelInfo'), cls: 'bg-blue-500/10 text-blue-600 dark:text-blue-400' },
+    warn: { text: i18n.t('logs.levelWarn'), cls: 'bg-warning/10 text-warning' },
+    info: { text: i18n.t('logs.levelInfo'), cls: 'bg-info/10 text-info' },
     debug: { text: i18n.t('logs.levelDebug'), cls: 'bg-muted text-muted-foreground' },
   } as const;
   const item = map[level];
@@ -38,8 +38,8 @@ const levelBadge = (level: LogEntry['level']) => {
         className={cn(
           'size-1.5 rounded-full',
           level === 'error' && 'bg-destructive',
-          level === 'warn' && 'bg-amber-500',
-          level === 'info' && 'bg-blue-500',
+          level === 'warn' && 'bg-warning',
+          level === 'info' && 'bg-info',
           level === 'debug' && 'bg-muted-foreground/40',
         )}
       />
@@ -166,7 +166,7 @@ export function Logs() {
   const paginatedLogs = logs.slice(startIndex, startIndex + pageSize);
 
   const renderLoading = () => (
-    <div className="overflow-hidden rounded-lg border border-border bg-card">
+    <div className="overflow-hidden rounded-lg bg-card ring-1 ring-border/60">
       <Table>
         <TableHeader className="[&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground">
           <TableRow className="bg-muted/40 hover:bg-muted/40">
@@ -199,14 +199,14 @@ export function Logs() {
   );
 
   const renderEmpty = () => (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="mb-4 flex size-16 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-        <IconScrollText size={30} strokeWidth={1.5} />
+    <div className="flex flex-col items-center justify-center py-14 text-center">
+      <div className="mb-3.5 flex size-14 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+        <IconScrollText size={24} strokeWidth={1.5} />
       </div>
-      <h3 className="text-base font-semibold">
+      <h3 className="text-sm font-semibold tracking-tight">
         {searchQuery || levelFilter !== 'all' ? t('logs.emptySearch') : t('logs.emptyNone')}
       </h3>
-      <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">
+      <p className="mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">
         {searchQuery || levelFilter !== 'all'
           ? t('logs.emptySearchDesc')
           : t('logs.emptyNoneDesc')}
@@ -215,13 +215,13 @@ export function Logs() {
   );
 
   const renderError = () => (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="mb-4 flex size-16 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
-        <IconAlert size={30} strokeWidth={1.5} />
+    <div className="flex flex-col items-center justify-center py-14 text-center">
+      <div className="mb-3.5 flex size-14 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+        <IconAlert size={24} strokeWidth={1.5} />
       </div>
-      <h3 className="text-base font-semibold">{t('common.loadFailed')}</h3>
+      <h3 className="text-sm font-semibold tracking-tight">{t('common.loadFailed')}</h3>
       <p className="mt-1.5 text-sm text-muted-foreground">{error || t('logs.loadFailedDesc')}</p>
-      <Button variant="secondary" className="mt-6" onClick={() => void loadLogs()}>
+      <Button variant="secondary" className="mt-5" onClick={() => void loadLogs()}>
         <IconRefresh size={16} /> {t('common.retry')}
       </Button>
     </div>
@@ -232,7 +232,7 @@ export function Logs() {
       {/* ===== 页头 ===== */}
       <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4">
         <div className="flex min-w-0 items-baseline gap-2">
-          <h2 className="shrink-0 text-base font-semibold text-foreground">{t('logs.title')}</h2>
+          <h2 className="shrink-0 text-[15px] font-semibold tracking-tight text-foreground">{t('logs.title')}</h2>
           <p className="truncate text-xs text-muted-foreground">{t('logs.recordCount', { count: logs.length })}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -289,7 +289,7 @@ export function Logs() {
         ) : logs.length === 0 ? (
           renderEmpty()
         ) : (
-          <div className="overflow-hidden rounded-lg border border-border bg-card">
+          <div className="overflow-hidden rounded-lg bg-card ring-1 ring-border/60">
             <Table>
               <TableHeader className="[&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground">
                 <TableRow className="bg-muted/40 hover:bg-muted/40">

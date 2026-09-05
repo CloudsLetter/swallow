@@ -1429,7 +1429,7 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
                       <TableCell>
                         <div className="flex items-center gap-2">
                           {file.type === 'directory' ? (
-                            <IconFolder size={18} className="text-amber-600" strokeWidth={2} />
+                            <IconFolder size={18} className="text-warning" strokeWidth={2} />
                           ) : (
                             <IconFile size={18} className="text-muted-foreground" strokeWidth={2} />
                           )}

@@ -92,7 +92,7 @@ export function OnboardingDialog({
         {/* 步骤 3：开始使用 */}
         {step === 2 && (
           <div className="flex flex-col items-center gap-4 py-2 text-center">
-            <div className="flex size-14 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-500">
+            <div className="flex size-14 items-center justify-center rounded-2xl bg-success/10 text-success">
               <ShieldCheck size={26} strokeWidth={1.8} />
             </div>
             <div>

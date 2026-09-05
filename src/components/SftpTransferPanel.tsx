@@ -147,7 +147,7 @@ export function SftpTransferPanel({
             <IconX size={14} className="shrink-0 text-muted-foreground" strokeWidth={2} />
           ) : (
             // 成功：绿色成功状态
-            <IconCheck size={14} className="shrink-0 text-emerald-600" strokeWidth={2} />
+            <IconCheck size={14} className="shrink-0 text-success" strokeWidth={2} />
           )}
           <Button
             variant="ghost"
@@ -201,7 +201,7 @@ export function SftpTransferPanel({
         {/* 行 4：实时速率与 ETA（active 时显示，速率优先于 ETA） */}
         {isActive && (rate || eta) && (
           <div className="flex w-full min-w-0 items-center gap-2 text-[11px] tabular-nums text-muted-foreground">
-            <span className="flex min-w-0 items-center gap-0.5 text-emerald-600 dark:text-emerald-400">
+            <span className="flex min-w-0 items-center gap-0.5 text-success">
               <IconDownload size={11} className="shrink-0 rotate-180" strokeWidth={2} />
               <span className="truncate">{rate}</span>
             </span>
@@ -239,7 +239,7 @@ export function SftpTransferPanel({
         </CardTitle>
         <CardAction className="flex items-center gap-1.5">
           {doneCount > 0 && (
-            <Badge className="h-4 gap-0.5 rounded-sm bg-emerald-500/10 px-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+            <Badge className="h-4 gap-0.5 rounded-sm bg-success/10 px-1 text-[10px] font-medium text-success">
               <IconCheck size={10} strokeWidth={2} /> {doneCount}
             </Badge>
           )}

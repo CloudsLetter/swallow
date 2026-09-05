@@ -53,7 +53,7 @@ export function ConnectionProgress({ visible, steps, onClose, onRetry, onCancel 
         <CardHeader className="border-b border-border">
           <CardTitle className="flex items-center gap-2 text-sm font-semibold">
             {isComplete ? (
-              <IconCheck size={16} className="text-emerald-500" />
+              <IconCheck size={16} className="text-success" />
             ) : hasError ? (
               <IconX size={16} className="text-destructive" />
             ) : (
@@ -119,7 +119,7 @@ export function ConnectionProgress({ visible, steps, onClose, onRetry, onCancel 
                     className={cn(
                       'break-all',
                       log.includes('[ERROR]') && 'text-destructive',
-                      log.includes('[SUCCESS]') && 'text-emerald-600 dark:text-emerald-400',
+                      log.includes('[SUCCESS]') && 'text-success',
                       log.includes('[INFO]') && 'text-foreground',
                     )}
                   >

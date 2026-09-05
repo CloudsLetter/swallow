@@ -103,8 +103,8 @@ function alertLevel(snap: MonitorSnapshot | null): 'none' | 'warn' | 'critical' 
 
 /** 告警级别对应的 CPU 环颜色。 */
 function alertColor(level: 'none' | 'warn' | 'critical'): string {
-  if (level === 'critical') return '#ef4444';
-  if (level === 'warn') return '#f59e0b';
+  if (level === 'critical') return 'var(--destructive)';
+  if (level === 'warn') return 'var(--warning)';
   return 'var(--primary)';
 }
 
@@ -242,7 +242,7 @@ function MultiSparkline({
 function UsageBar({ percent: value, color }: { percent: number; color?: string }) {
   const clamped = Math.max(0, Math.min(100, value));
   const resolved =
-    color ?? (clamped >= 90 ? '#ef4444' : clamped >= 75 ? '#f59e0b' : '#10b981');
+    color ?? (clamped >= 90 ? 'var(--destructive)' : clamped >= 75 ? 'var(--warning)' : 'var(--success)');
   return (
     <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
       <div
@@ -262,8 +262,8 @@ function MemSplitBar({ snap, t }: { snap: MonitorSnapshot; t: (k: string) => str
   const free = Math.max(0, total - used - cache);
   const pct = (v: number) => `${(v / total) * 100}%`;
   const segs = [
-    { value: used, color: '#10b981' },
-    { value: cache, color: '#0ea5e9' },
+    { value: used, color: 'var(--success)' },
+    { value: cache, color: 'var(--info)' },
     { value: free, color: 'var(--muted-foreground)' },
   ];
   return (
@@ -282,8 +282,8 @@ function MemSplitBar({ snap, t }: { snap: MonitorSnapshot; t: (k: string) => str
       <div className="flex flex-wrap gap-x-2.5 gap-y-0.5">
         {(
           [
-            { color: '#10b981', value: used, label: t('monitor.memUsedText') },
-            { color: '#0ea5e9', value: cache, label: t('monitor.memCached') },
+            { color: 'var(--success)', value: used, label: t('monitor.memUsedText') },
+            { color: 'var(--info)', value: cache, label: t('monitor.memCached') },
             { color: 'var(--muted-foreground)', value: free, label: t('monitor.memFreeText') },
           ] as { color: string; value: number; label: string }[]
         ).map((s, i) => (
@@ -303,8 +303,8 @@ function CpuStackBar({ snap, t }: { snap: MonitorSnapshot; t: (k: string) => str
   const segs = [
     { pct: snap.cpuUser, color: 'var(--primary)', label: t('monitor.cpuUser') },
     { pct: snap.cpuSystem, color: '#8b5cf6', label: t('monitor.cpuSystem') },
-    { pct: snap.cpuIowait, color: '#f59e0b', label: t('monitor.cpuIowait') },
-    { pct: snap.cpuSteal, color: '#ef4444', label: t('monitor.cpuSteal') },
+    { pct: snap.cpuIowait, color: 'var(--warning)', label: t('monitor.cpuIowait') },
+    { pct: snap.cpuSteal, color: 'var(--destructive)', label: t('monitor.cpuSteal') },
   ];
   const busy = segs.reduce((s, x) => s + Math.max(0, x.pct), 0);
   const idle = Math.max(0, 100 - busy);
@@ -660,12 +660,12 @@ export function Monitor() {
         key={item.sessionId}
         onClick={() => setDetailId(item.sessionId)}
         className={cn(
-          'group cursor-pointer rounded-lg border bg-card transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md',
+          'group cursor-pointer rounded-lg bg-card ring-1 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md',
           level === 'critical'
-            ? 'border-red-500/60 hover:border-red-500'
+            ? 'ring-destructive/60 hover:ring-destructive'
             : level === 'warn'
-              ? 'border-amber-500/60 hover:border-amber-500'
-              : 'border-border hover:border-primary/25',
+              ? 'ring-warning/60 hover:ring-warning'
+              : 'ring-transparent hover:ring-border',
         )}
       >
         {/* 头部 */}
@@ -677,8 +677,8 @@ export function Monitor() {
                 item.status === 'error'
                   ? 'bg-destructive'
                   : snap
-                    ? 'bg-emerald-500 ring-2 ring-emerald-500/20'
-                    : 'bg-amber-500',
+                    ? 'bg-success ring-2 ring-success/20'
+                    : 'bg-warning',
               )}
               title={item.status === 'error' ? t('monitor.offline') : t('monitor.monitoring')}
             />
@@ -736,7 +736,7 @@ export function Monitor() {
                       {formatBytes(snap.memUsed)} / {formatBytes(snap.memTotal)}
                     </span>
                   </div>
-                  <UsageBar percent={memPercent(snap)} color="#10b981" />
+                  <UsageBar percent={memPercent(snap)} color="var(--success)" />
                 </div>
                 <div className="flex items-center justify-between gap-2 text-xs">
                   <span className="min-w-0 truncate text-muted-foreground">{t('monitor.load')}</span>
@@ -746,11 +746,11 @@ export function Monitor() {
                   <span className="min-w-0 truncate text-muted-foreground">{t('monitor.network')}</span>
                   <span className="flex shrink-0 items-center gap-2 tabular-nums text-foreground">
                     <span className="flex items-center gap-1">
-                      <ArrowDown size={11} className="text-emerald-500" />
+                      <ArrowDown size={11} className="text-success" />
                       {formatRate(net.rx)}
                     </span>
                     <span className="flex items-center gap-1">
-                      <ArrowUp size={11} className="text-amber-500" />
+                      <ArrowUp size={11} className="text-warning" />
                       {formatRate(net.tx)}
                     </span>
                   </span>
@@ -758,7 +758,7 @@ export function Monitor() {
                 <div className="flex items-center justify-between gap-2 text-xs">
                   <span className="min-w-0 truncate text-muted-foreground">TCP</span>
                   <span className="flex shrink-0 items-center gap-2 tabular-nums text-foreground">
-                    <span className="text-emerald-500">{t('monitor.tcpEstab')} {snap.tcp.established}</span>
+                    <span className="text-success">{t('monitor.tcpEstab')} {snap.tcp.established}</span>
                     <span className="text-muted-foreground">{t('monitor.tcpTotal')} {snap.tcp.total}</span>
                   </span>
                 </div>
@@ -775,7 +775,7 @@ export function Monitor() {
       {/* ===== 页头 ===== */}
       <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4">
         <div className="flex min-w-0 items-baseline gap-2">
-          <h2 className="shrink-0 text-base font-semibold text-foreground">{t('monitor.title')}</h2>
+          <h2 className="shrink-0 text-[15px] font-semibold tracking-tight text-foreground">{t('monitor.title')}</h2>
           {items.length > 0 && (
             <p className="truncate text-xs text-muted-foreground">
               {t('monitor.monitoringCount', { count: items.length })}
@@ -827,7 +827,7 @@ export function Monitor() {
         {loading ? (
           <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(min(100%,320px),1fr))]">
             {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="rounded-lg border border-border bg-card p-3">
+              <div key={i} className="rounded-lg bg-card p-3">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex min-w-0 items-center gap-2">
                     <Skeleton className="size-2 shrink-0 rounded-full" />
@@ -846,7 +846,7 @@ export function Monitor() {
           </div>
         ) : items.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-            <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <div className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
               <Server size={24} />
             </div>
             <p className="max-w-xs text-sm text-muted-foreground">{t('monitor.emptyHint')}</p>
@@ -900,8 +900,8 @@ export function Monitor() {
                       detailItem.status === 'error'
                         ? 'bg-destructive'
                         : detailItem.snapshot
-                          ? 'bg-emerald-500 ring-2 ring-emerald-500/20'
-                          : 'bg-amber-500',
+                          ? 'bg-success ring-2 ring-success/20'
+                          : 'bg-warning',
                     )}
                   />
                   {detailItem.hostName}
@@ -953,7 +953,7 @@ function DetailBody({ item, t }: { item: MonitorItem; t: (k: string, opts?: Reco
 
       {/* 三仪表 */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="flex flex-col items-center gap-1.5 rounded-lg border border-border bg-card p-3">
+        <div className="flex flex-col items-center gap-1.5 rounded-lg bg-card p-3">
           <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
             <Cpu size={13} className="text-primary" />
             {t('monitor.cpu')}
@@ -963,12 +963,12 @@ function DetailBody({ item, t }: { item: MonitorItem; t: (k: string, opts?: Reco
             {t('monitor.cpuUser')} {snap.cpuUser.toFixed(0)}% · {t('monitor.cpuSystem')} {snap.cpuSystem.toFixed(0)}% · {t('monitor.cpuIowait')} {snap.cpuIowait.toFixed(0)}%
           </span>
         </div>
-        <div className="flex flex-col items-center gap-1.5 rounded-lg border border-border bg-card p-3">
+        <div className="flex flex-col items-center gap-1.5 rounded-lg bg-card p-3">
           <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-            <HardDrive size={13} className="text-emerald-500" />
+            <HardDrive size={13} className="text-success" />
             {t('monitor.memory')}
           </span>
-          <Gauge percent={memPercent(snap)} size={104} color="#10b981" valueText={Math.round(memPercent(snap)).toString()} unit="%" />
+          <Gauge percent={memPercent(snap)} size={104} color="var(--success)" valueText={Math.round(memPercent(snap)).toString()} unit="%" />
           <span className="text-center text-[11px] leading-relaxed text-muted-foreground">
             {t('monitor.memDetail', {
               used: formatBytes(snap.memUsed),
@@ -977,12 +977,12 @@ function DetailBody({ item, t }: { item: MonitorItem; t: (k: string, opts?: Reco
             })}
           </span>
         </div>
-        <div className="flex flex-col items-center gap-1.5 rounded-lg border border-border bg-card p-3">
+        <div className="flex flex-col items-center gap-1.5 rounded-lg bg-card p-3">
           <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-            <Activity size={13} className="text-amber-500" />
+            <Activity size={13} className="text-warning" />
             {t('monitor.swap')}
           </span>
-          <Gauge percent={percent(snap.swapUsed, snap.swapTotal)} size={104} color="#f59e0b" valueText={Math.round(percent(snap.swapUsed, snap.swapTotal)).toString()} unit="%" />
+          <Gauge percent={percent(snap.swapUsed, snap.swapTotal)} size={104} color="var(--warning)" valueText={Math.round(percent(snap.swapUsed, snap.swapTotal)).toString()} unit="%" />
           <span className="text-center text-[11px] leading-relaxed text-muted-foreground">
             {t('monitor.memDetail', {
               used: formatBytes(snap.swapUsed),
@@ -994,7 +994,7 @@ function DetailBody({ item, t }: { item: MonitorItem; t: (k: string, opts?: Reco
       </div>
 
       {/* CPU 细分 + 历史 */}
-      <div className="rounded-lg border border-border bg-card p-3">
+      <div className="rounded-lg bg-card p-3">
         <span className="text-xs font-medium text-foreground">{t('monitor.cpuBreakdown')}</span>
         <div className="mt-2">
           <CpuStackBar snap={snap} t={t} />
@@ -1011,8 +1011,8 @@ function DetailBody({ item, t }: { item: MonitorItem; t: (k: string, opts?: Reco
               series={[
                 { data: item.history.user, color: 'var(--primary)' },
                 { data: item.history.system, color: '#8b5cf6' },
-                { data: item.history.iowait, color: '#f59e0b' },
-                { data: item.history.steal, color: '#ef4444' },
+                { data: item.history.iowait, color: 'var(--warning)' },
+                { data: item.history.steal, color: 'var(--destructive)' },
               ]}
             />
           </div>
@@ -1020,7 +1020,7 @@ function DetailBody({ item, t }: { item: MonitorItem; t: (k: string, opts?: Reco
       </div>
 
       {/* 内存细分（去向：已用 / buff-cache / 物理空闲） */}
-      <div className="rounded-lg border border-border bg-card p-3">
+      <div className="rounded-lg bg-card p-3">
         <span className="text-xs font-medium text-foreground">{t('monitor.memBreakdown')}</span>
         <div className="mt-2">
           <MemSplitBar snap={snap} t={t} />
@@ -1030,7 +1030,7 @@ function DetailBody({ item, t }: { item: MonitorItem; t: (k: string, opts?: Reco
 
       {/* 进程占用 */}
       {(snap.topCpu.length > 0 || snap.topMem.length > 0) && (
-        <div className="rounded-lg border border-border bg-card p-3">
+        <div className="rounded-lg bg-card p-3">
           <span className="text-xs font-medium text-foreground">{t('monitor.topProcesses')}</span>
           <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1">
@@ -1047,7 +1047,7 @@ function DetailBody({ item, t }: { item: MonitorItem; t: (k: string, opts?: Reco
 
       {/* 磁盘 I/O + TCP */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="rounded-lg border border-border bg-card p-3">
+        <div className="rounded-lg bg-card p-3">
           <span className="text-xs font-medium text-foreground">{t('monitor.diskIo')}</span>
           {snap.disksIo.length === 0 ? (
             <p className="mt-2 text-xs text-muted-foreground">{t('monitor.noData')}</p>
@@ -1055,11 +1055,11 @@ function DetailBody({ item, t }: { item: MonitorItem; t: (k: string, opts?: Reco
             <>
               <div className="mt-2 flex items-center gap-3 rounded-md border border-border/60 px-3 py-1.5 text-xs">
                 <span className="flex items-center gap-1.5 tabular-nums text-foreground">
-                  <ArrowDown size={11} className="text-emerald-500" />
+                  <ArrowDown size={11} className="text-success" />
                   {t('monitor.ioRead')} {formatRate(diskIo.rx)}
                 </span>
                 <span className="flex items-center gap-1.5 tabular-nums text-foreground">
-                  <ArrowUp size={11} className="text-amber-500" />
+                  <ArrowUp size={11} className="text-warning" />
                   {t('monitor.ioWrite')} {formatRate(diskIo.wx)}
                 </span>
               </div>
@@ -1069,11 +1069,11 @@ function DetailBody({ item, t }: { item: MonitorItem; t: (k: string, opts?: Reco
                     <span className="font-medium text-foreground">{d.device}</span>
                     <span className="flex items-center gap-3 tabular-nums text-muted-foreground">
                       <span className="flex items-center gap-1">
-                        <ArrowDown size={11} className="text-emerald-500" />
+                        <ArrowDown size={11} className="text-success" />
                         {formatRate(d.rxBytesPerSec)}
                       </span>
                       <span className="flex items-center gap-1">
-                        <ArrowUp size={11} className="text-amber-500" />
+                        <ArrowUp size={11} className="text-warning" />
                         {formatRate(d.wxBytesPerSec)}
                       </span>
                     </span>
@@ -1084,13 +1084,13 @@ function DetailBody({ item, t }: { item: MonitorItem; t: (k: string, opts?: Reco
           )}
         </div>
 
-        <div className="rounded-lg border border-border bg-card p-3">
+        <div className="rounded-lg bg-card p-3">
           <span className="text-xs font-medium text-foreground">{t('monitor.tcp')}</span>
           <div className="mt-2 grid grid-cols-2 gap-2">
             {[
-              { label: 'ESTAB', value: snap.tcp.established, color: 'text-emerald-500' },
+              { label: 'ESTAB', value: snap.tcp.established, color: 'text-success' },
               { label: 'TIME_WAIT', value: snap.tcp.timeWait, color: 'text-foreground' },
-              { label: 'CLOSE_WAIT', value: snap.tcp.closeWait, color: 'text-amber-500' },
+              { label: 'CLOSE_WAIT', value: snap.tcp.closeWait, color: 'text-warning' },
               { label: 'SYN_SENT', value: snap.tcp.synSent, color: 'text-foreground' },
             ].map((s) => (
               <div key={s.label} className="rounded-md border border-border/60 px-3 py-1.5">
@@ -1108,7 +1108,7 @@ function DetailBody({ item, t }: { item: MonitorItem; t: (k: string, opts?: Reco
 
       {/* 磁盘容量 */}
       {snap.disks.length > 0 && (
-        <div className="rounded-lg border border-border bg-card p-3">
+        <div className="rounded-lg bg-card p-3">
           <span className="text-xs font-medium text-foreground">{t('monitor.disk')}</span>
           <div className="mt-2 flex flex-col gap-2">
             {snap.disks.map((d) => (
@@ -1128,16 +1128,16 @@ function DetailBody({ item, t }: { item: MonitorItem; t: (k: string, opts?: Reco
 
       {/* 网络 */}
       {snap.net.length > 0 && (
-        <div className="rounded-lg border border-border bg-card p-3">
+        <div className="rounded-lg bg-card p-3">
           <span className="text-xs font-medium text-foreground">{t('monitor.network')}</span>
           {/* 总网络吞吐汇总 */}
           <div className="mt-2 flex items-center gap-4 rounded-md border border-border/60 px-3 py-1.5 text-xs">
             <span className="flex items-center gap-1.5 tabular-nums text-foreground">
-              <ArrowDown size={12} className="text-emerald-500" />
+              <ArrowDown size={12} className="text-success" />
               {t('monitor.netTotalIn')} {formatRate(net.rx)}
             </span>
             <span className="flex items-center gap-1.5 tabular-nums text-foreground">
-              <ArrowUp size={12} className="text-amber-500" />
+              <ArrowUp size={12} className="text-warning" />
               {t('monitor.netTotalOut')} {formatRate(net.tx)}
             </span>
           </div>
@@ -1147,11 +1147,11 @@ function DetailBody({ item, t }: { item: MonitorItem; t: (k: string, opts?: Reco
                 <span className="font-medium text-foreground">{n.interface}</span>
                 <div className="flex items-center gap-4 tabular-nums text-muted-foreground">
                   <span className="flex items-center gap-1">
-                    <ArrowDown size={11} className="text-emerald-500" />
+                    <ArrowDown size={11} className="text-success" />
                     {formatRate(n.rxBytesPerSec)}
                   </span>
                   <span className="flex items-center gap-1">
-                    <ArrowUp size={11} className="text-amber-500" />
+                    <ArrowUp size={11} className="text-warning" />
                     {formatRate(n.txBytesPerSec)}
                   </span>
                 </div>

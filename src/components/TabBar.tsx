@@ -139,7 +139,7 @@ function TabItem({ tab, isActive, extendActive, dragOverClass, onClose, onFocus,
         />
       )}
       {Icon && <Icon size={14} strokeWidth={2} className="shrink-0 opacity-80" />}
-      <span className="flex-1 truncate text-sm">{tab.name}</span>
+      <span className={cn('flex-1 truncate text-sm', isActive && 'font-medium')}>{tab.name}</span>
       <Button
         variant="ghost"
         size="icon-xs"

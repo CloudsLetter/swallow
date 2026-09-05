@@ -29,7 +29,7 @@ export function Steps({ steps, orientation = 'horizontal', showLabels = true, cl
         className={cn(
           'flex size-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
           isLoading && 'border-primary bg-primary/10 text-primary',
-          isDone && 'border-emerald-500 bg-emerald-500 text-white',
+          isDone && 'border-success bg-success text-white',
           isError && 'border-destructive bg-destructive text-white',
           step.status === 'pending' && 'border-border bg-muted text-muted-foreground',
         )}
@@ -69,7 +69,7 @@ export function Steps({ steps, orientation = 'horizontal', showLabels = true, cl
                   <span
                     className={cn(
                       'my-0.5 w-0.5 flex-1 rounded-full',
-                      step.status === 'success' ? 'bg-emerald-500/60' : 'bg-border',
+                      step.status === 'success' ? 'bg-success/60' : 'bg-border',
                     )}
                   />
                 )}
@@ -111,7 +111,7 @@ export function Steps({ steps, orientation = 'horizontal', showLabels = true, cl
               <span
                 className={cn(
                   'mx-1 mt-3 h-0.5 min-w-0 flex-1 -translate-y-px rounded-full',
-                  step.status === 'success' ? 'bg-emerald-500/60' : 'bg-border',
+                  step.status === 'success' ? 'bg-success/60' : 'bg-border',
                 )}
                 aria-hidden
               />

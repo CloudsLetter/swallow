@@ -56,13 +56,13 @@ type ActionMode = 'create' | 'import' | null;
 type TypeFilter = 'all' | Key['type'];
 type ImportMethod = 'file' | 'text';
 
-const sectionClass = 'flex flex-col gap-3 rounded-lg border border-border bg-card p-4';
+const sectionClass = 'flex flex-col gap-3 rounded-lg bg-muted/40 p-4';
 
 const keyTypeBadge = (type: Key['type']) => {
   const map: Record<Key['type'], string> = {
-    RSA: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-    ED25519: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-    ECDSA: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+    RSA: 'bg-info/10 text-info',
+    ED25519: 'bg-success/10 text-success',
+    ECDSA: 'bg-warning/10 text-warning',
   };
   return <Badge variant="outline" className={cn('font-normal', map[type])}>{type}</Badge>;
 };
@@ -344,10 +344,10 @@ export function Keys() {
     return (
       <div
         key={key.id}
-        className="group flex cursor-pointer items-center gap-2.5 rounded-lg border border-border bg-card p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md"
+        className="group flex cursor-pointer items-center gap-2.5 rounded-lg bg-card p-3 transition-all duration-200 hover:-translate-y-0.5 hover:bg-accent/50 hover:shadow-md"
         onClick={() => void openDetail(key)}
       >
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-accent">
           <IconKey size={15} strokeWidth={2} />
         </div>
         <div className="min-w-0 flex-1">
@@ -398,7 +398,7 @@ export function Keys() {
     >
       <TableCell className="min-w-0">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-accent">
             <IconKey size={15} strokeWidth={2} />
           </div>
           <div className="min-w-0">
@@ -467,20 +467,20 @@ export function Keys() {
     );
 
   const renderEmpty = () => (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="mb-4 flex size-16 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-        <IconKey size={30} strokeWidth={1.5} />
+    <div className="flex flex-col items-center justify-center py-14 text-center">
+      <div className="mb-3.5 flex size-14 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+        <IconKey size={24} strokeWidth={1.5} />
       </div>
-      <h3 className="text-base font-semibold">
+      <h3 className="text-sm font-semibold tracking-tight">
         {searchQuery || typeFilter !== 'all' ? t('keys.emptySearch') : t('keys.emptyNone')}
       </h3>
-      <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">
+      <p className="mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">
         {searchQuery || typeFilter !== 'all'
           ? t('keys.emptySearchDesc', { query: searchQuery || t('common.currentFilter') })
           : t('keys.emptyNoneDesc')}
       </p>
       {!(searchQuery || typeFilter !== 'all') && (
-        <div className="mt-6 flex items-center gap-2">
+        <div className="mt-5 flex items-center gap-2">
           <Button variant="secondary" onClick={() => openDrawer('import')}>
             <IconImport size={16} /> {t('keys.import')}
           </Button>
@@ -493,13 +493,13 @@ export function Keys() {
   );
 
   const renderError = () => (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="mb-4 flex size-16 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
-        <IconAlert size={30} strokeWidth={1.5} />
+    <div className="flex flex-col items-center justify-center py-14 text-center">
+      <div className="mb-3.5 flex size-14 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+        <IconAlert size={24} strokeWidth={1.5} />
       </div>
-      <h3 className="text-base font-semibold">{t('common.loadFailed')}</h3>
+      <h3 className="text-sm font-semibold tracking-tight">{t('common.loadFailed')}</h3>
       <p className="mt-1.5 text-sm text-muted-foreground">{error || t('keys.loadFailedDesc')}</p>
-      <Button variant="secondary" className="mt-6" onClick={() => void loadKeys()}>
+      <Button variant="secondary" className="mt-5" onClick={() => void loadKeys()}>
         <IconRefresh size={16} /> {t('common.retry')}
       </Button>
     </div>
@@ -510,7 +510,7 @@ export function Keys() {
       {/* ===== 页头 ===== */}
       <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4">
         <div className="flex min-w-0 items-baseline gap-2">
-          <h2 className="shrink-0 text-base font-semibold text-foreground">{t('keys.title')}</h2>
+          <h2 className="shrink-0 text-[15px] font-semibold tracking-tight text-foreground">{t('keys.title')}</h2>
           <p className="truncate text-xs text-muted-foreground">{t('keys.keyCount', { count: filteredKeys.length })}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -609,7 +609,7 @@ export function Keys() {
                     {group.items.map((key) => renderKeyCard(key))}
                   </div>
                 ) : (
-                  <div className="overflow-hidden rounded-lg border border-border bg-card">
+                  <div className="overflow-hidden rounded-lg bg-card ring-1 ring-border/60">
                     <Table>
                       <TableHeader className="[&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground">
                         <TableRow className="bg-muted/40 hover:bg-muted/40">

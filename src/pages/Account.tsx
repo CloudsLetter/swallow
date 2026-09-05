@@ -44,7 +44,7 @@ const EMPTY_FORM: AccountForm = {
   tags: '',
 };
 
-const sectionClass = 'flex flex-col gap-3 rounded-lg border border-border bg-card p-4';
+const sectionClass = 'flex flex-col gap-3 rounded-lg bg-muted/40 p-4';
 
 function getAuthTypeText(authType: Account['authType']) {
   switch (authType) {
@@ -59,9 +59,9 @@ function getAuthTypeText(authType: Account['authType']) {
 
 const authBadge = (authType: Account['authType']) => {
   const map = {
-    password: { label: i18n.t('account.authTypePassword'), cls: 'bg-sky-500/10 text-sky-600 dark:text-sky-400' },
+    password: { label: i18n.t('account.authTypePassword'), cls: 'bg-info/10 text-info' },
     key: { label: i18n.t('account.authTypeKey'), cls: 'bg-violet-500/10 text-violet-600 dark:text-violet-400' },
-    certificate: { label: i18n.t('account.authTypeCertificate'), cls: 'bg-blue-500/10 text-blue-600 dark:text-blue-400' },
+    certificate: { label: i18n.t('account.authTypeCertificate'), cls: 'bg-teal-500/10 text-teal-600 dark:text-teal-400' },
   } as const;
   const item = map[authType];
   return <Badge variant="outline" className={cn('font-normal', item.cls)}>{item.label}</Badge>;
@@ -256,18 +256,18 @@ export function AccountPage() {
     );
 
   const renderEmpty = () => (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="mb-4 flex size-16 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-        <User size={30} strokeWidth={1.5} />
+    <div className="flex flex-col items-center justify-center py-14 text-center">
+      <div className="mb-3.5 flex size-14 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+        <User size={24} strokeWidth={1.5} />
       </div>
-      <h3 className="text-base font-semibold">{searchQuery ? t('account.emptySearch') : t('account.emptyNone')}</h3>
-      <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">
+      <h3 className="text-sm font-semibold tracking-tight">{searchQuery ? t('account.emptySearch') : t('account.emptyNone')}</h3>
+      <p className="mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">
         {searchQuery
           ? t('account.emptySearchDesc', { query: searchQuery })
           : t('account.emptyNoneDesc')}
       </p>
       {!searchQuery && (
-        <div className="mt-6 flex items-center gap-2">
+        <div className="mt-5 flex items-center gap-2">
           <Button onClick={openCreate}>
             <Plus size={16} /> {t('account.createAccount')}
           </Button>
@@ -280,9 +280,9 @@ export function AccountPage() {
     return (
       <div
         key={account.id}
-        className="group flex items-center gap-2.5 rounded-lg border border-border bg-card p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md"
+        className="group flex items-center gap-2.5 rounded-lg bg-card p-3 transition-all duration-200 hover:-translate-y-0.5 hover:bg-accent/50 hover:shadow-md"
       >
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-accent">
           <User size={15} strokeWidth={2} />
         </div>
         <div className="min-w-0 flex-1">
@@ -336,7 +336,7 @@ export function AccountPage() {
       {/* ===== 页头 ===== */}
       <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4">
         <div className="flex min-w-0 items-baseline gap-2">
-          <h2 className="shrink-0 text-base font-semibold text-foreground">{t('account.title')}</h2>
+          <h2 className="shrink-0 text-[15px] font-semibold tracking-tight text-foreground">{t('account.title')}</h2>
           <p className="truncate text-xs text-muted-foreground">{t('account.accountCount', { count: filteredAccounts.length })}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -400,7 +400,7 @@ export function AccountPage() {
             {filteredAccounts.map((account) => renderAccountCard(account))}
           </div>
         ) : (
-          <div className="overflow-hidden rounded-lg border border-border bg-card">
+          <div className="overflow-hidden rounded-lg bg-card ring-1 ring-border/60">
             <Table>
               <TableHeader className="[&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground">
                 <TableRow className="bg-muted/40 hover:bg-muted/40">
@@ -416,7 +416,7 @@ export function AccountPage() {
                   <TableRow key={account.id} className="group transition-colors hover:bg-accent/40 focus-within:bg-accent/40">
                     <TableCell className="min-w-0">
                       <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
                           <User size={16} strokeWidth={2} />
                         </div>
                         <div className="min-w-0">

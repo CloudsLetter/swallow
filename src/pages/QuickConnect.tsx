@@ -148,7 +148,7 @@ export function QuickConnect() {
   const StatusDot = ({ status }: { status: Host['status'] }) => {
     const color =
       status === 'connected'
-        ? 'bg-emerald-500'
+        ? 'bg-success'
         : status === 'error'
           ? 'bg-destructive'
           : 'bg-muted-foreground/40';
@@ -179,7 +179,7 @@ export function QuickConnect() {
     <div className="flex h-full flex-col">
       {/* 页头：标题 + 搜索 */}
       <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border bg-card px-6 py-4">
-        <h2 className="text-lg font-semibold">{t('quickConnect.title')}</h2>
+        <h2 className="text-xl font-semibold tracking-tight">{t('quickConnect.title')}</h2>
         <div className="relative w-80 max-w-[50%]">
           <IconSearch
             size="16"
@@ -214,10 +214,10 @@ export function QuickConnect() {
                   type="button"
                   onClick={() => setOpenProtocol(active ? null : tile.id)}
                   className={cn(
-                    'group flex flex-col gap-1 rounded-lg border p-3 text-left transition-all',
+                    'group flex flex-col gap-1 rounded-lg p-3 text-left transition-all',
                     active
-                      ? 'border-primary bg-primary/5 ring-1 ring-primary/40'
-                      : 'border-border bg-card hover:border-primary/40 hover:bg-accent',
+                      ? 'bg-primary/10 ring-1 ring-inset ring-primary/35 shadow-[inset_0_1px_0_0_color-mix(in_oklab,var(--primary)_18%,transparent)]'
+                      : 'bg-card hover:bg-accent',
                   )}
                 >
                   <span className="flex items-center gap-2 text-sm font-medium">
@@ -237,10 +237,9 @@ export function QuickConnect() {
             <div
               ref={expandedRef}
               className={cn(
-                'mt-3 rounded-lg border bg-card p-3',
+                'mt-3 rounded-lg bg-card p-3 ring-1 ring-border/60',
                 openTile.id === 'serial' && serialHighlight
-                  ? 'border-primary ring-2 ring-primary/40'
-                  : 'border-border',
+                  ? 'ring-2 ring-primary/40' : ''
               )}
             >
               <div className="mb-2.5 flex items-center gap-1.5 text-sm font-medium">
@@ -268,14 +267,14 @@ export function QuickConnect() {
               <span>{t('quickConnect.recent')}</span>
               <span className="text-xs text-muted-foreground/60">({recentHosts.length})</span>
             </div>
-            <div className="overflow-hidden rounded-xl border border-border">
+            <div className="overflow-hidden rounded-xl bg-card ring-1 ring-border/60">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{t('quickConnect.tableHost')}</TableHead>
-                    <TableHead>{t('quickConnect.tableAddress')}</TableHead>
-                    <TableHead>{t('quickConnect.tableLastConnected')}</TableHead>
-                    <TableHead className="text-right">{t('common.actions')}</TableHead>
+                    <TableHead className="w-[36%]">{t('quickConnect.tableHost')}</TableHead>
+                    <TableHead className="w-[32%]">{t('quickConnect.tableAddress')}</TableHead>
+                    <TableHead className="w-[20%]">{t('quickConnect.tableLastConnected')}</TableHead>
+                    <TableHead className="w-[12%] text-right">{t('common.actions')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -283,12 +282,12 @@ export function QuickConnect() {
                     <TableRow key={host.id}>
                       <TableCell>
                         <div className="flex min-w-0 items-center gap-2.5">
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
                             <IconServer size={15} />
                           </div>
                           <div className="min-w-0">
                             <div className="truncate text-sm font-medium">{host.name}</div>
-                            <div className="truncate text-xs text-muted-foreground">
+                            <div className="truncate font-mono text-xs text-muted-foreground">
                               {host.username}
                             </div>
                           </div>
@@ -302,7 +301,7 @@ export function QuickConnect() {
                           <StatusDot status={host.status} />
                         </div>
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
+                      <TableCell className="font-mono text-xs text-muted-foreground">
                         {formatLastConnected(host.lastConnected)}
                       </TableCell>
                       <TableCell className="text-right">

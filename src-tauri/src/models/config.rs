@@ -504,7 +504,7 @@ impl Default for Appearance {
 			id: "default-theme-light".into(),
 			name: "默认亮色".into(),
 			colors: ThemeColors {
-				// 主题色（现代靛蓝 Indigo）
+				// 主题色（靛蓝 Indigo 点缀：仅用于选中态 / 主按钮 / 焦点环）
 				primary: "#4f46e5".into(),
 				primary_light: "#818cf8".into(),
 				primary_dark: "#4338ca".into(),
@@ -515,89 +515,89 @@ impl Default for Appearance {
 				error: "#dc2626".into(),
 				info: "#0891b2".into(),
 
-				// 文本色
-				text_primary: "#1e1b4b".into(),
-				text_muted: "#6b7280".into(),
-				text_secondary: "#4b5563".into(),
-				text_tertiary: "#9ca3af".into(),
-				text_disabled: "#cbd5e1".into(),
-				text_placeholder: "#9ca3af".into(),
+				// 文本色（中性锌灰 Zinc）
+				text_primary: "#18181b".into(),
+				text_muted: "#71717a".into(),
+				text_secondary: "#3f3f46".into(),
+				text_tertiary: "#a1a1aa".into(),
+				text_disabled: "#d4d4d8".into(),
+				text_placeholder: "#a1a1aa".into(),
 				text_link: "#4f46e5".into(),
 
-				// 表面层
-				bg_primary: "#f8fafc".into(),
-				surface: "#f1f5f9".into(),
+				// 表面层（三档亮度阶梯：窗口底 → 面板 → 浮起卡片）
+				bg_primary: "#fafafa".into(),
+				surface: "#f4f4f5".into(),
 				surface_elevated: "#ffffff".into(),
 
 				// 按钮
 				btn_primary_bg: "#4f46e5".into(),
 				btn_primary_text: "#ffffff".into(),
 				btn_primary_hover: "#4338ca".into(),
-				btn_secondary_bg: "#eef2ff".into(),
-				btn_secondary_text: "#3730a3".into(),
+				btn_secondary_bg: "#f4f4f5".into(),
+				btn_secondary_text: "#3f3f46".into(),
 				btn_danger_bg: "#dc2626".into(),
 				btn_danger_text: "#ffffff".into(),
 
 				// 控件 / 边框 / 输入
-				border_primary: "#e2e8f0".into(),
+				border_primary: "#e4e4e7".into(),
 				border_focus: "#6366f1".into(),
 				input_bg: "#ffffff".into(),
-				input_text: "#1e1b4b".into(),
-				input_placeholder: "#94a3b8".into(),
-				control_disabled_bg: "#f1f5f9".into(),
-				control_disabled_text: "#9ca3af".into(),
+				input_text: "#18181b".into(),
+				input_placeholder: "#a1a1aa".into(),
+				control_disabled_bg: "#f4f4f5".into(),
+				control_disabled_text: "#a1a1aa".into(),
 				focus_ring: "#6366f1".into(),
 
 				// 顶部栏与标签
 				topbar_bg: "#ffffff".into(),
-				tab_bg: "#f1f5f9".into(),
+				tab_bg: "#f4f4f5".into(),
 				tab_bg_active: "#ffffff".into(),
-				tab_text_color: "#64748b".into(),
-				tab_text_color_active: "#1e1b4b".into(),
-				tab_icon_color: "#94a3b8".into(),
+				tab_text_color: "#71717a".into(),
+				tab_text_color_active: "#18181b".into(),
+				tab_icon_color: "#a1a1aa".into(),
 				tab_icon_color_active: "#4f46e5".into(),
-				tab_border_color: "#e2e8f0".into(),
-				window_control_btn_icon_color: "#64748b".into(),
+				tab_border_color: "#e4e4e7".into(),
+				window_control_btn_icon_color: "#71717a".into(),
 
 				// 菜单 / 右键
 				context_menu_bg: "#ffffff".into(),
-				context_menu_border: "#e2e8f0".into(),
-				context_menu_shadow: "rgba(30, 27, 75, 0.08)".into(),
-				context_menu_item_text: "#334155".into(),
-				context_menu_item_hover: "#eef2ff".into(),
-				context_menu_item_disabled: "#cbd5e1".into(),
+				context_menu_border: "#e4e4e7".into(),
+				context_menu_shadow: "rgba(24, 24, 27, 0.08)".into(),
+				context_menu_item_text: "#27272a".into(),
+				context_menu_item_hover: "#f4f4f5".into(),
+				context_menu_item_disabled: "#d4d4d8".into(),
 
 				// 侧边菜单
-				sidemenu_bg: "#eef2ff".into(),
-				menu_border_primary: "#e2e8f0".into(),
-				sidemenu_text: "#64748b".into(),
-				sidemenu_text_active: "#1e1b4b".into(),
+				sidemenu_bg: "#f4f4f5".into(),
+				menu_border_primary: "#e4e4e7".into(),
+				sidemenu_text: "#52525b".into(),
+				sidemenu_text_active: "#18181b".into(),
 
 				// 滚动条 / 覆盖 / 分隔线
-				scrollbar_track: "#f1f5f9".into(),
-				scrollbar_thumb: "#cbd5e1".into(),
-				scrollbar_thumb_hover: "#a5b4fc".into(),
-				overlay: "rgba(30, 27, 75, 0.36)".into(),
-				divider: "#e2e8f0".into(),
+				scrollbar_track: "#fafafa".into(),
+				scrollbar_thumb: "#d4d4d8".into(),
+				scrollbar_thumb_hover: "#a1a1aa".into(),
+				overlay: "rgba(24, 24, 27, 0.36)".into(),
+				divider: "#e4e4e7".into(),
 
 				// 交互状态
 				selected_bg: "#e0e7ff".into(),
 				selected_text: "#3730a3".into(),
-				hover_bg: "#eef2ff".into(),
-				active_bg: "#e0e7ff".into(),
+				hover_bg: "#f4f4f5".into(),
+				active_bg: "#e4e4e7".into(),
 
 				// 阴影层级
-				shadow_sm: "0 1px 2px rgba(30, 27, 75, 0.06)".into(),
-				shadow_md: "0 12px 28px rgba(30, 27, 75, 0.08)".into(),
-				shadow_lg: "0 20px 42px rgba(30, 27, 75, 0.10)".into(),
-				shadow_xl: "0 30px 56px rgba(30, 27, 75, 0.12)".into(),
+				shadow_sm: "0 1px 2px rgba(24, 24, 27, 0.06)".into(),
+				shadow_md: "0 12px 28px rgba(24, 24, 27, 0.08)".into(),
+				shadow_lg: "0 20px 42px rgba(24, 24, 27, 0.10)".into(),
+				shadow_xl: "0 30px 56px rgba(24, 24, 27, 0.12)".into(),
 
 				// 可访问性与高对比
-				high_contrast_text: "#1e1b4b".into(),
+				high_contrast_text: "#18181b".into(),
 
 				// 面板
 				panel_bg: "#ffffff".into(),
-				panel_border: "#e2e8f0".into(),
+				panel_border: "#e4e4e7".into(),
 			},
 			built_in: true,
 		};
@@ -607,7 +607,7 @@ impl Default for Appearance {
 			id: "default-theme-dark".into(),
 			name: "默认深色".into(),
 			colors: ThemeColors {
-				// 主题色（现代靛蓝 Indigo）
+				// 主题色（靛蓝 Indigo 点缀：仅用于选中态 / 主按钮 / 焦点环）
 				primary: "#818cf8".into(),
 				primary_light: "#a5b4fc".into(),
 				primary_dark: "#6366f1".into(),
@@ -618,89 +618,89 @@ impl Default for Appearance {
 				error: "#f87171".into(),
 				info: "#22d3ee".into(),
 
-				// 文本色
-				text_primary: "#eef2ff".into(),
-				text_muted: "#94a3b8".into(),
-				text_secondary: "#cbd5e1".into(),
-				text_tertiary: "#64748b".into(),
-				text_disabled: "#475569".into(),
-				text_placeholder: "#64748b".into(),
+				// 文本色（中性锌灰 Zinc）
+				text_primary: "#f4f4f5".into(),
+				text_muted: "#a1a1aa".into(),
+				text_secondary: "#d4d4d8".into(),
+				text_tertiary: "#71717a".into(),
+				text_disabled: "#52525b".into(),
+				text_placeholder: "#71717a".into(),
 				text_link: "#a5b4fc".into(),
 
-				// 表面层
-				bg_primary: "#0f172a".into(),
-				surface: "#1e293b".into(),
-				surface_elevated: "#273449".into(),
+				// 表面层（三档亮度阶梯：窗口底 → 面板 → 浮起卡片，每档差约 4%）
+				bg_primary: "#131316".into(),
+				surface: "#1b1b1f".into(),
+				surface_elevated: "#232329".into(),
 
 				// 按钮
 				btn_primary_bg: "#818cf8".into(),
 				btn_primary_text: "#1e1b4b".into(),
 				btn_primary_hover: "#a5b4fc".into(),
-				btn_secondary_bg: "#273449".into(),
-				btn_secondary_text: "#e2e8f0".into(),
+				btn_secondary_bg: "#232329".into(),
+				btn_secondary_text: "#e4e4e7".into(),
 				btn_danger_bg: "#e11d48".into(),
 				btn_danger_text: "#ffffff".into(),
 
 				// 控件 / 边框 / 输入
-				border_primary: "#334155".into(),
+				border_primary: "#2e2e34".into(),
 				border_focus: "#818cf8".into(),
-				input_bg: "#1e293b".into(),
-				input_text: "#eef2ff".into(),
-				input_placeholder: "#64748b".into(),
-				control_disabled_bg: "#1e293b".into(),
-				control_disabled_text: "#64748b".into(),
+				input_bg: "#1b1b1f".into(),
+				input_text: "#f4f4f5".into(),
+				input_placeholder: "#71717a".into(),
+				control_disabled_bg: "#1b1b1f".into(),
+				control_disabled_text: "#71717a".into(),
 				focus_ring: "#818cf8".into(),
 
 				// 顶部栏与标签
-				topbar_bg: "#0f172a".into(),
-				tab_bg: "#1e293b".into(),
-				tab_bg_active: "#273449".into(),
-				tab_text_color: "#94a3b8".into(),
-				tab_text_color_active: "#eef2ff".into(),
-				tab_icon_color: "#64748b".into(),
+				topbar_bg: "#131316".into(),
+				tab_bg: "#1b1b1f".into(),
+				tab_bg_active: "#232329".into(),
+				tab_text_color: "#a1a1aa".into(),
+				tab_text_color_active: "#f4f4f5".into(),
+				tab_icon_color: "#71717a".into(),
 				tab_icon_color_active: "#a5b4fc".into(),
-				tab_border_color: "#334155".into(),
-				window_control_btn_icon_color: "#94a3b8".into(),
+				tab_border_color: "#2e2e34".into(),
+				window_control_btn_icon_color: "#a1a1aa".into(),
 
 				// 菜单 / 右键
-				context_menu_bg: "#1e293b".into(),
-				context_menu_border: "#334155".into(),
-				context_menu_shadow: "rgba(2, 6, 23, 0.50)".into(),
-				context_menu_item_text: "#e2e8f0".into(),
-				context_menu_item_hover: "#273449".into(),
-				context_menu_item_disabled: "#64748b".into(),
+				context_menu_bg: "#232329".into(),
+				context_menu_border: "#2e2e34".into(),
+				context_menu_shadow: "rgba(0, 0, 0, 0.55)".into(),
+				context_menu_item_text: "#e4e4e7".into(),
+				context_menu_item_hover: "#2b2b32".into(),
+				context_menu_item_disabled: "#71717a".into(),
 
-				// 侧边菜单
-				sidemenu_bg: "#111c33".into(),
-				menu_border_primary: "#334155".into(),
-				sidemenu_text: "#94a3b8".into(),
-				sidemenu_text_active: "#eef2ff".into(),
+				// 侧边菜单（比窗口底再暗半档，让内容区向前）
+				sidemenu_bg: "#101014".into(),
+				menu_border_primary: "#2e2e34".into(),
+				sidemenu_text: "#a1a1aa".into(),
+				sidemenu_text_active: "#f4f4f5".into(),
 
 				// 滚动条 / 覆盖 / 分隔线
-				scrollbar_track: "#0f172a".into(),
-				scrollbar_thumb: "#334155".into(),
-				scrollbar_thumb_hover: "#475569".into(),
-				overlay: "rgba(2, 6, 23, 0.72)".into(),
-				divider: "#334155".into(),
+				scrollbar_track: "#131316".into(),
+				scrollbar_thumb: "#3f3f46".into(),
+				scrollbar_thumb_hover: "#52525b".into(),
+				overlay: "rgba(9, 9, 11, 0.72)".into(),
+				divider: "#26262c".into(),
 
 				// 交互状态
 				selected_bg: "#3730a3".into(),
 				selected_text: "#c7d2fe".into(),
-				hover_bg: "#273449".into(),
-				active_bg: "#312e81".into(),
+				hover_bg: "#232329".into(),
+				active_bg: "#2b2b32".into(),
 
 				// 阴影层级
-				shadow_sm: "0 1px 2px rgba(2, 6, 23, 0.34)".into(),
-				shadow_md: "0 14px 30px rgba(2, 6, 23, 0.28)".into(),
-				shadow_lg: "0 24px 48px rgba(2, 6, 23, 0.36)".into(),
-				shadow_xl: "0 36px 72px rgba(2, 6, 23, 0.42)".into(),
+				shadow_sm: "0 1px 2px rgba(0, 0, 0, 0.35)".into(),
+				shadow_md: "0 14px 30px rgba(0, 0, 0, 0.30)".into(),
+				shadow_lg: "0 24px 48px rgba(0, 0, 0, 0.38)".into(),
+				shadow_xl: "0 36px 72px rgba(0, 0, 0, 0.45)".into(),
 
 				// 可访问性与高对比
 				high_contrast_text: "#ffffff".into(),
 
 				// 面板
-				panel_bg: "#1e293b".into(),
-				panel_border: "#334155".into(),
+				panel_bg: "#1b1b1f".into(),
+				panel_border: "#2e2e34".into(),
 			},
 			built_in: true,
 		};
@@ -721,89 +721,89 @@ impl Default for Appearance {
 				info: "#22d3ee".into(),
 
 				// 文本色（不透明，保证毛玻璃上可读）
-				text_primary: "#eef2ff".into(),
-				text_muted: "#94a3b8".into(),
-				text_secondary: "#cbd5e1".into(),
-				text_tertiary: "#64748b".into(),
-				text_disabled: "#475569".into(),
-				text_placeholder: "#64748b".into(),
+				text_primary: "#f4f4f5".into(),
+				text_muted: "#a1a1aa".into(),
+				text_secondary: "#d4d4d8".into(),
+				text_tertiary: "#71717a".into(),
+				text_disabled: "#52525b".into(),
+				text_placeholder: "#71717a".into(),
 				text_link: "#a5b4fc".into(),
 
 				// 表面层 —— 半透明，让 Acrylic 毛玻璃/壁纸透出；
 				// 透明度梯度：最底层最透、卡片次之、菜单/弹层最实（保可读）
-				bg_primary: "rgba(15, 23, 42, 0.38)".into(),
-				surface: "rgba(30, 41, 59, 0.45)".into(),
-				surface_elevated: "rgba(39, 52, 73, 0.55)".into(),
+				bg_primary: "rgba(19, 19, 22, 0.38)".into(),
+				surface: "rgba(27, 27, 31, 0.45)".into(),
+				surface_elevated: "rgba(35, 35, 41, 0.55)".into(),
 
 				// 按钮
 				btn_primary_bg: "#818cf8".into(),
 				btn_primary_text: "#1e1b4b".into(),
 				btn_primary_hover: "#a5b4fc".into(),
-				btn_secondary_bg: "rgba(39, 52, 73, 0.65)".into(),
-				btn_secondary_text: "#e2e8f0".into(),
+				btn_secondary_bg: "rgba(35, 35, 41, 0.65)".into(),
+				btn_secondary_text: "#e4e4e7".into(),
 				btn_danger_bg: "#e11d48".into(),
 				btn_danger_text: "#ffffff".into(),
 
 				// 控件 / 边框 / 输入
-				border_primary: "rgba(148, 163, 184, 0.28)".into(),
+				border_primary: "rgba(161, 161, 170, 0.28)".into(),
 				border_focus: "#818cf8".into(),
-				input_bg: "rgba(30, 41, 59, 0.6)".into(),
-				input_text: "#eef2ff".into(),
-				input_placeholder: "#64748b".into(),
-				control_disabled_bg: "rgba(30, 41, 59, 0.6)".into(),
-				control_disabled_text: "#64748b".into(),
+				input_bg: "rgba(27, 27, 31, 0.6)".into(),
+				input_text: "#f4f4f5".into(),
+				input_placeholder: "#71717a".into(),
+				control_disabled_bg: "rgba(27, 27, 31, 0.6)".into(),
+				control_disabled_text: "#71717a".into(),
 				focus_ring: "#818cf8".into(),
 
 				// 顶部栏与标签（半透明，毛玻璃顶栏）
-				topbar_bg: "rgba(15, 23, 42, 0.4)".into(),
-				tab_bg: "rgba(30, 41, 59, 0.4)".into(),
-				tab_bg_active: "rgba(49, 62, 84, 0.65)".into(),
-				tab_text_color: "#94a3b8".into(),
-				tab_text_color_active: "#eef2ff".into(),
-				tab_icon_color: "#64748b".into(),
+				topbar_bg: "rgba(19, 19, 22, 0.4)".into(),
+				tab_bg: "rgba(27, 27, 31, 0.4)".into(),
+				tab_bg_active: "rgba(43, 43, 49, 0.65)".into(),
+				tab_text_color: "#a1a1aa".into(),
+				tab_text_color_active: "#f4f4f5".into(),
+				tab_icon_color: "#71717a".into(),
 				tab_icon_color_active: "#a5b4fc".into(),
-				tab_border_color: "rgba(148, 163, 184, 0.24)".into(),
-				window_control_btn_icon_color: "#94a3b8".into(),
+				tab_border_color: "rgba(161, 161, 170, 0.24)".into(),
+				window_control_btn_icon_color: "#a1a1aa".into(),
 
 				// 菜单 / 右键（几乎不透明，保证菜单可读）
-				context_menu_bg: "rgba(30, 41, 59, 0.92)".into(),
-				context_menu_border: "rgba(148, 163, 184, 0.28)".into(),
-				context_menu_shadow: "rgba(2, 6, 23, 0.50)".into(),
-				context_menu_item_text: "#e2e8f0".into(),
-				context_menu_item_hover: "rgba(39, 52, 73, 0.7)".into(),
-				context_menu_item_disabled: "#64748b".into(),
+				context_menu_bg: "rgba(35, 35, 41, 0.92)".into(),
+				context_menu_border: "rgba(161, 161, 170, 0.28)".into(),
+				context_menu_shadow: "rgba(0, 0, 0, 0.50)".into(),
+				context_menu_item_text: "#e4e4e7".into(),
+				context_menu_item_hover: "rgba(43, 43, 49, 0.7)".into(),
+				context_menu_item_disabled: "#71717a".into(),
 
 				// 侧边菜单（半透明玻璃侧栏）
-				sidemenu_bg: "rgba(17, 28, 51, 0.5)".into(),
-				menu_border_primary: "rgba(148, 163, 184, 0.24)".into(),
-				sidemenu_text: "#94a3b8".into(),
-				sidemenu_text_active: "#eef2ff".into(),
+				sidemenu_bg: "rgba(16, 16, 20, 0.5)".into(),
+				menu_border_primary: "rgba(161, 161, 170, 0.24)".into(),
+				sidemenu_text: "#a1a1aa".into(),
+				sidemenu_text_active: "#f4f4f5".into(),
 
 				// 滚动条 / 覆盖 / 分隔线
-				scrollbar_track: "rgba(15, 23, 42, 0.3)".into(),
-				scrollbar_thumb: "rgba(148, 163, 184, 0.4)".into(),
-				scrollbar_thumb_hover: "rgba(148, 163, 184, 0.55)".into(),
-				overlay: "rgba(2, 6, 23, 0.55)".into(),
-				divider: "rgba(148, 163, 184, 0.2)".into(),
+				scrollbar_track: "rgba(19, 19, 22, 0.3)".into(),
+				scrollbar_thumb: "rgba(161, 161, 170, 0.4)".into(),
+				scrollbar_thumb_hover: "rgba(161, 161, 170, 0.55)".into(),
+				overlay: "rgba(0, 0, 0, 0.55)".into(),
+				divider: "rgba(161, 161, 170, 0.2)".into(),
 
 				// 交互状态
 				selected_bg: "rgba(55, 48, 163, 0.75)".into(),
 				selected_text: "#c7d2fe".into(),
-				hover_bg: "rgba(39, 52, 73, 0.55)".into(),
-				active_bg: "rgba(49, 46, 129, 0.7)".into(),
+				hover_bg: "rgba(43, 43, 49, 0.55)".into(),
+				active_bg: "rgba(43, 43, 49, 0.6)".into(),
 
 				// 阴影层级（毛玻璃场景阴影减轻）
-				shadow_sm: "0 1px 2px rgba(2, 6, 23, 0.25)".into(),
-				shadow_md: "0 14px 30px rgba(2, 6, 23, 0.20)".into(),
-				shadow_lg: "0 24px 48px rgba(2, 6, 23, 0.26)".into(),
-				shadow_xl: "0 36px 72px rgba(2, 6, 23, 0.30)".into(),
+				shadow_sm: "0 1px 2px rgba(0, 0, 0, 0.25)".into(),
+				shadow_md: "0 14px 30px rgba(0, 0, 0, 0.20)".into(),
+				shadow_lg: "0 24px 48px rgba(0, 0, 0, 0.26)".into(),
+				shadow_xl: "0 36px 72px rgba(0, 0, 0, 0.30)".into(),
 
 				// 可访问性与高对比
 				high_contrast_text: "#ffffff".into(),
 
 				// 面板
-				panel_bg: "rgba(30, 41, 59, 0.5)".into(),
-				panel_border: "rgba(148, 163, 184, 0.24)".into(),
+				panel_bg: "rgba(27, 27, 31, 0.5)".into(),
+				panel_border: "rgba(161, 161, 170, 0.24)".into(),
 			},
 			built_in: true,
 		};
@@ -906,13 +906,13 @@ fn builtin_terminal_themes() -> Vec<TerminalThemePreset> {
 	}
 
 	vec![
-		// Swallow 默认（Indigo 深色，与应用深色主题一致）
+		// Swallow 默认（石墨深色，与应用深色主题一致）
 		theme(
 			"default",
 			"Swallow 默认",
-			"#e2e8f0", "#0f172a", "#818cf8", "#0f172a", "#334155",
-			["#0f172a", "#f87171", "#34d399", "#fbbf24", "#818cf8", "#c084fc", "#22d3ee", "#e2e8f0"],
-			["#475569", "#fca5a5", "#6ee7b7", "#fcd34d", "#a5b4fc", "#d8b4fe", "#67e8f9", "#f8fafc"],
+			"#e4e4e7", "#131316", "#818cf8", "#131316", "#2e2e34",
+			["#131316", "#f87171", "#34d399", "#fbbf24", "#818cf8", "#c084fc", "#22d3ee", "#e4e4e7"],
+			["#52525b", "#fca5a5", "#6ee7b7", "#fcd34d", "#a5b4fc", "#d8b4fe", "#67e8f9", "#fafafa"],
 		),
 		// Solarized Dark
 		theme(
@@ -1110,7 +1110,7 @@ impl Default for Advanced {
 impl Default for ThemeColors {
 	fn default() -> Self {
 		Self {
-			// 主题色（现代靛蓝 Indigo）
+			// 主题色（靛蓝 Indigo 点缀：仅用于选中态 / 主按钮 / 焦点环）
 			primary: "#818cf8".into(),
 			primary_light: "#a5b4fc".into(),
 			primary_dark: "#6366f1".into(),
@@ -1121,89 +1121,89 @@ impl Default for ThemeColors {
 			error: "#f87171".into(),
 			info: "#22d3ee".into(),
 
-			// 文本色
-			text_primary: "#eef2ff".into(),
-			text_muted: "#94a3b8".into(),
-			text_secondary: "#cbd5e1".into(),
-			text_tertiary: "#64748b".into(),
-			text_disabled: "#475569".into(),
-			text_placeholder: "#64748b".into(),
+			// 文本色（中性锌灰 Zinc）
+			text_primary: "#f4f4f5".into(),
+			text_muted: "#a1a1aa".into(),
+			text_secondary: "#d4d4d8".into(),
+			text_tertiary: "#71717a".into(),
+			text_disabled: "#52525b".into(),
+			text_placeholder: "#71717a".into(),
 			text_link: "#a5b4fc".into(),
 
-			// 表面层
-			bg_primary: "#0f172a".into(),
-			surface: "#1e293b".into(),
-			surface_elevated: "#273449".into(),
+			// 表面层（三档亮度阶梯：窗口底 → 面板 → 浮起卡片，每档差约 4%）
+			bg_primary: "#131316".into(),
+			surface: "#1b1b1f".into(),
+			surface_elevated: "#232329".into(),
 
 			// 按钮
 			btn_primary_bg: "#818cf8".into(),
 			btn_primary_text: "#1e1b4b".into(),
 			btn_primary_hover: "#a5b4fc".into(),
-			btn_secondary_bg: "#273449".into(),
-			btn_secondary_text: "#e2e8f0".into(),
+			btn_secondary_bg: "#232329".into(),
+			btn_secondary_text: "#e4e4e7".into(),
 			btn_danger_bg: "#e11d48".into(),
 			btn_danger_text: "#ffffff".into(),
 
 			// 控件 / 边框 / 输入
-			border_primary: "#334155".into(),
+			border_primary: "#2e2e34".into(),
 			border_focus: "#818cf8".into(),
-			input_bg: "#1e293b".into(),
-			input_text: "#eef2ff".into(),
-			input_placeholder: "#64748b".into(),
-			control_disabled_bg: "#1e293b".into(),
-			control_disabled_text: "#64748b".into(),
+			input_bg: "#1b1b1f".into(),
+			input_text: "#f4f4f5".into(),
+			input_placeholder: "#71717a".into(),
+			control_disabled_bg: "#1b1b1f".into(),
+			control_disabled_text: "#71717a".into(),
 			focus_ring: "#818cf8".into(),
 
 			// 顶部栏与标签
-			topbar_bg: "#0f172a".into(),
-			tab_bg: "#1e293b".into(),
-			tab_bg_active: "#273449".into(),
-			tab_text_color: "#94a3b8".into(),
-			tab_text_color_active: "#eef2ff".into(),
-			tab_icon_color: "#64748b".into(),
+			topbar_bg: "#131316".into(),
+			tab_bg: "#1b1b1f".into(),
+			tab_bg_active: "#232329".into(),
+			tab_text_color: "#a1a1aa".into(),
+			tab_text_color_active: "#f4f4f5".into(),
+			tab_icon_color: "#71717a".into(),
 			tab_icon_color_active: "#a5b4fc".into(),
-			tab_border_color: "#334155".into(),
-			window_control_btn_icon_color: "#94a3b8".into(),
+			tab_border_color: "#2e2e34".into(),
+			window_control_btn_icon_color: "#a1a1aa".into(),
 
 			// 菜单 / 右键
-			context_menu_bg: "#1e293b".into(),
-			context_menu_border: "#334155".into(),
-			context_menu_shadow: "rgba(2, 6, 23, 0.50)".into(),
-			context_menu_item_text: "#e2e8f0".into(),
-			context_menu_item_hover: "#273449".into(),
-			context_menu_item_disabled: "#64748b".into(),
+			context_menu_bg: "#232329".into(),
+			context_menu_border: "#2e2e34".into(),
+			context_menu_shadow: "rgba(0, 0, 0, 0.55)".into(),
+			context_menu_item_text: "#e4e4e7".into(),
+			context_menu_item_hover: "#2b2b32".into(),
+			context_menu_item_disabled: "#71717a".into(),
 
-			// 侧边菜单
-			sidemenu_bg: "#111c33".into(),
-			menu_border_primary: "#334155".into(),
-			sidemenu_text: "#94a3b8".into(),
-			sidemenu_text_active: "#eef2ff".into(),
+			// 侧边菜单（比窗口底再暗半档，让内容区向前）
+			sidemenu_bg: "#101014".into(),
+			menu_border_primary: "#2e2e34".into(),
+			sidemenu_text: "#a1a1aa".into(),
+			sidemenu_text_active: "#f4f4f5".into(),
 
 			// 滚动条 / 覆盖 / 分隔线
-			scrollbar_track: "#0f172a".into(),
-			scrollbar_thumb: "#334155".into(),
-			scrollbar_thumb_hover: "#475569".into(),
-			overlay: "rgba(2, 6, 23, 0.72)".into(),
-			divider: "#334155".into(),
+			scrollbar_track: "#131316".into(),
+			scrollbar_thumb: "#3f3f46".into(),
+			scrollbar_thumb_hover: "#52525b".into(),
+			overlay: "rgba(9, 9, 11, 0.72)".into(),
+			divider: "#26262c".into(),
 
 			// 交互状态
 			selected_bg: "#3730a3".into(),
 			selected_text: "#c7d2fe".into(),
-			hover_bg: "#273449".into(),
-			active_bg: "#312e81".into(),
+			hover_bg: "#232329".into(),
+			active_bg: "#2b2b32".into(),
 
 			// 阴影层级
-			shadow_sm: "0 1px 2px rgba(2, 6, 23, 0.34)".into(),
-			shadow_md: "0 14px 30px rgba(2, 6, 23, 0.28)".into(),
-			shadow_lg: "0 24px 48px rgba(2, 6, 23, 0.36)".into(),
-			shadow_xl: "0 36px 72px rgba(2, 6, 23, 0.42)".into(),
+			shadow_sm: "0 1px 2px rgba(0, 0, 0, 0.35)".into(),
+			shadow_md: "0 14px 30px rgba(0, 0, 0, 0.30)".into(),
+			shadow_lg: "0 24px 48px rgba(0, 0, 0, 0.38)".into(),
+			shadow_xl: "0 36px 72px rgba(0, 0, 0, 0.45)".into(),
 
 			// 可访问性与高对比
 			high_contrast_text: "#ffffff".into(),
 
 			// 面板
-			panel_bg: "#1e293b".into(),
-			panel_border: "#334155".into(),
+			panel_bg: "#1b1b1f".into(),
+			panel_border: "#2e2e34".into(),
 		}
 	}
 }
