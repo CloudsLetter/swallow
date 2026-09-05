@@ -38,7 +38,13 @@ declare module '@novnc/novnc' {
     sendCredentials(credentials: RFBCredentials): void;
     sendCtrlAltDel(): void;
     clipboardPasteFrom(text: string): void;
-    focus(): void;
+    focus(options?: { preventScroll?: boolean }): void;
     blur(): void;
+    /** 点击画布是否自动聚焦（键盘独占开关用；默认 true） */
+    focusOnClick: boolean;
+    /** Tight/JPEG 画质 0-9（默认 6）：高 = 带宽大画质好，低 = 流畅 */
+    qualityLevel: number;
+    /** 发送单个按键（keysym 为 X11 keysym，code 为 KeyboardEvent.code 风格键名） */
+    sendKey(keysym: number, code: string, down?: boolean): void;
   }
 }

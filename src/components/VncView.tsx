@@ -5,8 +5,11 @@ import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { ask } from '@tauri-apps/plugin-dialog';
 import { acceptHostKey, vncConnect, vncDisconnect } from '../services/sessionService';
 import type { VncTabConfig } from '../store/tabStore';
+import { useVncKeyboard } from '../store/vncKeyboard';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 
 type VncStatus = 'idle' | 'starting' | 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -49,6 +52,10 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
   const [needPassword, setNeedPassword] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [remoteClipboard, setRemoteClipboard] = useState<string | null>(null);
+  // 画质（noVNC qualityLevel 0-9）：高画质带宽大、流畅压缩高
+  const [quality, setQuality] = useState(6);
+  // 键盘独占：开启时画布聚焦期间应用级快捷键（新建/关闭/切换标签）让路给远端
+  const [keyboardOn, setKeyboardOn] = useState(true);
 
   /** 关闭当前 RFB（不递增代际，供 startConnect 前清理旧实例） */
   const teardownRfb = useCallback(() => {
@@ -144,6 +151,7 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
 
     // 容器复用前清空（RFB 会向容器 append 自身 DOM）
     containerRef.current.innerHTML = '';
+    setRemoteClipboard(null);
     setStatus('connecting');
 
     let rfb: RFB;
@@ -167,6 +175,8 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
     rfb.clipViewport = !fitView;
     rfb.viewOnly = viewOnly;
     rfb.resizeSession = false;
+    rfb.qualityLevel = quality;
+    rfb.focusOnClick = keyboardOn;
 
     // 事件一律只认本代：旧 RFB 的任何迟到事件不得覆盖新代状态（防「新连接存活却报断」）
     onRfb(rfb, 'connect', () => {
@@ -201,7 +211,7 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
       if (typeof detail.text === 'string') setRemoteClipboard(detail.text);
     });
     // bell 无操作（后续可做提示音）
-  }, [sessionId, teardownRfb, t, fitView, viewOnly]);
+  }, [sessionId, teardownRfb, t, fitView, viewOnly, quality, keyboardOn]);
 
   // 挂载自动连接（skipAutoConnect = 恢复会话缺密码，等待手动）
   useEffect(() => {
@@ -238,7 +248,63 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
     const rfb = rfbRef.current;
     if (!rfb) return;
     rfb.viewOnly = viewOnly;
+    if (viewOnly) useVncKeyboard.getState().setCaptured(false);
   }, [viewOnly]);
+
+  // 画质变化即时应用
+  useEffect(() => {
+    if (rfbRef.current) rfbRef.current.qualityLevel = quality;
+  }, [quality, status]);
+
+  // 键盘独占开关：关闭时移出焦点并释放标记
+  useEffect(() => {
+    if (rfbRef.current) rfbRef.current.focusOnClick = keyboardOn;
+    if (!keyboardOn) {
+      rfbRef.current?.blur();
+      useVncKeyboard.getState().setCaptured(false);
+    }
+  }, [keyboardOn]);
+
+  // 画布聚焦跟踪：noVNC 的键盘挂在 canvas 元素上（真实 DOM focus），
+  // 聚焦期间应用快捷键让路；焦点离开（点工具栏/其他区域）自动释放
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onFocusIn = () => {
+      useVncKeyboard.getState().setCaptured(keyboardOn && !viewOnly);
+    };
+    const onFocusOut = () => {
+      useVncKeyboard.getState().setCaptured(false);
+    };
+    el.addEventListener('focusin', onFocusIn);
+    el.addEventListener('focusout', onFocusOut);
+    return () => {
+      el.removeEventListener('focusin', onFocusIn);
+      el.removeEventListener('focusout', onFocusOut);
+      useVncKeyboard.getState().setCaptured(false);
+    };
+  }, [keyboardOn, viewOnly]);
+
+  // 组件卸载兜底释放
+  useEffect(() => () => useVncKeyboard.getState().setCaptured(false), []);
+
+  /** 发送组合键到远端（按下后延迟统一释放，绕过本地/浏览器快捷键拦截）。 */
+  const sendKeyCombo = (keys: [number, string][]) => {
+    const rfb = rfbRef.current;
+    if (!rfb) return;
+    keys.forEach(([keysym, code]) => rfb.sendKey(keysym, code, true));
+    window.setTimeout(() => {
+      [...keys].reverse().forEach(([keysym, code]) => rfb.sendKey(keysym, code, false));
+    }, 80);
+  };
+
+  const KEY_ACTIONS: { labelKey: string; keys: [number, string][] }[] = [
+    { labelKey: 'vnc.ctrlAltDel', keys: [[0xffe3, 'ControlLeft'], [0xffe1, 'AltLeft'], [0xffff, 'Delete']] },
+    { labelKey: 'vnc.keyAltTab', keys: [[0xffe9, 'AltLeft'], [0xff09, 'Tab']] },
+    { labelKey: 'vnc.keyWin', keys: [[0xffeb, 'MetaLeft']] },
+    { labelKey: 'vnc.keyCtrlShiftEsc', keys: [[0xffe3, 'ControlLeft'], [0xffe1, 'ShiftLeft'], [0xff1b, 'Escape']] },
+    { labelKey: 'vnc.keyF5', keys: [[0xffc2, 'F5']] },
+  ];
 
   const submitPassword = () => {
     const pwd = passwordInput.trim();
@@ -285,7 +351,7 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
           <span
             className={cn(
               'size-1.5 shrink-0 rounded-full',
-              connected ? 'bg-emerald-500' : status === 'error' ? 'bg-destructive' : 'bg-muted-foreground/40',
+              connected ? 'bg-success' : status === 'error' ? 'bg-destructive' : 'bg-muted-foreground/40',
             )}
           />
           <span className="truncate">{title || t('vnc.title')}</span>
@@ -310,15 +376,53 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
             {t(viewOnly ? 'vnc.viewOnlyOn' : 'vnc.viewOnly')}
           </Button>
           <Button
-            variant="ghost"
+            variant={keyboardOn ? 'default' : 'ghost'}
             size="sm"
             className="h-6 px-2 text-xs"
             disabled={!connected}
-            title={t('vnc.ctrlAltDel')}
-            onClick={() => rfbRef.current?.sendCtrlAltDel()}
+            title={t('vnc.keyboardHint')}
+            onClick={() =>
+              setKeyboardOn((v) => {
+                if (v) {
+                  rfbRef.current?.blur();
+                  useVncKeyboard.getState().setCaptured(false);
+                }
+                return !v;
+              })
+            }
           >
-            {t('vnc.ctrlAltDel')}
+            {t(keyboardOn ? 'vnc.keyboardOn' : 'vnc.keyboard')}
           </Button>
+          <Select value={String(quality)} onValueChange={(v) => setQuality(Number(v))}>
+            <SelectTrigger className="h-6 w-[4.5rem] px-1.5 text-xs" title={t('vnc.quality')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="9">{t('vnc.qualityHigh')}</SelectItem>
+              <SelectItem value="6">{t('vnc.qualityBalanced')}</SelectItem>
+              <SelectItem value="2">{t('vnc.qualitySmooth')}</SelectItem>
+            </SelectContent>
+          </Select>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                disabled={!connected || viewOnly}
+                title={t('vnc.sendKeys')}
+              >
+                {t('vnc.sendKeys')}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {KEY_ACTIONS.map((a) => (
+                <DropdownMenuItem key={a.labelKey} onClick={() => sendKeyCombo(a.keys)}>
+                  {t(a.labelKey)}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             variant="ghost"
             size="sm"

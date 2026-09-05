@@ -15,7 +15,7 @@ use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, 
 use tokio_tungstenite::tungstenite::http;
 use tokio_tungstenite::tungstenite::protocol::Message;
 
-const BUFFER_SIZE: usize = 64 * 1024;
+const BUFFER_SIZE: usize = 128 * 1024;
 /// 桥空闲时检查 stop 标志的周期（stop 命中后 ≤250ms 内收尾）。
 const STOP_POLL_INTERVAL_MS: u64 = 250;
 

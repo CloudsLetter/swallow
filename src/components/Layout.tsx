@@ -5,6 +5,7 @@ import { useConfigStore } from '../store/config';
 import { useGlobalState } from '../store/state';
 import { useTheme } from '../hooks/useTheme';
 import { matchesShortcut } from '../lib/hotkeys';
+import { useVncKeyboard } from '../store/vncKeyboard';
 interface LayoutProps {
   children: ReactNode;
   onSettingsClick?: () => void;
@@ -24,6 +25,8 @@ export function Layout({ children }: LayoutProps) {
     if (globalState.settingShortcutsEnabled === false) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // VNC 键盘独占中：应用快捷键让路，按键完整流向远端桌面
+      if (useVncKeyboard.getState().captured) return;
       // 新标签
       if (matchesShortcut(e, config.shortcuts.new_tab)) {
         e.preventDefault();
