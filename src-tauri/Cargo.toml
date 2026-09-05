@@ -79,3 +79,9 @@ keyring = { version = "3", features = ["apple-native", "crypto-rust"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
+
+# ⚠️ 做 RDP/MOSH 等重解码协议的性能对比/测试时：dev 构建（未优化）的依赖代码
+# 慢 10-50 倍，结论不可信——请用 `pnpm tauri build` 的 release 包测试，
+# 或临时取消下面注释让依赖全速跑（自身代码仍 opt-level 0，迭代不受影响）：
+# [profile.dev.package."*"]
+# opt-level = 2

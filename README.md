@@ -1,6 +1,6 @@
 # Swallow
 
-跨平台终端客户端：**SSH / SFTP / Telnet / 本地 shell / VNC 远程桌面 / 串口**，内置服务器监控、密钥 / 证书管理、ProxyJump 与端口转发。
+跨平台终端客户端：**SSH / SFTP / Telnet / 本地 shell / VNC / RDP 远程桌面 / MOSH / 串口**，内置服务器监控、密钥 / 证书管理、ProxyJump 与端口转发。
 
 ![Version](https://img.shields.io/badge/Version-0.1.0-58A6FF?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
@@ -17,7 +17,7 @@
 
 ## 核心能力
 
-- **六类会话统一入口**：SSH / SFTP / Telnet / 本地终端 / VNC 远程桌面（直连或 SSH 隧道）/ 串口（COM / tty）
+- **八类会话统一入口**：SSH / SFTP / Telnet / 本地终端 / VNC 远程桌面（直连或 SSH 隧道）/ RDP 远程桌面（IronRDP，NLA）/ MOSH（UDP 漫游，断网续连）/ 串口（COM / tty，可选字符集）
 - **安全模型**：密码与私钥口令存系统钥匙串（Keychain / Windows Credential Manager / Secret Service）；密钥、证书仅写入临时文件、认证后即焚——磁盘不落任何明文材料
 - **跳板与端口转发**：SSH ProxyJump 链式穿透；本地 / 远程 / SOCKS5 转发
 - **终端渲染可调**：DOM / Canvas / WebGL 三引擎 + GPU 开关，WebGL 不可用时自动回退 Canvas

@@ -1,6 +1,6 @@
 # Swallow
 
-Cross-platform terminal client: **SSH / SFTP / Telnet / local shell / VNC remote desktop / Serial** with server monitoring, key & certificate management, ProxyJump and port forwarding.
+Cross-platform terminal client: **SSH / SFTP / Telnet / local shell / VNC / RDP remote desktop / MOSH / Serial** with server monitoring, key & certificate management, ProxyJump and port forwarding.
 
 ![Version](https://img.shields.io/badge/Version-0.1.0-58A6FF?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
@@ -17,7 +17,7 @@ Cross-platform terminal client: **SSH / SFTP / Telnet / local shell / VNC remote
 
 ## Highlights
 
-- **Six session types, one entry** — SSH / SFTP / Telnet / local shell / VNC remote desktop (direct or over SSH tunnel) / Serial (COM / tty)
+- **Eight session types, one entry** — SSH / SFTP / Telnet / local shell / VNC remote desktop (direct or over SSH tunnel) / RDP remote desktop (IronRDP, NLA) / MOSH (UDP roaming) / Serial (COM / tty, optional charset)
 - **Security model** — passwords & passphrases live in the OS keyring (Keychain / Windows Credential Manager / Secret Service); keys & certificates are written to a temp file only for the handshake and burned afterwards — no plaintext material ever touches disk
 - **Jump hosts & forwarding** — chained SSH ProxyJump; local / remote / SOCKS5 forwarding
 - **Selectable terminal renderer** — DOM / Canvas / WebGL with GPU toggle, auto-fallback to Canvas
