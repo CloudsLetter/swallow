@@ -106,6 +106,7 @@ export function Home() {
             .map(([key, node]) => (
               <div
                 key={key}
+                className={currentPage === key ? 'animate-fade-in' : undefined}
                 style={{ display: currentPage === key ? 'block' : 'none', height: '100%' }}
               >
                 {node}
