@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { rdpConnect, rdpDisconnect } from '../services/sessionService';
 import type { RdpTabConfig } from '../store/tabStore';
+import { useVncKeyboard } from '../store/vncKeyboard';
+import { useConfigStore } from '../store/config';
+import { useTerminalBackground } from '../hooks/useTerminalBackground';
+import { TerminalBackdrop } from './TerminalBackdrop';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { cn } from '@/lib/utils';
@@ -56,6 +60,8 @@ function parseFrame(buf: ArrayBuffer): { width: number; height: number; tiles: T
 
 export function RdpView({ sessionId, rdpConfig, skipAutoConnect }: RdpViewProps) {
   const { t } = useTranslation();
+  const config = useConfigStore((state) => state.config);
+  const { terminalBackground, backgroundImageUrl } = useTerminalBackground(config, true);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // 隐形输入框：承接键盘焦点与 IME 组合（canvas 上直接收键盘无法触发输入法）
@@ -366,6 +372,63 @@ export function RdpView({ sessionId, rdpConfig, skipAutoConnect }: RdpViewProps)
     };
   }, [status, sendResize]);
 
+  // 键盘独占：隐形输入框聚焦期间应用快捷键让路（Layout 的窗口级监听不再抢键）；
+  // 失焦/窗口失焦时释放全部修饰键——否则按下 Ctrl 后点别处，keyup 丢失，
+  // 远端 Ctrl 永远按住，之后所有点击都变成 Ctrl+点（「好多操作没法执行」的主因）
+  const releaseModifiers = useCallback(() => {
+    for (const code of [
+      'ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight',
+      'AltLeft', 'AltRight', 'MetaLeft', 'MetaRight',
+    ]) {
+      sendInput({ kind: 'key', code, key: '', pressed: false });
+    }
+  }, [sendInput]);
+
+  useEffect(() => {
+    const el = keyInputRef.current;
+    if (!el) return;
+    const onFocus = () => useVncKeyboard.getState().setCaptured(true);
+    const onBlur = () => {
+      useVncKeyboard.getState().setCaptured(false);
+      releaseModifiers();
+    };
+    const onWindowBlur = () => releaseModifiers();
+    el.addEventListener('focus', onFocus);
+    el.addEventListener('blur', onBlur);
+    window.addEventListener('blur', onWindowBlur);
+    return () => {
+      el.removeEventListener('focus', onFocus);
+      el.removeEventListener('blur', onBlur);
+      window.removeEventListener('blur', onWindowBlur);
+      useVncKeyboard.getState().setCaptured(false);
+    };
+  }, [releaseModifiers]);
+
+  // 原生滚轮监听（非 passive）：React 的 onWheel 是 passive，preventDefault 无效
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      const size = remoteSizeRef.current;
+      if (!size) return;
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+      const x = Math.min(size.width - 1, Math.max(0, Math.floor(((e.clientX - rect.left) / rect.width) * size.width)));
+      const y = Math.min(size.height - 1, Math.max(0, Math.floor(((e.clientY - rect.top) / rect.height) * size.height)));
+      sendInput({ kind: 'mouseMove', x, y });
+      const clampI16 = (v: number) => Math.min(32767, Math.max(-32768, Math.round(v)));
+      if (Math.abs(e.deltaY) > 0.01) {
+        sendInput({ kind: 'wheel', vertical: true, units: clampI16(-e.deltaY * 1.2) });
+      }
+      if (Math.abs(e.deltaX) > 0.01) {
+        sendInput({ kind: 'wheel', vertical: false, units: clampI16(-e.deltaX * 1.2) });
+      }
+    };
+    canvas.addEventListener('wheel', handler, { passive: false });
+    return () => canvas.removeEventListener('wheel', handler);
+  }, [sendInput]);
+
   // 组件卸载兜底清理 rAF
   useEffect(
     () => () => {
@@ -399,37 +462,31 @@ export function RdpView({ sessionId, rdpConfig, skipAutoConnect }: RdpViewProps)
     // DOM button: 0 left / 1 middle / 2 right / 3 x1(back) / 4 x2(forward)
     const button = ['left', 'middle', 'right', 'x1', 'x2'][e.button] || 'left';
     sendInput({ kind: 'mouseButton', button, pressed });
-    if (pressed) keyInputRef.current?.focus({ preventScroll: true });
-  };
-
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const pos = toRemote(e);
-    if (!pos) return;
-    // 先补一次移动（滚轮往往伴随指针位置变化），再发滚动（RDP 滚动单位 120/格）
-    sendInput({ kind: 'mouseMove', x: pos.x, y: pos.y });
-    const clampI16 = (v: number) => Math.min(32767, Math.max(-32768, Math.round(v)));
-    if (Math.abs(e.deltaY) > 0.01) {
-      sendInput({ kind: 'wheel', vertical: true, units: clampI16(-e.deltaY * 1.2) });
-    }
-    if (Math.abs(e.deltaX) > 0.01) {
-      sendInput({ kind: 'wheel', vertical: false, units: clampI16(-e.deltaX * 1.2) });
+    if (pressed) {
+      // 捕获指针：拖拽出画布仍能收到 pointerup，远端鼠标键不会卡在按下
+      try {
+        (e.currentTarget as Element).setPointerCapture(e.pointerId);
+      } catch {
+        /* noop */
+      }
+      keyInputRef.current?.focus({ preventScroll: true });
     }
   };
 
-  /** 浏览器自身快捷键放行清单（其余按键全部拦截转发远程，防滚动/快捷键窜到本地）。 */
-  const isPassthroughKey = (e: React.KeyboardEvent) =>
-    e.key === 'F5' || e.key === 'F11' || e.key === 'F12';
-
+  // 全部按键（含 F5/F11/F12）一律拦截转发远端：放行任何一个都会在本地产生
+  // 副作用（F5 直接刷新整个应用、连接当场断开）；独占标记让 Layout 的
+  // 标签快捷键让路，stopPropagation 阻断其他 window 级监听
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (composingRef.current || isPassthroughKey(e)) return;
+    if (composingRef.current) return;
     e.preventDefault();
+    e.stopPropagation();
     sendInput({ kind: 'key', code: e.code, key: e.key, pressed: true });
   };
 
   const handleKeyUp = (e: React.KeyboardEvent) => {
-    if (composingRef.current || isPassthroughKey(e)) return;
+    if (composingRef.current) return;
     e.preventDefault();
+    e.stopPropagation();
     sendInput({ kind: 'key', code: e.code, key: e.key, pressed: false });
   };
 
@@ -479,7 +536,7 @@ export function RdpView({ sessionId, rdpConfig, skipAutoConnect }: RdpViewProps)
           <span
             className={cn(
               'size-1.5 shrink-0 rounded-full',
-              connected ? 'bg-emerald-500' : status === 'error' ? 'bg-destructive' : 'bg-muted-foreground/40',
+              connected ? 'bg-success' : status === 'error' ? 'bg-destructive' : 'bg-muted-foreground/40',
             )}
           />
           <span className="truncate">{title || t('rdp.title')}</span>
@@ -537,6 +594,14 @@ export function RdpView({ sessionId, rdpConfig, skipAutoConnect }: RdpViewProps)
         style={{ overflow: fitView ? 'hidden' : 'auto', display: 'flex' }}
         onContextMenu={(e) => e.preventDefault()}
       >
+        {/* 背景层：与终端一致的主题底色/背景图（连接中与桌面缩放留边不再透白） */}
+        <TerminalBackdrop
+          extendToTopbar={false}
+          solid={terminalBackground}
+          imageUrl={backgroundImageUrl}
+          blur={config?.terminal?.background_image_blur ?? 0}
+          opacity={config?.terminal?.background_image_opacity ?? 0.7}
+        />
         <div
           className={cn(
             'flex',
@@ -559,8 +624,8 @@ export function RdpView({ sessionId, rdpConfig, skipAutoConnect }: RdpViewProps)
             onPointerLeave={() => {
               /* 指针离开画布：不发送，远端保持最后位置 */
             }}
-            onWheel={handleWheel}
           />
+
         </div>
 
         {/* 隐形输入框：键盘焦点与 IME 载体；pointer-events 关闭不影响鼠标 */}

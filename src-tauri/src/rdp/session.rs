@@ -269,7 +269,8 @@ fn operations_for(op: InputOp) -> SmallVec<[Operation; 4]> {
 /// 之后每瓦片：`tx:u16 ty:u16 tw:u16 th:u16` + RGBA 数据（tw*th*4 字节）。
 /// 首帧 prev 全零 → 全屏作为瓦片集合下发；分辨率变化整体重置。
 struct FrameEncoder {
-    prev: Vec<u8>,
+    /// 上一帧像素（与 IronRDP 输出同格式 u32，直接比较避免逐字节转换）
+    prev: Vec<u32>,
     width: u16,
     height: u16,
     sent_any: bool,
@@ -289,21 +290,24 @@ impl FrameEncoder {
 
     /// 输入为 IronRDP `RdpOutputEvent::Image` 的全屏像素（`u32::from_be_bytes([0,r,g,b])`）。
     /// 返回 None = 与上帧完全一致，无需发送。
+    ///
+    /// 性能关键：diff 直接在 u32 上比较（等价 4 字节 memcmp），只为脏瓦片行做
+    /// RGBA 转换——典型更新（光标闪烁/局部重绘）每帧只转换极小区域，
+    /// 避免整屏 8MB 的两趟内存搬运。
     fn encode(&mut self, pixels: &[u32], width: u16, height: u16) -> Option<Vec<u8>> {
-        if width == 0 || height == 0 || pixels.len() != u32::from(width) as usize * u32::from(height) as usize {
+        if width == 0
+            || height == 0
+            || pixels.len() != u32::from(width) as usize * u32::from(height) as usize
+        {
             return None;
         }
-        let mut cur = Vec::with_capacity(pixels.len() * 4);
-        for p in pixels {
-            let be = p.to_be_bytes(); // [0, r, g, b]
-            cur.extend_from_slice(&[be[1], be[2], be[3], 0xFF]);
-        }
-
         let w = width as usize;
         let h = height as usize;
-        let resized = self.width != width || self.height != height;
-        if resized || self.prev.len() != cur.len() {
-            self.prev = vec![0u8; cur.len()];
+        if self.width != width || self.height != height {
+            // 填充不可能由 [0,r,g,b] 组成的值，强制首帧/尺寸变化后全脏
+            self.prev = vec![u32::MAX; pixels.len()];
+            self.width = width;
+            self.height = height;
             self.sent_any = false;
         }
 
@@ -321,8 +325,8 @@ impl FrameEncoder {
                 let mut changed = !self.sent_any;
                 if !changed {
                     for row in 0..th {
-                        let off = ((y0 + row) * w + x0) * 4;
-                        if cur[off..off + tw * 4] != self.prev[off..off + tw * 4] {
+                        let off = (y0 + row) * w + x0;
+                        if pixels[off..off + tw] != self.prev[off..off + tw] {
                             changed = true;
                             break;
                         }
@@ -337,8 +341,11 @@ impl FrameEncoder {
                 tiles.extend_from_slice(&(tw as u16).to_le_bytes());
                 tiles.extend_from_slice(&(th as u16).to_le_bytes());
                 for row in 0..th {
-                    let off = ((y0 + row) * w + x0) * 4;
-                    tiles.extend_from_slice(&cur[off..off + tw * 4]);
+                    let off = (y0 + row) * w + x0;
+                    for p in &pixels[off..off + tw] {
+                        let be = p.to_be_bytes(); // [0, r, g, b]
+                        tiles.extend_from_slice(&[be[1], be[2], be[3], 0xFF]);
+                    }
                 }
             }
         }
@@ -357,9 +364,8 @@ impl FrameEncoder {
         msg.extend_from_slice(&count.to_le_bytes());
         msg.extend_from_slice(&tiles);
 
-        self.prev = cur;
-        self.width = width;
-        self.height = height;
+        // prev 更新为当前帧（逐行已在比较中跳过相同行，此处整块拷贝最快）
+        self.prev.copy_from_slice(pixels);
         self.sent_any = true;
         Some(msg)
     }
@@ -430,35 +436,55 @@ pub async fn run_session(
             ev = output_rx.recv() => {
                 match ev {
                     None => break, // client.run() 已结束
-                    Some(event) => {
-                        let out = match event {
-                            RdpOutputEvent::Image { buffer, width, height } => encoder
-                                .encode(&buffer, width.get(), height.get())
-                                .map(|data| Message::Binary(data.into())),
-                            RdpOutputEvent::PointerDefault => Some(ev_pointer("default")),
-                            RdpOutputEvent::PointerHidden => Some(ev_pointer("hidden")),
-                            RdpOutputEvent::PointerBitmap(p) => Some(ev_pointer_bitmap(
-                                p.width, p.height, p.hotspot_x, p.hotspot_y, &p.bitmap_data,
-                            )),
-                            // 服务器侧指针位置事件：浏览器自绘光标，忽略
-                            RdpOutputEvent::PointerPosition { .. } => None,
-                            RdpOutputEvent::ConnectionFailure(e) => {
-                                let _ = ws_tx.send(ev_error(format!("{e:?}"))).await;
-                                ws_alive = false;
-                                break;
+                    Some(first) => {
+                        // 批量合并：突发更新（打字/滚屏会产生连发 Image 事件）只编码
+                        // 最新一帧——Image 是全屏帧缓冲快照，中间帧必被新帧覆盖，
+                        // 逐帧编码白做 N-1 次。指针/终止事件仍逐个处理。
+                        let mut batch = vec![first];
+                        while let Ok(e) = output_rx.try_recv() {
+                            batch.push(e);
+                        }
+                        let mut out_msgs: Vec<Message> = Vec::new();
+                        let mut latest_image: Option<(Vec<u32>, std::num::NonZeroU16, std::num::NonZeroU16)> = None;
+                        let mut pump_done = false;
+                        for event in batch {
+                            match event {
+                                RdpOutputEvent::Image { buffer, width, height } => {
+                                    latest_image = Some((buffer, width, height));
+                                }
+                                RdpOutputEvent::PointerDefault => out_msgs.push(ev_pointer("default")),
+                                RdpOutputEvent::PointerHidden => out_msgs.push(ev_pointer("hidden")),
+                                RdpOutputEvent::PointerBitmap(p) => out_msgs.push(ev_pointer_bitmap(
+                                    p.width, p.height, p.hotspot_x, p.hotspot_y, &p.bitmap_data,
+                                )),
+                                // 服务器侧指针位置事件：浏览器自绘光标，忽略
+                                RdpOutputEvent::PointerPosition { .. } => {}
+                                RdpOutputEvent::ConnectionFailure(e) => {
+                                    out_msgs.push(ev_error(format!("{e:?}")));
+                                    ws_alive = false;
+                                    pump_done = true;
+                                }
+                                RdpOutputEvent::Terminated(result) => {
+                                    let message = result.err().map(|e| format!("{e:?}"));
+                                    out_msgs.push(ev_closed(message));
+                                    ws_alive = false;
+                                    pump_done = true;
+                                }
                             }
-                            RdpOutputEvent::Terminated(result) => {
-                                let message = result.err().map(|e| format!("{e:?}"));
-                                let _ = ws_tx.send(ev_closed(message)).await;
-                                ws_alive = false;
-                                break;
+                        }
+                        if let Some((buffer, width, height)) = latest_image {
+                            if let Some(data) = encoder.encode(&buffer, width.get(), height.get()) {
+                                out_msgs.push(Message::Binary(data.into()));
                             }
-                        };
-                        if let Some(msg) = out {
+                        }
+                        for msg in out_msgs {
                             if ws_tx.send(msg).await.is_err() {
                                 ws_alive = false;
                                 break;
                             }
+                        }
+                        if pump_done || !ws_alive {
+                            break;
                         }
                     }
                 }

@@ -63,7 +63,21 @@ React <RdpView>                        Rust <rdp/session.rs>
   剥除（App.tsx）；恢复的会话缺密码 → `skipAutoConnect` → RdpView 弹密码框补交。
 - 桥只监听 loopback；连接失败/关标签/应用退出（ExitRequested `stop_all`）均释放资源。
 
-## 5. 已知限制 / 未实现（按优先级）
+## 5. 性能与输入行为备注（2026-09-06 实测反馈后优化）
+
+- **帧管线**：IronRDP 每次图形更新产出全屏 8MB 快照；泵线程对 output 通道做
+  「批量排空、只编码最新帧」（中间帧必被覆盖），FrameEncoder 直接在 u32 上
+  diff（等价 4 字节 memcmp），只为脏瓦片行做 RGBA 转换——打字/滚屏突发从
+  N 次全屏搬运降为 1 次。
+- **修饰键防卡死**：隐形输入框失焦/窗口失焦时自动释放 Ctrl/Shift/Alt/Meta
+  （keyup 因焦点迁移丢失会导致远端修饰键永远按住，点击全部变 Ctrl+点）。
+- **按键全量转发**：F5/F11/F12 不再本地放行（F5 会刷新整个应用断开连接）；
+  标签快捷键经 vncKeyboard 独占标记让路（与 VNC 同机制）。
+- **指针捕获**：pointerdown 时 setPointerCapture，拖拽出画布不丢 pointerup；
+  滚轮用原生非 passive 监听（React onWheel 是 passive，preventDefault 无效）。
+- 背景层复用 TerminalBackdrop（主题底色/背景图），连接中不再透白。
+
+## 6. 已知限制 / 未实现（按优先级）
 
 1. **证书校验**：MVP 沿用 IronRDP 默认 TLS 行为（RDP 服务器普遍自签名证书）。
    后续应做指纹确认入库（复用 known_hosts 表模式）。
