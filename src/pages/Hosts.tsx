@@ -35,6 +35,7 @@ import {
   KeyRound as IconKeyRound,
   ShieldCheck as IconShieldCheck,
   Monitor as IconMonitor,
+  Radio as IconRadio,
   Usb as IconUsb,
 } from 'lucide-react';
 import { useTabStore } from '../store/tabStore';
@@ -407,6 +408,34 @@ export function Hosts() {
       },
     });
     setVncDialogHost(null);
+  };
+
+  /** MOSH 连接：SSH 引导复用主机完整认证链路（含跳板机/证书），数据面走 UDP。 */
+  const handleMoshConnect = (host: Host) => {
+    const auth = resolveHostSshAuth(host, accounts, keys, certs);
+    if (auth.error) {
+      toast.warning(auth.error);
+      return;
+    }
+    if (auth.authType === 'none') {
+      toast.warning(t('hosts.sftpNoAuth'));
+      return;
+    }
+    createTab({
+      name: `${host.name} (MOSH)`,
+      type: 'mosh',
+      moshConfig: {
+        host: host.host,
+        port: host.port,
+        username: auth.username,
+        auth_type: auth.authType,
+        password: auth.password,
+        key_id: auth.authType === 'key' ? auth.keyId : undefined,
+        cert_id: auth.authType === 'certificate' ? auth.certId : undefined,
+        passphrase: undefined,
+        hostId: host.id,
+      },
+    });
   };
 
   /** 顶部工具栏「串口终端」：跳到 QuickConnect 的串口卡（滚动+高亮）。 */
@@ -856,6 +885,9 @@ export function Hosts() {
               <DropdownMenuItem onClick={() => openVncDialog(host)}>
                 <IconMonitor size={15} className="mr-2" /> {t('hosts.openVnc')}
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleMoshConnect(host)}>
+                <IconRadio size={15} className="mr-2" /> {t('hosts.openMosh')}
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void openEdit(host)}>
                 <IconEdit size={15} className="mr-2" /> {t('common.edit')}
               </DropdownMenuItem>
@@ -943,6 +975,9 @@ export function Hosts() {
               <DropdownMenuContent align="end" className="w-44">
                 <DropdownMenuItem onClick={() => openVncDialog(host)}>
                   <IconMonitor size={15} className="mr-2" /> {t('hosts.openVnc')}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleMoshConnect(host)}>
+                  <IconRadio size={15} className="mr-2" /> {t('hosts.openMosh')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => void openEdit(host)}>
                   <IconEdit size={15} className="mr-2" /> {t('common.edit')}

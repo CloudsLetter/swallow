@@ -11,6 +11,7 @@ mod monitor;
 mod serial;
 mod vnc;
 mod rdp;
+mod mosh;
 #[cfg(target_os = "windows")]
 mod os_drop_paths;
 
@@ -22,6 +23,7 @@ use monitor::{MonitorManager, MonitorSession, MonitorSnapshot};
 use serial::{SerialConfig, SerialManager, SerialSession};
 use vnc::{VncConnectRequest, VncConnectResult, VncManager};
 use rdp::{RdpConnectRequest, RdpConnectResult, RdpManager};
+use mosh::MoshManager;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -49,6 +51,7 @@ struct AppState {
     serial: Mutex<SerialManager>,
     vnc: Mutex<VncManager>,
     rdp: Mutex<RdpManager>,
+    mosh: Mutex<MoshManager>,
     /// 传输取消标志表：cancel_token -> AtomicBool（下载中断用）
     transfer_cancels: Mutex<HashMap<String, Arc<AtomicBool>>>,
 }
@@ -65,6 +68,7 @@ impl AppState {
             serial: Mutex::new(SerialManager::new()),
             vnc: Mutex::new(VncManager::new()),
             rdp: Mutex::new(RdpManager::new()),
+            mosh: Mutex::new(MoshManager::new()),
             transfer_cancels: Mutex::new(HashMap::new()),
         }
     }
@@ -147,6 +151,43 @@ async fn close_splashscreen(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// 密钥/证书认证材料装载：按 key_id/cert_id 从 DB 读内容入内存（不落盘）。
+/// SSH 终端与 MOSH 引导共用同一认证链路，保证行为一致。
+fn prepare_ssh_auth_material(mut config: SshConfig) -> Result<SshConfig, String> {
+    if config.auth_type == "key" {
+        if let Some(key_id) = config.key_id.clone() {
+            let conn = sqlite::open_connection()?;
+            let (private_key, public_key) = load_key_content(&conn, &key_id)?;
+            if private_key.is_none() && public_key.is_none() {
+                return Err("该密钥的内容未存储，请重新导入或生成密钥。".to_string());
+            }
+            config.private_key = private_key;
+            config.public_key = public_key;
+        } else if config.private_key.is_none() && config.key_path.is_none() {
+            return Err("密钥认证缺少可用的密钥，请到“账号/主机”页重新选择密钥。".to_string());
+        }
+    }
+
+    if config.auth_type == "certificate" {
+        if let Some(cert_id) = config.cert_id.clone() {
+            let conn = sqlite::open_connection()?;
+            let (cert_content, private_key) = load_cert_content(&conn, &cert_id)?;
+            if cert_content.is_none() {
+                return Err("该证书的内容未存储，请重新导入证书。".to_string());
+            }
+            if private_key.is_none() {
+                return Err(
+                    "该证书未绑定配套私钥，无法完成 SSH 认证，请到“证书”页重新导入并附上私钥。"
+                        .to_string(),
+                );
+            }
+            config.cert_content = cert_content;
+            config.cert_private_key = private_key;
+        }
+    }
+    Ok(config)
+}
+
 #[tauri::command]
 async fn ssh_connect(
     state: State<'_, AppState>,
@@ -172,39 +213,8 @@ async fn ssh_connect(
         }
     }
 
-    // 密钥认证：根据 key_id 从数据库读取密钥内容，用于内存认证（不落盘）
-    if config.auth_type == "key" {
-        if let Some(key_id) = config.key_id.clone() {
-            let conn = sqlite::open_connection()?;
-            let (private_key, public_key) = load_key_content(&conn, &key_id)?;
-            if private_key.is_none() && public_key.is_none() {
-                return Err("该密钥的内容未存储，请重新导入或生成密钥。".to_string());
-            }
-            config.private_key = private_key;
-            config.public_key = public_key;
-        } else if config.private_key.is_none() && config.key_path.is_none() {
-            return Err("密钥认证缺少可用的密钥，请到“账号/主机”页重新选择密钥。".to_string());
-        }
-    }
-
-    // 证书认证：根据 cert_id 从数据库读取证书与配套私钥内容，用于临时文件认证（不落盘）
-    if config.auth_type == "certificate" {
-        if let Some(cert_id) = config.cert_id.clone() {
-            let conn = sqlite::open_connection()?;
-            let (cert_content, private_key) = load_cert_content(&conn, &cert_id)?;
-            if cert_content.is_none() {
-                return Err("该证书的内容未存储，请重新导入证书。".to_string());
-            }
-            if private_key.is_none() {
-                return Err(
-                    "该证书未绑定配套私钥，无法完成 SSH 认证，请到“证书”页重新导入并附上私钥。"
-                        .to_string(),
-                );
-            }
-            config.cert_content = cert_content;
-            config.cert_private_key = private_key;
-        }
-    }
+    // 密钥/证书认证：根据 key_id/cert_id 从数据库读取内容用于内存认证（不落盘）
+    let config = prepare_ssh_auth_material(config)?;
 
     // 建连挪到阻塞线程池：不持全局锁、不占 tokio 异步 worker（慢连接不再拖慢其他命令）
     let connect_config = config.clone();
@@ -1120,6 +1130,137 @@ async fn rdp_list_sessions(state: State<'_, AppState>) -> Result<Vec<String>, St
     Ok(manager.list())
 }
 
+// ==================== MOSH Commands ====================
+
+#[tauri::command]
+async fn mosh_connect(
+    state: State<'_, AppState>,
+    config_state: State<'_, GlobaConfig>,
+    app_handle: tauri::AppHandle,
+    session_id: String,
+    config: SshConfig,
+    cols: u32,
+    rows: u32,
+) -> Result<ConnectResult, String> {
+    let timeout_secs = read_connection_timeout(&config_state);
+
+    // 会话已存在则复用（标签切换/重挂载防重复建连）
+    {
+        let manager = state.mosh.lock().map_err(|e| e.to_string())?;
+        if manager.contains(&session_id) {
+            return Ok(ConnectResult::connected(config.host, config.port));
+        }
+    }
+
+    // 引导认证与 SSH 终端同链路（key/cert 内容从 DB 读入内存）
+    let config = prepare_ssh_auth_material(config)?;
+
+    // SSH 引导：远程启动 mosh-server，拿 UDP 端口 + 会话密钥（阻塞线程池）
+    let progress_app = app_handle.clone();
+    let progress_session_id = session_id.clone();
+    let boot_config = config.clone();
+    let boot = tauri::async_runtime::spawn_blocking(move || {
+        let on_progress = |stage: &str, message: Option<&str>| {
+            let _ = progress_app.emit(
+                &format!("session-{}", progress_session_id),
+                crate::session_events::SessionEvent::Progress {
+                    stage: stage.to_string(),
+                    message: message.map(|s| s.to_string()),
+                },
+            );
+        };
+        mosh::session::bootstrap(&boot_config, timeout_secs, &on_progress)
+    })
+    .await
+    .map_err(|e| format!("MOSH 引导任务异常: {e}"))?;
+
+    let boot = match boot {
+        Ok(boot) => boot,
+        Err(e) => {
+            if let Some(approval) = e.downcast_ref::<ssh::session::HostKeyApprovalRequired>() {
+                return Ok(ConnectResult::needs_host_key_approval(
+                    approval.host.clone(),
+                    approval.port,
+                    approval.fingerprint.clone(),
+                    approval.token.clone(),
+                ));
+            }
+            return Err(format!("MOSH 连接失败: {e}"));
+        }
+    };
+
+    // 数据面泵线程：UDP + SSP，增量 ANSI emit 到 session-{id}
+    let (input_tx, input_rx) = std::sync::mpsc::channel::<mosh::session::PumpCommand>();
+    let stop = Arc::new(AtomicBool::new(false));
+    let removal = {
+        let manager = state.mosh.lock().map_err(|e| e.to_string())?;
+        manager.removal_closure(session_id.clone())
+    };
+    let disconnect_handler = Arc::new(Mutex::new(Some(removal)));
+    mosh::session::start_pump(
+        app_handle,
+        session_id.clone(),
+        config.host.clone(),
+        boot.port,
+        boot.key,
+        cols.clamp(1, 2000) as u16,
+        rows.clamp(1, 1000) as u16,
+        input_rx,
+        stop.clone(),
+        disconnect_handler,
+    );
+
+    {
+        let manager = state.mosh.lock().map_err(|e| e.to_string())?;
+        manager.insert_session(
+            session_id,
+            mosh::MoshSessionHandle { input_tx, stop },
+        );
+    }
+
+    Ok(ConnectResult::connected(config.host, config.port))
+}
+
+#[tauri::command]
+fn mosh_write(state: State<'_, AppState>, session_id: String, data: String) -> Result<(), String> {
+    let handle = {
+        let manager = state.mosh.lock().map_err(|e| e.to_string())?;
+        manager.get_handle(&session_id)
+    };
+    if let Some((input_tx, _)) = handle {
+        let _ = input_tx.send(mosh::session::PumpCommand::Input(data.into_bytes()));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn mosh_resize(state: State<'_, AppState>, session_id: String, cols: u32, rows: u32) -> Result<(), String> {
+    let handle = {
+        let manager = state.mosh.lock().map_err(|e| e.to_string())?;
+        manager.get_handle(&session_id)
+    };
+    if let Some((input_tx, _)) = handle {
+        let _ = input_tx.send(mosh::session::PumpCommand::Resize(
+            cols.clamp(1, 2000) as u16,
+            rows.clamp(1, 1000) as u16,
+        ));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn mosh_disconnect(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
+    let manager = state.mosh.lock().map_err(|e| e.to_string())?;
+    manager.disconnect(&session_id);
+    Ok(())
+}
+
+#[tauri::command]
+fn mosh_list_sessions(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let manager = state.mosh.lock().map_err(|e| e.to_string())?;
+    Ok(manager.list())
+}
+
 // ==================== Serial Commands ====================
 
 #[tauri::command]
@@ -1869,6 +2010,11 @@ pub fn run() {
             rdp_connect,
             rdp_disconnect,
             rdp_list_sessions,
+            mosh_connect,
+            mosh_write,
+            mosh_resize,
+            mosh_disconnect,
+            mosh_list_sessions,
             serial_list_ports,
             serial_connect,
             serial_write,
@@ -2060,6 +2206,10 @@ pub fn run() {
                 let rdp_guard = state.rdp.lock();
                 if let Ok(manager) = rdp_guard {
                     manager.stop_all();
+                }
+                let mosh_guard = state.mosh.lock();
+                if let Ok(manager) = mosh_guard {
+                    manager.disconnect_all();
                 }
             }
         });

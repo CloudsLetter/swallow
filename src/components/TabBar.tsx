@@ -17,6 +17,7 @@ import {
   Monitor as IconMonitor,
   Usb as IconUsb,
   ScreenShare as IconScreenShare,
+  Radio as IconRadio,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from './ui/context-menu';
@@ -39,6 +40,8 @@ function tabIcon(type: Tab['type']) {
       return IconMonitor;
     case 'rdp':
       return IconScreenShare;
+    case 'mosh':
+      return IconRadio;
     case 'serial':
       return IconUsb;
     case 'telnet':

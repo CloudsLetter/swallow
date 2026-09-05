@@ -136,6 +136,13 @@ export function Home() {
                   skipAutoConnect={tab.skipAutoConnect}
                   isActive={isActive}
                 />
+              ) : tab.type === 'mosh' && tab.moshConfig ? (
+                <TerminalView
+                  sessionId={tab.sessionId || undefined}
+                  moshConfig={tab.moshConfig}
+                  skipAutoConnect={tab.skipAutoConnect}
+                  isActive={isActive}
+                />
               ) : tab.type === 'sftp' ? (
                 <SftpView
                   sessionId={tab.sessionId || undefined}

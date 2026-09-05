@@ -17,6 +17,8 @@ import {
   localShellWrite,
   localShellResize,
   serialWrite,
+  moshWrite,
+  moshResize,
 } from '../services/sessionService';
 import type { SessionEvent } from '../types/session';
 import { useConfigStore } from '../store/config';
@@ -89,16 +91,16 @@ const pool: Record<string, PoolItem> = {};
 const writeQueues: Record<string, Promise<unknown>> = {};
 
 // 会话协议类型（ssh / telnet / local），广播写入时据此选择正确的后端命令
-const sessionTypes: Record<string, 'ssh' | 'telnet' | 'local' | 'serial'> = {};
+const sessionTypes: Record<string, 'ssh' | 'telnet' | 'local' | 'serial' | 'mosh'> = {};
 
 // 最近一次已发出的 PTY 尺寸，避免一次 fit 触发多个重复 IPC。
 const lastPtyResize: Record<string, string> = {};
 
-export function setSessionType(sessionId: string, type: 'ssh' | 'telnet' | 'local' | 'serial') {
+export function setSessionType(sessionId: string, type: 'ssh' | 'telnet' | 'local' | 'serial' | 'mosh') {
   sessionTypes[sessionId] = type;
 }
 
-export function getSessionType(sessionId: string): 'ssh' | 'telnet' | 'local' | 'serial' {
+export function getSessionType(sessionId: string): 'ssh' | 'telnet' | 'local' | 'serial' | 'mosh' {
   return sessionTypes[sessionId] ?? 'ssh';
 }
 
@@ -252,7 +254,15 @@ function notifyPtyResize(sessionId: string, cols: number, rows: number) {
   if (!item?.isConnected || cols < 1 || rows < 1) return;
 
   const kind = getSessionType(sessionId);
-  const resize = kind === 'local' ? localShellResize : kind === 'ssh' ? sshResize : null;
+  // mosh 无本地 PTY，但尺寸需经协议同步到 mosh-server（与 local/ssh 同等对待）
+  const resize =
+    kind === 'local'
+      ? localShellResize
+      : kind === 'ssh'
+        ? sshResize
+        : kind === 'mosh'
+          ? moshResize
+          : null;
   if (!resize) return;
 
   const key = `${cols}x${rows}`;
@@ -342,6 +352,7 @@ export function enqueueWriteToTargets(targets: string[], data: string) {
       if (st === 'telnet') return telnetWrite(id, data);
       if (st === 'local') return localShellWrite(id, data);
       if (st === 'serial') return serialWrite(id, data);
+      if (st === 'mosh') return moshWrite(id, data);
       return sshWrite(id, data);
     };
     enqueueWrite(id, () =>

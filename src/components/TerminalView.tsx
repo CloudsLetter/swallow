@@ -12,7 +12,7 @@ import { useTerminalFit } from '../hooks/useTerminalFit';
 import { useTerminalBackground } from '../hooks/useTerminalBackground';
 import { TerminalBackdrop } from './TerminalBackdrop';
 import { useSessionConnection, sshSessionPool } from '../hooks/useSessionConnection';
-import { acceptHostKey, sshConnect, disconnectSsh, telnetConnect, telnetDisconnect, localShellConnect, localShellDisconnect, serialConnect, serialDisconnect } from '../services/sessionService';
+import { acceptHostKey, sshConnect, disconnectSsh, telnetConnect, telnetDisconnect, localShellConnect, localShellDisconnect, serialConnect, serialDisconnect, moshConnect, moshDisconnect } from '../services/sessionService';
 import { touchHostLastConnected } from '../services/dataService';
 import { useOnlineHosts } from '../store/uiState';
 import type { Config } from '../types/config';
@@ -107,7 +107,7 @@ function buildTerminalOptions(cfg: Config['terminal']): ITerminalOptions {
   return options;
 }
 
-export type TerminalConnectMode = 'ssh' | 'telnet' | 'local' | 'serial';
+export type TerminalConnectMode = 'ssh' | 'telnet' | 'local' | 'serial' | 'mosh';
 
 /** 构建连接进度步骤（tcp/ssh/auth/shell/ready），顺序与后端 Progress 事件一致。 */
 function buildConnectionSteps(
@@ -123,11 +123,12 @@ function buildConnectionSteps(
         : mode === 'serial'
           ? t('connection.stepConnect', { host: opts.serialPort })
           : t('connection.stepAuth', { authType: opts.authType });
+  const shellLabel = mode === 'mosh' ? t('connection.stepMoshServer') : t('connection.stepShell');
   return [
     { id: 'tcp', label: t('connection.stepTcp'), status: 'pending' },
     { id: 'ssh', label: t('connection.stepSsh'), status: 'pending' },
     { id: 'auth', label: authLabel, status: 'pending' },
-    { id: 'shell', label: t('connection.stepShell'), status: 'pending' },
+    { id: 'shell', label: shellLabel, status: 'pending' },
     { id: 'ready', label: t('connection.stepReady'), status: 'pending' },
   ];
 }
@@ -157,6 +158,35 @@ async function connectSshWithHostKeyApproval(
     }
     await acceptHostKey(result.hostKeyToken!, fingerprint);
     result = await sshConnect(sessionId, sshConfig, cols, rows);
+  }
+  return result;
+}
+
+/** MOSH 引导 + 主机密钥确认循环：与 SSH 同链路（引导走 SSH，数据面走 UDP）。 */
+async function connectMoshWithHostKeyApproval(
+  sessionId: string,
+  moshConfig: TerminalSshConfig,
+  cols: number,
+  rows: number,
+  t: TFunction,
+) {
+  let result = await moshConnect(sessionId, moshConfig, cols, rows);
+  while (result.status === 'needsHostKeyApproval') {
+    const fingerprint = result.fingerprint ?? '';
+    const accepted = await ask(
+      t('connection.hostKeyBody', { host: result.host, port: result.port, fingerprint }),
+      {
+        title: t('connection.hostKeyTitle'),
+        kind: 'warning',
+        okLabel: t('connection.trustAndConnect'),
+        cancelLabel: t('common.cancel'),
+      },
+    );
+    if (!accepted) {
+      throw new Error(t('connection.declinedHostKey'));
+    }
+    await acceptHostKey(result.hostKeyToken!, fingerprint);
+    result = await moshConnect(sessionId, moshConfig, cols, rows);
   }
   return result;
 }
@@ -211,6 +241,8 @@ interface TerminalViewProps {
   telnetConfig?: TerminalTelnetConfig;
   localConfig?: TerminalLocalConfig;
   serialConfig?: TerminalSerialConfig;
+  /** MOSH 会话：引导走 SSH（字段同 SSH 配置），数据面走 UDP（mosh-rs） */
+  moshConfig?: TerminalSshConfig;
   // 标签是否处于激活状态（keep-alive 下用于切回时重新 fit 终端）
   isActive?: boolean;
   // 外部尺寸变化信号（分屏拖分隔条后递增），触发重新 fit + resize PTY
@@ -219,7 +251,7 @@ interface TerminalViewProps {
   skipAutoConnect?: boolean;
 }
 
-export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, serialConfig, isActive = true, resizeSignal, skipAutoConnect }: TerminalViewProps) {
+export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, serialConfig, moshConfig, isActive = true, resizeSignal, skipAutoConnect }: TerminalViewProps) {
   const { t } = useTranslation();
   const config = useConfigStore((state) => state.config);
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -389,12 +421,13 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
 
         // 必须在 attach/fit 之前确定协议类型：已连接的 Telnet 标签重挂载时，
         // attachTerminal 可能立即触发 resize，不能让它按默认 ssh 分支发送 PTY resize。
-        const isTelnet = !!telnetConfig && !sshConfig && !localConfig && !serialConfig;
-        const isLocal = !!localConfig && !sshConfig && !telnetConfig && !serialConfig;
-        const isSerial = !!serialConfig && !sshConfig && !telnetConfig && !localConfig;
+        const isTelnet = !!telnetConfig && !sshConfig && !localConfig && !serialConfig && !moshConfig;
+        const isLocal = !!localConfig && !sshConfig && !telnetConfig && !serialConfig && !moshConfig;
+        const isSerial = !!serialConfig && !sshConfig && !telnetConfig && !localConfig && !moshConfig;
+        const isMosh = !!moshConfig && !sshConfig && !telnetConfig && !localConfig && !serialConfig;
         setSessionType(
           sessionId,
-          isTelnet ? 'telnet' : isLocal ? 'local' : isSerial ? 'serial' : 'ssh',
+          isTelnet ? 'telnet' : isLocal ? 'local' : isSerial ? 'serial' : isMosh ? 'mosh' : 'ssh',
         );
 
         // 附加到 DOM
@@ -405,8 +438,8 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
         const alreadyConnected = isConnected(sessionId);
         const currentlyConnecting = checkIsConnecting(sessionId);
 
-        // 无 SSH/telnet/local/serial 配置：无法发起连接，仅显示欢迎信息
-        if (!sshConfig && !telnetConfig && !localConfig && !serialConfig) {
+        // 无 SSH/telnet/local/serial/mosh 配置：无法发起连接，仅显示欢迎信息
+        if (!sshConfig && !telnetConfig && !localConfig && !serialConfig && !moshConfig) {
           terminal.writeln(t('connection.welcome'));
           terminal.writeln(t('connection.sessionIdLine', { sessionId }));
           terminal.writeln('');
@@ -423,13 +456,13 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
           let autoLogStarted = false;
 
           // 重置并初始化连接步骤
-          const mode: TerminalConnectMode = isTelnet ? 'telnet' : isLocal ? 'local' : isSerial ? 'serial' : 'ssh';
+          const mode: TerminalConnectMode = isTelnet ? 'telnet' : isLocal ? 'local' : isSerial ? 'serial' : isMosh ? 'mosh' : 'ssh';
           const steps: ConnectionStep[] = buildConnectionSteps(
             mode,
             {
               telnetHost: telnetConfig?.host,
               shell: localConfig?.shell,
-              authType: sshConfig?.auth_type,
+              authType: sshConfig?.auth_type ?? moshConfig?.auth_type,
               serialPort: serialConfig?.port,
             },
             t,
@@ -458,8 +491,8 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
 
             if (cancelConnectionRef.current) throw new Error(t('connection.cancelledByUser'));
 
-            // 在发起 SSH 连接前开始记录，避免漏掉登录提示等早期输出。
-            if (sshConfig && useConfigStore.getState().config?.terminal.session_log_enabled) {
+            // 在发起连接前开始记录，避免漏掉登录提示等早期输出。
+            if ((sshConfig || moshConfig) && useConfigStore.getState().config?.terminal.session_log_enabled) {
               try {
                 autoLogStarted = await startConfiguredSshLog(sessionId, sessionLabel);
               } catch (e) {
@@ -490,6 +523,9 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
                 cols,
                 rows,
               );
+            } else if (isMosh) {
+              // MOSH：SSH 引导（含主机密钥确认），数据面走 UDP
+              connectResult = await connectMoshWithHostKeyApproval(sessionId, moshConfig!, cols, rows, t);
             } else {
               connectResult = await connectSshWithHostKeyApproval(sessionId, sshConfig!, cols, rows, t);
             }
@@ -504,6 +540,8 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
                 await serialDisconnect(sessionId).catch(() => {});
               } else if (isLocal) {
                 await localShellDisconnect(sessionId).catch(() => {});
+              } else if (isMosh) {
+                await moshDisconnect(sessionId).catch(() => {});
               } else {
                 await disconnectSsh(sessionId).catch(() => {});
               }
@@ -521,6 +559,11 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
               useOnlineHosts.getState().connect(sshConfig.host, sshConfig.port);
               if (!silentReconnect) {
                 touchHostLastConnected(sshConfig.host, sshConfig.port).catch(() => {});
+              }
+            } else if (moshConfig?.host) {
+              useOnlineHosts.getState().connect(moshConfig.host, moshConfig.port);
+              if (!silentReconnect) {
+                touchHostLastConnected(moshConfig.host, moshConfig.port).catch(() => {});
               }
             }
             if (silentReconnect) {
@@ -716,7 +759,7 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
         isAttachedRef.current = false;
       }
     };
-  }, [sessionId, sshConfig, localConfig]);
+  }, [sessionId, sshConfig, moshConfig, localConfig]);
 
   // 当配置改变（字体/光标/滚动/主题等）时，动态应用到已存在的终端。
   // ⚠️ 以「构建出的 xterm options 序列化」为 key：仅真正影响终端外观的字段变化才重设+fit。

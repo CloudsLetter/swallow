@@ -405,3 +405,48 @@ export function rdpDisconnect(sessionId: string, generation?: number): Promise<v
 export function rdpListSessions(): Promise<string[]> {
   return invoke<string[]>('rdp_list_sessions');
 }
+
+// ==================== MOSH ====================
+
+/** MOSH 连接结果（引导走 SSH，主机密钥确认语义与 ssh_connect 一致）。 */
+export interface MoshConnectResult {
+  status: 'connected' | 'needsHostKeyApproval';
+  fingerprint?: string | null;
+  host: string;
+  port: number;
+  hostKeyToken?: string | null;
+  sessionId?: string | null;
+}
+
+/**
+ * 建立 MOSH 会话：后端经 SSH 引导（mosh-server new）拿 UDP 端口/密钥，
+ * 再由 mosh-rs 泵线程直连 UDP。config 为 SSH 认证配置（字段与 ssh_connect 一致）。
+ */
+export function moshConnect(
+  sessionId: string,
+  config: SshSessionConfig,
+  cols: number,
+  rows: number,
+): Promise<MoshConnectResult> {
+  return invoke<MoshConnectResult>('mosh_connect', { sessionId, config, cols, rows });
+}
+
+/** 向 MOSH 会话写入输入（泵线程转 send_input）。 */
+export function moshWrite(sessionId: string, data: string): Promise<void> {
+  return invoke<void>('mosh_write', { sessionId, data });
+}
+
+/** 同步终端尺寸到 mosh-server。 */
+export function moshResize(sessionId: string, cols: number, rows: number): Promise<void> {
+  return invoke<void>('mosh_resize', { sessionId, cols, rows });
+}
+
+/** 断开 MOSH 会话（幂等）。 */
+export function moshDisconnect(sessionId: string): Promise<void> {
+  return invoke<void>('mosh_disconnect', { sessionId });
+}
+
+/** 列出当前 MOSH 会话 id。 */
+export function moshListSessions(): Promise<string[]> {
+  return invoke<string[]>('mosh_list_sessions');
+}

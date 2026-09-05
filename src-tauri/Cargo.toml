@@ -63,6 +63,9 @@ smallvec = "1.15"
 # 依赖图中 reqwest 与 ironrdp-tls 分别引入 ring 与 aws-lc-rs，rustls 无法自动二选一，
 # 不显式 install_default 会在首次 TLS 使用处 panic（见 lib.rs run() setup）。
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+# MOSH：wire-compatible Rust 客户端（SSP/AES-OCB3 + vt100 仿真 + 本地回显预测），
+# 配合本模块的 SSH 引导（mosh-server new）组成完整 MOSH 会话。0.x 锁 minor。
+mosh-rs = "0.1.0"
 
 # keyring 按平台选择系统凭据 backend（跨平台打包必需；不可统一放顶层）
 [target.'cfg(target_os = "windows")'.dependencies]
