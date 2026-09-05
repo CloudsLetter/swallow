@@ -273,7 +273,11 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
   const findEverOpenedRef = useRef(false);
 
   // SSH 日志由设置中的开关控制：连接前自动开始，断开时由生命周期收尾。
-  const sessionLabel = sshConfig ? `${sshConfig.username}@${sshConfig.host}` : 'terminal';
+  const sessionLabel = sshConfig
+    ? `${sshConfig.username}@${sshConfig.host}`
+    : moshConfig
+      ? `${moshConfig.username}@${moshConfig.host}`
+      : 'terminal';
 
   useEffect(() => {
     if (!sessionId || !sshConfig) return;

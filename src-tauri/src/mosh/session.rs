@@ -30,15 +30,84 @@ fn parse_mosh_connect(output: &str) -> Option<(u16, String)> {
         let line = line.trim();
         if let Some(rest) = line.strip_prefix("MOSH CONNECT ") {
             let mut it = rest.split_whitespace();
-            let port = it.next()?.parse::<u16>().ok()?;
-            let key = it.next()?.to_string();
-            if key.len() == 44 {
-                return Some((port, key));
+            // 单行格式坏时继续扫后续行，不提前放弃
+            if let (Some(port), Some(key)) = (it.next()?.parse::<u16>().ok(), it.next()) {
+                if key.len() == 44 {
+                    return Some((port, key.to_string()));
+                }
             }
-            return None;
         }
     }
     None
+}
+
+enum BootstrapRead {
+    Found(MoshBootstrap),
+    /// stdout 结束（EOF/超时）且没有 MOSH CONNECT 行：mosh-server 启动失败
+    NotFound,
+    Io(anyhow::Error),
+}
+
+/// 边读 stdout 边尝试解析，看到 MOSH CONNECT 立即返回——**不等 EOF**：
+/// mosh-server new 打印后后台化，其子进程可能继承 stdout，等 EOF 会让
+/// 每次连接都白等满超时（官方 mosh 脚本同款：读到位就走）。
+fn read_until_mosh_connect(channel: &mut ssh2::Channel) -> BootstrapRead {
+    let deadline = Instant::now() + Duration::from_secs(MOSH_BOOTSTRAP_READ_TIMEOUT_SECS);
+    let mut out = Vec::new();
+    let mut buf = [0u8; 4096];
+    loop {
+        if Instant::now() >= deadline {
+            return BootstrapRead::NotFound;
+        }
+        match channel.read(&mut buf) {
+            Ok(0) => return BootstrapRead::NotFound, // EOF：进程退出且无 CONNECT 行
+            Ok(n) => {
+                out.extend_from_slice(&buf[..n]);
+                if let Some((port, key)) =
+                    parse_mosh_connect(&String::from_utf8_lossy(&out))
+                {
+                    return BootstrapRead::Found(MoshBootstrap { port, key });
+                }
+            }
+            Err(e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut
+                    || e.kind() == std::io::ErrorKind::Interrupted =>
+            {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(e) => {
+                return BootstrapRead::Io(
+                    anyhow::Error::from(e).context("读取 mosh-server 输出失败"),
+                )
+            }
+        }
+    }
+}
+
+/// 失败路径：循环读 stderr（mosh-server 报错即退出，正常很快 EOF；带兜底超时）。
+fn read_channel_stderr(channel: &mut ssh2::Channel) -> String {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut out = Vec::new();
+    let mut buf = [0u8; 4096];
+    loop {
+        if Instant::now() >= deadline {
+            break;
+        }
+        match channel.stderr().read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => out.extend_from_slice(&buf[..n]),
+            Err(e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut
+                    || e.kind() == std::io::ErrorKind::Interrupted =>
+            {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(_) => break,
+        }
+    }
+    String::from_utf8_lossy(&out).to_string()
 }
 
 /// SSH 引导：远程执行 `mosh-server new`，拿到 UDP 端口与密钥后关闭 SSH 会话。
@@ -54,61 +123,41 @@ pub fn bootstrap(
     let session = established.session;
 
     on_progress("shell", Some("启动 mosh-server"));
-    let mut channel = session.channel_session().context("打开 SSH 通道失败")?;
     // 官方 mosh 脚本同款：优先 C.UTF-8 locale；服务器没有时去掉 -l 重试一次
-    channel
-        .exec("mosh-server new -c 256 -l LANG=C.UTF-8")
-        .context("执行 mosh-server 失败")?;
+    let commands = [
+        "mosh-server new -c 256 -l LANG=C.UTF-8",
+        "mosh-server new -c 256",
+    ];
+    let mut stderr_tail = String::new();
+    for (i, cmd) in commands.iter().enumerate() {
+        let mut channel = session.channel_session().context("打开 SSH 通道失败")?;
+        channel.exec(cmd).context("执行 mosh-server 失败")?;
 
-    let stdout = read_channel_stdout(&mut channel)?;
-    let stderr = read_channel_stderr(&mut channel);
-
-    let _ = channel.close();
-    let _ = channel.wait_close();
-
-    if let Some((port, key)) = parse_mosh_connect(&stdout) {
-        return Ok(MoshBootstrap { port, key });
+        let read = read_until_mosh_connect(&mut channel);
+        let boot = match read {
+            BootstrapRead::Found(boot) => boot,
+            BootstrapRead::Io(e) => return Err(e),
+            BootstrapRead::NotFound => {
+                let _ = channel.close();
+                let _ = channel.wait_close();
+                stderr_tail = read_channel_stderr(&mut channel);
+                if i + 1 < commands.len() {
+                    continue; // locale 类失败：去 -l 重试
+                }
+                break;
+            }
+        };
+        let _ = channel.close();
+        let _ = channel.wait_close();
+        return Ok(boot);
     }
 
-    // 无 MOSH CONNECT：优先报 locale 类错误（重试过无 -l 后仍失败），附 stderr 尾部便于排查
-    let hint = stderr
+    let hint = stderr_tail
         .lines()
         .rev()
         .find(|l| !l.trim().is_empty())
         .unwrap_or("mosh-server 未返回 MOSH CONNECT 行（服务器未安装 mosh 或版本过旧，需 ≥1.3）");
     Err(anyhow!("mosh-server 启动失败: {hint}"))
-}
-
-/// 带兜底超时地读到 stdout EOF（mosh-server new 打印后自行后台化，正常很快 EOF）。
-fn read_channel_stdout(channel: &mut ssh2::Channel) -> Result<String> {
-    let deadline = Instant::now() + Duration::from_secs(MOSH_BOOTSTRAP_READ_TIMEOUT_SECS);
-    let mut out = Vec::new();
-    let mut buf = [0u8; 4096];
-    loop {
-        if Instant::now() >= deadline {
-            break;
-        }
-        match channel.read(&mut buf) {
-            Ok(0) => break, // EOF
-            Ok(n) => out.extend_from_slice(&buf[..n]),
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                std::thread::sleep(Duration::from_millis(20));
-            }
-            Err(e) => return Err(e).context("读取 mosh-server 输出失败"),
-        }
-    }
-    Ok(String::from_utf8_lossy(&out).to_string())
-}
-
-fn read_channel_stderr(channel: &mut ssh2::Channel) -> String {
-    let mut stderr = String::new();
-    let mut st = channel.stderr();
-    let mut buf = [0u8; 4096];
-    // stderr 已随 stdout EOF 结束（进程退出），一次读足够
-    if let Ok(n) = st.read(&mut buf) {
-        stderr = String::from_utf8_lossy(&buf[..n]).to_string();
-    }
-    stderr
 }
 
 /// 启动数据面泵线程：UDP 会话 → 增量 ANSI emit 到 `session-{id}`；
@@ -226,5 +275,15 @@ mod tests {
         assert!(parse_mosh_connect("MOSH START").is_none());
         assert!(parse_mosh_connect("MOSH CONNECT 60001 shortkey").is_none());
         assert!(parse_mosh_connect("").is_none());
+    }
+
+    #[test]
+    fn scans_past_bad_connect_line() {
+        // 前缀匹配但格式坏的行不应阻止后续合法行被解析
+        let out = "MOSH CONNECT not-a-port\n\
+                   MOSH CONNECT 60001 cgvnywysumakqkxinhcxblfxvbvscvhrtsrksdvywcx=";
+        let (port, key) = parse_mosh_connect(out).expect("坏行后应继续扫描");
+        assert_eq!(port, 60001);
+        assert_eq!(key.len(), 44);
     }
 }
