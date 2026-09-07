@@ -95,6 +95,8 @@ export function useTerminalBackground(config?: Config | null, isActive = true) {
   return {
     terminalSolidBackground,
     terminalBackground,
+    // 终端主题前景色（默认文本色）：侧栏面板用它派生文字层级，与终端字体同色
+    terminalForeground: terminalTheme?.colors?.foreground || null,
     hasBackgroundImage,
     backgroundImageUrl,
     extendToTopbar,

@@ -157,25 +157,34 @@ function parseRgb(color: string): { r: number; g: number; b: number } | null {
  * --muted* / --foreground / --primary），让面板内所有 shadcn 配色自动适配明暗。
  * 文字不透明度收拢在 0.45~0.90 三级：核心 0.90（配 font-medium）/ 标签 0.65 /
  * 辅助 0.45（--panel-faint，组件内以 var() 引用，未定义时回退语义变量）。
+ * 三级文字色统一从终端主题前景色派生（与终端字体同色）；前景色不可解析时按
+ * 背景亮度回退白/黑系。背景/边框/徽章底色始终按背景亮度取白/黑。
  * 仅「背景图 + 延伸顶栏」时半透明 + 毛玻璃透出全窗背景层；纯色场景直接用同色不透明。
  */
-function buildPanelTheme(terminalBackground: string, hasImage: boolean, extend: boolean) {
+function buildPanelTheme(
+  terminalBackground: string,
+  terminalForeground: string | null,
+  hasImage: boolean,
+  extend: boolean,
+) {
   const rgb = parseRgb(terminalBackground);
   // 主题色未知（var() 兜底 / 透明终端）：保持应用默认 sidebar 外观
   if (!rgb) return { style: {} as React.CSSProperties, translucent: false };
   const dark = 0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b < 150;
   // 只有「背景图 + 延伸顶栏」时下层才有全窗背景层可透（fixed 层含图片）
   const translucent = hasImage && extend;
-  const base = dark ? '255,255,255' : '0,0,0';
+  // 文字基色：终端前景色优先，解析失败按背景亮度回退
+  const fg = parseRgb(terminalForeground || '');
+  const textBase = fg ? `${fg.r},${fg.g},${fg.b}` : dark ? '255,255,255' : '0,0,0';
   const vars: Record<string, string> = {
     '--sidebar': `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${translucent ? 0.6 : 1})`,
-    '--sidebar-foreground': `rgba(${base},0.9)`,
-    '--foreground': `rgba(${base},0.9)`,
-    '--muted-foreground': `rgba(${base},0.65)`,
+    '--sidebar-foreground': `rgba(${textBase},0.9)`,
+    '--foreground': `rgba(${textBase},0.9)`,
+    '--muted-foreground': `rgba(${textBase},0.65)`,
     // 辅助信息（PID / 单位 / us·sy·wa 等）与徽章配色，组件内以 var() 引用
-    '--panel-faint': `rgba(${base},0.45)`,
+    '--panel-faint': `rgba(${textBase},0.45)`,
     '--panel-badge-bg': dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
-    '--panel-badge-fg': `rgba(${base},0.8)`,
+    '--panel-badge-fg': `rgba(${textBase},0.8)`,
   };
   if (dark) {
     vars['--sidebar-border'] = 'rgba(255,255,255,0.1)';
@@ -1017,8 +1026,8 @@ export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTermin
   const config = useConfigStore((s) => s.config);
   // 面板背景跟随终端主题：与 TerminalView 同源计算终端背景，按亮度覆盖局部配色变量。
   // 用 terminalBackground（透明终端时为 'transparent' → 保持应用默认面板色，与终端一致地透出应用底色）
-  const { terminalBackground, hasBackgroundImage, extendToTopbar } = useTerminalBackground(config, isActive);
-  const panelTheme = buildPanelTheme(terminalBackground, hasBackgroundImage, extendToTopbar);
+  const { terminalBackground, terminalForeground, hasBackgroundImage, extendToTopbar } = useTerminalBackground(config, isActive);
+  const panelTheme = buildPanelTheme(terminalBackground, terminalForeground, hasBackgroundImage, extendToTopbar);
   const bump = useCallback(() => setResizeSignal((s) => s + 1), []);
 
   const updatePrefs = useCallback((updates: Partial<PanelPrefs>) => {
