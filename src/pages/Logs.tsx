@@ -4,6 +4,7 @@ import i18n from '../i18n/i18n';
 import { getLogs, clearLogs, type LogEntry } from '../services/dataService';
 import { readSessionReplay } from '../services/sessionReplay';
 import { useTabStore } from '../store/tabStore';
+import { SessionLogFiles } from '../components/SessionLogFiles';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -281,7 +282,8 @@ export function Logs() {
       </div>
 
       {/* ===== 内容区域 ===== */}
-      <div className="flex-1 overflow-auto p-4">
+      <div className="flex-1 space-y-4 overflow-auto p-4">
+        <SessionLogFiles />
         {loading ? (
           renderLoading()
         ) : error && logs.length === 0 ? (
