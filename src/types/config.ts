@@ -214,6 +214,11 @@ export interface Terminal {
   session_log_directory: string;
   // 日志格式：plain 清洗为纯文本，ansi-vt 保留 ANSI/VT 控制序列
   session_log_format: 'plain' | 'ansi-vt' | 'replay';
+
+  // 命令自动补全（输入时按历史/词库弹候选浮层）
+  autocomplete_enabled: boolean;
+  // 右键直接粘贴（与右键选择单词互斥）
+  right_click_pastes: boolean;
 }
 
 export interface TerminalThemePreset {

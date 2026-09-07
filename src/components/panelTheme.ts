@@ -52,12 +52,17 @@ export function buildPanelTheme(
     vars['--sidebar-accent'] = 'rgba(255,255,255,0.08)';
     vars['--muted'] = 'rgba(255,255,255,0.09)';
     vars['--primary'] = '#818cf8';
+    // 面板内滚动条滑块随终端亮度（深底 → 半透明白；覆写全局主题滑块色，融入终端观感）
+    vars['--color-scrollbar-thumb'] = 'rgba(255,255,255,0.3)';
+    vars['--color-scrollbar-thumb-hover'] = 'rgba(255,255,255,0.5)';
   } else {
     // 浅色终端同样成套覆盖，避免深色应用主题残留出「浅底白字」
     vars['--sidebar-border'] = 'rgba(0,0,0,0.1)';
     vars['--sidebar-accent'] = 'rgba(0,0,0,0.05)';
     vars['--muted'] = 'rgba(0,0,0,0.06)';
     vars['--primary'] = '#4f46e5';
+    vars['--color-scrollbar-thumb'] = 'rgba(0,0,0,0.25)';
+    vars['--color-scrollbar-thumb-hover'] = 'rgba(0,0,0,0.45)';
   }
   // 边框/输入底色随终端亮度，面板内 border-border / bg-input 元素同步融入终端配色
   vars['--border'] = vars['--sidebar-border'];

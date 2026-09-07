@@ -679,6 +679,29 @@ html.no-overlay-scrollbar ::-webkit-scrollbar-thumb:active {
   overflow-x: hidden;
 }
 
+/* 左右面板滚动条：轨道/背景彻底透明（含「关闭悬浮滚动条」回退模式），滑块更细，
+   颜色由面板注入的 --color-scrollbar-thumb（随终端明暗）接管，面板内观感统一 */
+.panel-scroll {
+  scrollbar-color: var(--color-scrollbar-thumb, rgba(128, 128, 128, 0.45)) transparent;
+}
+.panel-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.panel-scroll::-webkit-scrollbar-thumb {
+  border-width: 2px;
+}
+.panel-scroll::-webkit-scrollbar-track,
+.panel-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+html.no-overlay-scrollbar .panel-scroll {
+  scrollbar-color: var(--color-scrollbar-thumb, rgba(128, 128, 128, 0.45)) transparent;
+}
+html.no-overlay-scrollbar .panel-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 /* 抽屉（Sheet）内容区滚动：采用稳定预留（scrollbar-gutter: stable）——
    表单分区展开/收起或内容增减时，滚动条槽位恒定，内容不左右跳动。
    区别于全局 auto（内容不满的普通容器零痕迹），抽屉属「需要滚动」的长表单场景。 */

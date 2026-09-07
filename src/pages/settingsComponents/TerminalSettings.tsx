@@ -518,10 +518,33 @@ export function TerminalSettings() {
             onCheckedChange={(v) => updateTerminalConfig({ copy_on_select: v })}
           />
           <SwitchRow
+            label={t('settings.autocompleteEnabled')}
+            desc={t('settings.autocompleteEnabledDesc')}
+            checked={config.terminal.autocomplete_enabled ?? true}
+            onCheckedChange={(v) => updateTerminalConfig({ autocomplete_enabled: v })}
+          />
+          {/* 右键行为二选一：右键选词 ⇄ 右键粘贴 互斥联动，总有一个生效 */}
+          <SwitchRow
+            label={t('settings.rightClickPaste')}
+            desc={t('settings.rightClickPasteDesc')}
+            checked={config.terminal.right_click_pastes}
+            onCheckedChange={(v) =>
+              updateTerminalConfig({
+                right_click_pastes: v,
+                ...(v ? { right_click_selects_word: false } : {}),
+              })
+            }
+          />
+          <SwitchRow
             label={t('settings.rightClickSelectWord')}
             desc={t('settings.rightClickSelectWordDesc')}
             checked={config.terminal.right_click_selects_word}
-            onCheckedChange={(v) => updateTerminalConfig({ right_click_selects_word: v })}
+            onCheckedChange={(v) =>
+              updateTerminalConfig({
+                right_click_selects_word: v,
+                ...(v ? { right_click_pastes: false } : {}),
+              })
+            }
           />
 
           <div>

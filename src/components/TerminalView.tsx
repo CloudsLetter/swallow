@@ -57,6 +57,7 @@ import {
 import { useBroadcastStore } from '../store/broadcast';
 import { usePanelStore } from '../store/panelStore';
 import { recordCommand, suggestCommands } from '../services/commandHistory';
+import { buildPanelTheme } from './panelTheme';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import {
@@ -269,18 +270,21 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
   const findEverOpenedRef = useRef(false);
 
   // —— 自动补全（对标 Termius：命令历史 + 静态词库候选浮层）——
-  // onData 只绑定一次，闭包只能读 ref；state 仅镜像渲染（updateSuggest 双写防 stale）
-  const [suggest, setSuggest] = useState<{ items: string[]; sel: number } | null>(null);
-  const suggestRef = useRef<{ items: string[]; sel: number } | null>(null);
+  // onData 只绑定一次，闭包只能读 ref；state 仅镜像渲染（updateSuggest 双写防 stale）。
+  // top 为浮层相对容器顶部的 px 定位（先贴输入行下方，渲染后按真实高度校正翻转）
+  const [suggest, setSuggest] = useState<{ items: string[]; sel: number; top: number | null } | null>(null);
+  const suggestRef = useRef<{ items: string[]; sel: number; top: number | null } | null>(null);
+  const suggestPanelRef = useRef<HTMLDivElement>(null);
   /** 当前正在输入的命令行缓冲（可打印字符/退格维护，回车提交历史） */
   const inputBufRef = useRef('');
-  const updateSuggest = (next: { items: string[]; sel: number } | null) => {
+  const updateSuggest = (next: { items: string[]; sel: number; top: number | null } | null) => {
     const cur = suggestRef.current;
     if (cur === null && next === null) return;
     if (
       cur &&
       next &&
       cur.sel === next.sel &&
+      cur.top === next.top &&
       cur.items.length === next.items.length &&
       cur.items.every((c, i) => c === next.items[i])
     ) {
@@ -289,6 +293,66 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
     suggestRef.current = next;
     setSuggest(next);
   };
+  /** 命令自动补全总开关（config 镜像到 ref——onData 只绑一次，闭包内读 ref 防 stale） */
+  const autocompleteRef = useRef(true);
+  useEffect(() => {
+    autocompleteRef.current = config?.terminal?.autocomplete_enabled ?? true;
+    if (!autocompleteRef.current) {
+      inputBufRef.current = '';
+      updateSuggest(null);
+    }
+  }, [config?.terminal?.autocomplete_enabled]);
+
+  // 读取 xterm 行度量（行高 = .xterm-screen 视口高度/行数；cursorY 为视口内光标行）
+  const readRowMetrics = (): { rowH: number; cursorY: number; containerH: number } | null => {
+    const el = terminalRef.current;
+    const poolItem = sessionId ? createOrGetTerminal(sessionId) : undefined;
+    const term = poolItem?.terminal;
+    if (!el || !term || term.rows <= 0) return null;
+    const screen = el.querySelector('.xterm-screen') as HTMLElement | null;
+    if (!screen || !screen.offsetHeight) return null;
+    const rowH = screen.offsetHeight / term.rows;
+    if (!rowH || rowH <= 0) return null;
+    return { rowH, cursorY: term.buffer.active.cursorY, containerH: el.offsetHeight };
+  };
+
+  /** 输入行下方的基准定位（不检查溢出，溢出由渲染后校正翻转） */
+  const measureBaseTop = (): number | null => {
+    const m = readRowMetrics();
+    return m ? (m.cursorY + 1) * m.rowH : null;
+  };
+
+  // 窗口/面板缩放：浮层开着时按新行高重新定位（溢出校正交给下方 effect）
+  useEffect(() => {
+    const el = terminalRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      const current = suggestRef.current;
+      if (!current || current.top === null) return;
+      const base = measureBaseTop();
+      if (base !== null && base !== current.top) {
+        updateSuggest({ ...current, top: base });
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+    // biome-ignore lint/correctness/useExhaustiveDependencies: 观察容器 resize 即可
+  }, [sessionId]);
+
+  // 浮层渲染后：用真实面板高度校正——贴行下方会溢出容器底部时翻到输入行上方。
+  // （顶部空间也不足时保持原位，避免与校正 effect 抖动）
+  useEffect(() => {
+    if (!suggest || !suggestPanelRef.current || suggest.top === null) return;
+    const panelH = suggestPanelRef.current.offsetHeight;
+    const m = readRowMetrics();
+    if (!panelH || !m) return;
+    if (suggest.top + panelH <= m.containerH + 1) return;
+    const flipped = Math.max(0, m.cursorY * m.rowH - panelH);
+    if (flipped !== suggest.top) {
+      updateSuggest({ ...suggest, top: flipped });
+    }
+    // biome-ignore lint/correctness/useExhaustiveDependencies: 每次浮层内容/位置变化都校正一次
+  }, [suggest]);
 
   // SSH 日志由设置中的开关控制：连接前自动开始，断开时由生命周期收尾。
   const sessionLabel = sshConfig
@@ -409,6 +473,19 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
 
   // 终端外观派生（背景色/背景图/透明/顶栏延伸）+ URL 解析 + 顶栏对比前景注入（见 useTerminalBackground）
   const { terminalBackground, backgroundImageUrl, extendToTopbar } = useTerminalBackground(config, isActive);
+
+  // 终端浮层（自动补全）跟随终端主题配色：以终端背景/前景/亮度派生局部 CSS 变量
+  const activeThemeColors =
+    config?.terminal?.themes?.find((t) => t.id === config.terminal.active_theme_id)?.colors ??
+    config?.terminal?.themes?.[0]?.colors;
+  const panelTheme = buildPanelTheme(
+    terminalBackground,
+    activeThemeColors?.foreground ?? null,
+    !!config?.terminal?.background_image,
+    extendToTopbar,
+  );
+  /** CSS 变量注入用（CSSProperties 类型不允许 --xxx 索引） */
+  const panelVars = panelTheme.style as Record<string, string>;
 
   useEffect(() => {
     if (!terminalRef.current || !sessionId) return;
@@ -640,15 +717,23 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
 
         // 绑定用户输入（幂等，只绑定一次）
         if (!isOnDataBound(sessionId)) {
-          // 按当前输入行重新计算候选并刷新浮层
+          // 按当前输入行重新计算候选并刷新浮层（先贴输入行下方，溢出由渲染后校正）
           const recomputeSuggest = () => {
+            if (!autocompleteRef.current) {
+              updateSuggest(null);
+              return;
+            }
             const line = inputBufRef.current;
             if (line.length < 2) {
               updateSuggest(null);
               return;
             }
             const items = suggestCommands(line);
-            updateSuggest(items.length > 0 ? { items, sel: 0 } : null);
+            if (items.length === 0) {
+              updateSuggest(null);
+              return;
+            }
+            updateSuggest({ items, sel: 0, top: measureBaseTop() });
           };
 
           terminal.onData((data: string) => {
@@ -915,10 +1000,20 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
         }}
       />
 
-      {/* 自动补全浮层（左下）：候选来自本地命令历史 + 内置词库。
+      {/* 自动补全浮层：贴输入命令行（光标行下方/上方，避免溢出）；配色跟随终端主题；
           ↑/↓ 选择、Enter 补全并执行、Esc 关闭、鼠标点选执行 */}
       {suggest && !showProgress && (
-        <div className="absolute bottom-2 left-2 z-30 max-w-[70%] overflow-hidden rounded-md border border-border bg-background/95 shadow-md">
+        <div
+          ref={suggestPanelRef}
+          className="absolute left-1.5 z-30 max-w-[70%] overflow-hidden rounded-md border border-border bg-background/95 shadow-md"
+          style={{
+            // 终端主题变量注入（可解析时覆盖底色/文字；解析失败则保持应用默认 class 兜底）
+            ...(panelTheme.style as Record<string, string>),
+            ...(panelVars['--sidebar'] ? { backgroundColor: 'var(--sidebar)' } : {}),
+            ...(panelVars['--sidebar-foreground'] ? { color: 'var(--sidebar-foreground)' } : {}),
+            ...(suggest.top !== null ? { top: suggest.top } : { bottom: 8 }),
+          }}
+        >
           <div className="flex max-h-44 flex-col overflow-y-auto py-0.5">
             {suggest.items.map((cmd, index) => (
               <button
@@ -939,9 +1034,7 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
                 }}
                 className={cn(
                   'flex w-full items-center gap-2 px-2.5 py-1 text-left font-mono text-xs',
-                  index === suggest.sel
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-foreground hover:bg-accent/60',
+                  index === suggest.sel ? 'bg-sidebar-accent text-foreground' : 'hover:bg-sidebar-accent/60',
                 )}
               >
                 <span className="text-muted-foreground">{index + 1}</span>

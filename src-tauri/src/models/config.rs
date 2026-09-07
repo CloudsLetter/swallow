@@ -248,6 +248,12 @@ pub struct Terminal {
 	/// 日志格式：plain、ansi-vt 或 replay。
 	#[serde(default = "default_session_log_format")]
 	pub session_log_format: String,
+	/// 命令自动补全（Termius 式浮层），默认开启。
+	#[serde(default = "default_true")]
+	pub autocomplete_enabled: bool,
+	/// 右键直接粘贴（与右键选择单词互斥；选词开启时优先选词）。
+	#[serde(default)]
+	pub right_click_pastes: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -882,6 +888,8 @@ impl Default for Terminal {
 			session_log_enabled: false,
 			session_log_directory: default_session_log_directory(),
 			session_log_format: default_session_log_format(),
+			autocomplete_enabled: true,
+			right_click_pastes: false,
 		}
 	}
 }
@@ -1036,6 +1044,10 @@ fn default_render_engine() -> String {
 }
 
 fn default_gpu_acceleration() -> bool {
+	true
+}
+
+fn default_true() -> bool {
 	true
 }
 

@@ -838,7 +838,7 @@ function FilesSection({ sessionId, sshConfig, active }: FilesSectionProps) {
       </div>
 
       {/* 列表区 */}
-      <div className="min-h-0 flex-1 overflow-y-auto p-1">
+      <div className="panel-scroll min-h-0 flex-1 overflow-y-auto p-1">
         {status === 'idle' || status === 'connecting' ? (
           <p className="p-2 text-muted-foreground">{t('terminalPanel.filesConnecting')}</p>
         ) : status === 'error' ? (
@@ -1062,7 +1062,7 @@ export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTermin
           {/* 分区内容：状态/文件都常驻挂载（display 切换可见性）——监控会话与 SFTP
               连接跟随终端标签生命周期，分区间切换不重连，只有关标签才释放 */}
           <div className="min-h-0 flex-1 overflow-hidden">
-            <div style={{ display: prefs.section === 'status' ? 'block' : 'none', height: '100%', overflowY: 'auto' }}>
+            <div className="panel-scroll" style={{ display: prefs.section === 'status' ? 'block' : 'none', height: '100%', overflowY: 'auto' }}>
               <StatusSection sshConfig={sshConfig} active={sectionActive('status')} tabActive={isActive} />
             </div>
             <div style={{ display: prefs.section === 'files' ? 'block' : 'none', height: '100%' }}>

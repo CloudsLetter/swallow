@@ -53,6 +53,8 @@ type PoolItem = {
   onDataBound?: boolean;
   // 标记复制/粘贴/铃声等交互是否已绑定
   interactionsBound?: boolean;
+  // 标记右键粘贴监听是否已绑定（须在 terminal.open() 之后，element 才存在）
+  rightClickBound?: boolean;
   // 标记 SSH 连接状态
   isConnected?: boolean;
   // 标记是否正在连接
@@ -531,7 +533,39 @@ export function attachTerminal(sessionId: string, container: HTMLElement) {
 
   item.attachedEl = container;
   fitTerminal(sessionId);
+  // 绑定依赖 terminal.element 的监听（右键粘贴）——必须 open() 之后 element 才存在
+  bindRightClickPaste(sessionId, item.terminal);
   return item.terminal;
+}
+
+/**
+ * 右键粘贴（Windows Terminal / PuTTY 惯例）：由 right_click_pastes 开关控制，
+ * 且与 right_click_selects_word 互斥（选词开启时交给 xterm 原生，粘贴不生效；
+ * 设置页做联动，正常不会双开）。只在 terminal.open() 后调用（element 才存在）。
+ * capture 阶段监听：先于 xterm 内部的 mousedown 处理执行，粘贴不被其吞掉。
+ */
+function bindRightClickPaste(sessionId: string, terminal: Terminal) {
+  const item = pool[sessionId];
+  const termEl = terminal.element;
+  if (!item || !termEl || item.rightClickBound) return;
+  item.rightClickBound = true;
+
+  termEl.addEventListener(
+    'mousedown',
+    (event) => {
+      if (event.button !== 2) return;
+      const cfg = useConfigStore.getState().config;
+      if (cfg?.terminal?.right_click_selects_word) return; // 右键选词优先
+      if (!cfg?.terminal?.right_click_pastes) return; // 右键粘贴开关
+      // 阻止 WebView 默认（系统菜单已在 App 全局禁用），并截断事件让 xterm
+      // 不再做右键相关处理（清选区等），随后立即粘贴
+      event.preventDefault();
+      event.stopPropagation();
+      terminal.focus();
+      void pasteToTerminal(terminal);
+    },
+    true,
+  );
 }
 
 /**

@@ -193,7 +193,7 @@ function CommandsSection({ active }: { active: boolean }) {
       </div>
 
       {/* 分组列表 */}
-      <div className="overlay-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+      <div className="panel-scroll overlay-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 text-center text-xs text-muted-foreground">
             <IconTerminal size={20} className="mb-2 opacity-50" />
@@ -449,10 +449,10 @@ export function RightPanelBar() {
           <div style={{ display: section === 'commands' ? 'block' : 'none', height: '100%' }}>
             <CommandsSection active={sectionActive('commands')} />
           </div>
-          <div style={{ display: section === 'terminal' ? 'block' : 'none', height: '100%', overflowY: 'auto' }}>
+          <div className="panel-scroll" style={{ display: section === 'terminal' ? 'block' : 'none', height: '100%', overflowY: 'auto' }}>
             <TerminalSection />
           </div>
-          <div style={{ display: section === 'settings' ? 'block' : 'none', height: '100%', overflowY: 'auto' }}>
+          <div className="panel-scroll" style={{ display: section === 'settings' ? 'block' : 'none', height: '100%', overflowY: 'auto' }}>
             <SettingsSection />
           </div>
         </div>
