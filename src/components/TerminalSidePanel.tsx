@@ -155,11 +155,9 @@ function parseRgb(color: string): { r: number; g: number; b: number } | null {
 /**
  * 面板跟随终端主题：以终端背景色为底，按亮度覆盖局部 CSS 变量（--sidebar* /
  * --muted* / --foreground / --primary），让面板内所有 shadcn 配色自动适配明暗。
- * 文字不透明度收拢在 0.45~0.90 三级：核心 0.90（配 font-medium）/ 标签 0.65 /
- * 辅助 0.45（--panel-faint，组件内以 var() 引用，未定义时回退语义变量）。
- * 三级文字色统一从终端主题前景色派生（与终端字体同色）；前景色不可解析时按
- * 背景亮度回退白/黑系。背景/边框/徽章底色始终按背景亮度取白/黑。
- * 仅「背景图 + 延伸顶栏」时半透明 + 毛玻璃透出全窗背景层；纯色场景直接用同色不透明。
+ * 文字（含 Label / 辅助信息 / 徽章 / 分区切换）不分层级，统一直接用终端主题
+ * 前景色；前景色不可解析时按背景亮度回退白/黑。背景/边框/徽章底色始终按背景
+ * 亮度取白/黑。仅「背景图 + 延伸顶栏」时半透明 + 毛玻璃透出全窗背景层。
  */
 function buildPanelTheme(
   terminalBackground: string,
@@ -173,18 +171,17 @@ function buildPanelTheme(
   const dark = 0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b < 150;
   // 只有「背景图 + 延伸顶栏」时下层才有全窗背景层可透（fixed 层含图片）
   const translucent = hasImage && extend;
-  // 文字基色：终端前景色优先，解析失败按背景亮度回退
+  // 文字基色：终端前景色优先（全面板统一、无明暗分级），解析失败按背景亮度回退
   const fg = parseRgb(terminalForeground || '');
-  const textBase = fg ? `${fg.r},${fg.g},${fg.b}` : dark ? '255,255,255' : '0,0,0';
+  const fgColor = fg ? `rgb(${fg.r}, ${fg.g}, ${fg.b})` : dark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.9)';
   const vars: Record<string, string> = {
     '--sidebar': `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${translucent ? 0.6 : 1})`,
-    '--sidebar-foreground': `rgba(${textBase},0.9)`,
-    '--foreground': `rgba(${textBase},0.9)`,
-    '--muted-foreground': `rgba(${textBase},0.65)`,
-    // 辅助信息（PID / 单位 / us·sy·wa 等）与徽章配色，组件内以 var() 引用
-    '--panel-faint': `rgba(${textBase},0.45)`,
+    '--sidebar-foreground': fgColor,
+    '--foreground': fgColor,
+    '--muted-foreground': fgColor,
+    '--panel-faint': fgColor,
     '--panel-badge-bg': dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
-    '--panel-badge-fg': `rgba(${textBase},0.8)`,
+    '--panel-badge-fg': fgColor,
   };
   if (dark) {
     vars['--sidebar-border'] = 'rgba(255,255,255,0.1)';
@@ -205,38 +202,35 @@ function buildPanelTheme(
   return { style, translucent };
 }
 
-/** 指标条颜色：≥90 危险红、≥75 警告橙、否则用指标专属色（与监控页告警色一致）。 */
-function metricColor(value: number, color?: string): string {
+/** 指标条压力红绿灯：≥90 危险红、≥75 警告黄、正常绿（阈值与监控页告警一致）。 */
+function metricColor(value: number): string {
   if (value >= 90) return 'var(--destructive)';
-  if (value >= 75) return 'var(--warning)';
-  return color ?? 'var(--primary)';
+  if (value >= 75) return '#eab308';
+  return '#22c55e';
 }
 
 // ==================== 状态分区 ====================
 
-/** 指标条：标签 + 数值 + 比例条（4px 细条；color 为指标专属色，告警阈值时变橙红）。 */
+/** 指标条：标签 + 数值 + 比例条（4px 细条，压力红绿灯：正常绿 / ≥75 黄 / ≥90 红）。 */
 function MetricBar({
   label,
   value,
   detail,
-  color,
 }: {
   label: string;
   value: number;
   detail: string;
-  /** 正常状态的专属色（如 CPU 蓝 / 内存紫 / 磁盘绿）；超阈值自动切警告色 */
-  color?: string;
 }) {
   return (
     <div className="space-y-1">
       <div className="flex items-baseline justify-between gap-2">
         <span className="shrink-0 text-muted-foreground">{label}</span>
-        <span className="truncate text-right font-medium tabular-nums">{detail}</span>
+        <span className="truncate text-right tabular-nums">{detail}</span>
       </div>
       <div className="h-1 overflow-hidden rounded-full bg-muted">
         <div
           className="h-full rounded-full transition-[width] duration-500"
-          style={{ width: `${Math.min(100, Math.max(0, value))}%`, backgroundColor: metricColor(value, color) }}
+          style={{ width: `${Math.min(100, Math.max(0, value))}%`, backgroundColor: metricColor(value) }}
         />
       </div>
     </div>
@@ -244,7 +238,7 @@ function MetricBar({
 }
 
 /** 键值行：Label 固定宽度、Value 紧跟其后（视线不跳跃）；长值截断。
- *  Value 支持内嵌弱化单位等富内容（此时建议显式传 title 纯文本）。 */
+ *  Value 支持内嵌小号单位等富内容（此时建议显式传 title 纯文本）。 */
 function InfoRow({
   label,
   value,
@@ -261,7 +255,7 @@ function InfoRow({
         {label}
       </span>
       <span
-        className="min-w-0 flex-1 truncate font-medium tabular-nums"
+        className="min-w-0 flex-1 truncate tabular-nums"
         title={title ?? (typeof value === 'string' ? value : undefined)}
       >
         {value}
@@ -279,33 +273,33 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** TCP 连接计数徽章：淡半透明底（暗色 0.06 白）、文字统一 0.80，数值加重；
+/** TCP 连接计数徽章：淡半透明底（暗色 0.06 白）、文字同终端前景色；
  *  行内平铺自动换行。 */
 function TcpBadge({ label, value }: { label: string; value: number }) {
   return (
     <span className="rounded bg-[color:var(--panel-badge-bg,transparent)] px-1.5 py-0.5 text-[10px] leading-none text-[color:var(--panel-badge-fg,var(--foreground))]">
       <span>{label}</span>{' '}
-      <span className="font-medium tabular-nums">{value}</span>
+      <span className="tabular-nums">{value}</span>
     </span>
   );
 }
 
-/** Top 进程行：微型三列表格（进程名 | PID | 占用率），PID 用弱化色区分层级。 */
+/** Top 进程行：微型三列表格（进程名 | PID | 占用率），PID 用小号字区分层级。 */
 function ProcessRow({ name, pid, value }: { name: string; pid: number; value: string }) {
   return (
     <div className="flex items-baseline gap-2">
-      <span className="min-w-0 flex-1 truncate font-medium" title={`${name} (pid ${pid})`}>
+      <span className="min-w-0 flex-1 truncate" title={`${name} (pid ${pid})`}>
         {name}
       </span>
       <span className="w-10 shrink-0 text-right text-[0.85em] tabular-nums text-[color:var(--panel-faint,var(--muted-foreground))]">
         {pid}
       </span>
-      <span className="w-11 shrink-0 text-right font-medium tabular-nums">{value}</span>
+      <span className="w-11 shrink-0 text-right tabular-nums">{value}</span>
     </div>
   );
 }
 
-/** 速率片段：数字为核心数据色，单位弱化（0.45 / 0.85em）；内联用于复合速率行。 */
+/** 速率片段：数字常规色，单位小号（0.85em）；内联用于复合速率行。 */
 function RateSpan({ bytesPerSec }: { bytesPerSec: number }) {
   const { num, unit } = splitBytes(bytesPerSec);
   return (
@@ -324,12 +318,6 @@ const AUTH_LABEL_KEY: Record<string, string> = {
   agent: 'hosts.authTypeAgent',
   none: 'hosts.authTypeNone',
 };
-
-/** 指标专属色：CPU 蓝 / 内存紫 / Swap 橙 / 磁盘按挂载点轮换绿-青-蓝。 */
-const CPU_COLOR = '#3b82f6';
-const MEM_COLOR = '#a855f7';
-const SWAP_COLOR = '#f59e0b';
-const DISK_COLORS = ['#10b981', '#14b8a6', '#06b6d4', '#0ea5e9'];
 
 interface StatusSectionProps {
   sshConfig?: SshTabConfig;
@@ -542,7 +530,6 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
                   label={t('terminalPanel.cpu')}
                   value={snapshot.cpuUsage}
                   detail={`${snapshot.cpuUsage.toFixed(1)}% · ${snapshot.cpuCores}C`}
-                  color={CPU_COLOR}
                 />
                 <div className="text-[0.85em] tabular-nums text-[color:var(--panel-faint,var(--muted-foreground))]">
                   us {snapshot.cpuUser.toFixed(1)} · sy {snapshot.cpuSystem.toFixed(1)} · wa {snapshot.cpuIowait.toFixed(1)}
@@ -560,7 +547,6 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
                   label={t('terminalPanel.memory')}
                   value={(snapshot.memUsed / Math.max(1, snapshot.memTotal)) * 100}
                   detail={`${formatBytes(snapshot.memUsed)} / ${formatBytes(snapshot.memTotal)}`}
-                  color={MEM_COLOR}
                 />
                 <div className="text-[0.85em] tabular-nums text-[color:var(--panel-faint,var(--muted-foreground))]">
                   {t('terminalPanel.cache')} {formatBytes(snapshot.memBuffCache)} · {t('terminalPanel.available')} {formatBytes(snapshot.memAvailable)}
@@ -572,7 +558,6 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
                   label={t('terminalPanel.swap')}
                   value={(snapshot.swapUsed / Math.max(1, snapshot.swapTotal)) * 100}
                   detail={`${formatBytes(snapshot.swapUsed)} / ${formatBytes(snapshot.swapTotal)}`}
-                  color={SWAP_COLOR}
                 />
               )}
 
@@ -590,13 +575,12 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
                 <div className="space-y-2 border-t border-sidebar-border pt-2.5">
                   <SectionTitle>{t('terminalPanel.disk')}</SectionTitle>
                   <div className="space-y-2">
-                    {snapshot.disks.slice(0, 4).map((d, i) => (
+                    {snapshot.disks.slice(0, 4).map((d) => (
                       <MetricBar
                         key={`${d.filesystem}-${d.mount}`}
                         label={d.mount}
                         value={d.percent}
                         detail={`${formatBytes(d.used)} / ${formatBytes(d.total)}`}
-                        color={DISK_COLORS[i % DISK_COLORS.length]}
                       />
                     ))}
                   </div>

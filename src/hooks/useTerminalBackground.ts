@@ -14,8 +14,20 @@ async function resolveBackgroundImageUrl(path: string): Promise<string | null> {
   }
 }
 
-/** 按背景色亮度挑选顶栏延伸前景：深背景→白字系，浅背景→深字系（保证任意终端背景下标签可读）。 */
-function topbarExtendFg(background: string): { fg: string; fgDim: string; hoverBg: string } | null {
+/** 校验终端主题色是否为可用 hex（#rgb/#rrggbb/#rrggbbaa），通过则规范化返回，否则 null。 */
+function normalizeHexColor(color: string | null | undefined): string | null {
+  if (!color) return null;
+  const s = color.trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(s) || /^#[0-9a-f]{8}$/.test(s)) return s;
+  if (/^#[0-9a-f]{3}$/.test(s)) {
+    const [r, g, b] = s.slice(1).split('');
+    return `#${r}${r}${g}${g}${b}${b}`;
+  }
+  return null;
+}
+
+/** 按背景色亮度挑选顶栏延伸的 hover 底色（深背景→白系微亮块，浅背景→深系微暗块）。 */
+function topbarHoverBg(background: string): { dark: boolean; hoverBg: string } | null {
   const full = /^#?([0-9a-f]{6})$/i.exec(background.trim());
   const short = full ? null : /^#?([0-9a-f]{3})$/i.exec(background.trim());
   let r: number;
@@ -33,9 +45,21 @@ function topbarExtendFg(background: string): { fg: string; fgDim: string; hoverB
     return null;
   }
   const dark = 0.299 * r + 0.587 * g + 0.114 * b < 150;
-  return dark
-    ? { fg: 'rgba(255,255,255,0.95)', fgDim: 'rgba(255,255,255,0.55)', hoverBg: 'rgba(255,255,255,0.14)' }
-    : { fg: 'rgba(15,23,42,0.92)', fgDim: 'rgba(15,23,42,0.55)', hoverBg: 'rgba(15,23,42,0.1)' };
+  return { dark, hoverBg: dark ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.1)' };
+}
+
+/** 顶栏延伸前景：文字（含 tab 标签、非激活态）不分层级，直接用终端主题前景色；
+ *  仅 hover 底色按背景亮度取白/黑。前景色不可解析时整体回退按亮度的白/黑字系。 */
+function topbarExtendFg(
+  background: string,
+  foreground: string | null,
+): { fg: string; fgDim: string; hoverBg: string } | null {
+  const bg = topbarHoverBg(background);
+  if (!bg) return null;
+  const fgColor =
+    normalizeHexColor(foreground) ??
+    (bg.dark ? 'rgba(255,255,255,0.95)' : 'rgba(15,23,42,0.92)');
+  return { fg: fgColor, fgDim: fgColor, hoverBg: bg.hoverBg };
 }
 
 /**
@@ -48,6 +72,8 @@ export function useTerminalBackground(config?: Config | null, isActive = true) {
   );
   // 终端纯色背景（无背景图、非透明时兜底 xterm 下层底色）
   const terminalSolidBackground = terminalTheme?.colors?.background || 'var(--color-panel-bg)';
+  // 终端主题前景色（默认文本色）：顶栏延伸文字与侧栏面板统一取此色
+  const terminalForeground = terminalTheme?.colors?.foreground || null;
   const backgroundImagePath = config?.terminal?.background_image || '';
   const hasBackgroundImage = !!backgroundImagePath;
   // 启用透明背景且透明度 < 1：外层容器不设实色背景，让半透明终端透出应用背景
@@ -84,19 +110,19 @@ export function useTerminalBackground(config?: Config | null, isActive = true) {
   // 且 .topbar-extend 作用域不存在时变量无消费者，残留无害）
   useEffect(() => {
     if (!extendToTopbar || !isActive) return;
-    const palette = topbarExtendFg(terminalSolidBackground);
+    const palette = topbarExtendFg(terminalSolidBackground, terminalForeground);
     if (!palette) return;
     const root = document.documentElement;
     root.style.setProperty('--topbar-ext-fg', palette.fg);
     root.style.setProperty('--topbar-ext-fg-dim', palette.fgDim);
     root.style.setProperty('--topbar-ext-hover-bg', palette.hoverBg);
-  }, [extendToTopbar, isActive, terminalSolidBackground]);
+  }, [extendToTopbar, isActive, terminalSolidBackground, terminalForeground]);
 
   return {
     terminalSolidBackground,
     terminalBackground,
     // 终端主题前景色（默认文本色）：侧栏面板用它派生文字层级，与终端字体同色
-    terminalForeground: terminalTheme?.colors?.foreground || null,
+    terminalForeground,
     hasBackgroundImage,
     backgroundImageUrl,
     extendToTopbar,
