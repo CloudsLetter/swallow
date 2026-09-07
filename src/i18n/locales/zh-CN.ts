@@ -1662,5 +1662,11 @@ export default {
     contextAttached: '已附加终端上下文（{{chars}} 字符）',
     attachContext: '附加终端输出',
     send: '发送',
+    toolRunning: '执行中…',
+    toolDenied: '已拒绝',
+    toolResult: '工具结果',
+    confirmCommand: 'AI 请求向终端发送命令',
+    allow: '允许执行',
+    deny: '拒绝',
   },
 };

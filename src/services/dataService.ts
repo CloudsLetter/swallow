@@ -501,10 +501,22 @@ export async function loadOpenSessions(): Promise<string> {
   return invoke<string>('load_open_sessions');
 }
 
-/** AI 助手：流式对话。onDelta 逐段接收增量文本，返回 Promise 在完成/失败时 resolve/reject */
+/** AI 流式事件（后端 ai_chat 按 JSON 协议推送，见 src-tauri/src/commands/ai.rs） */
+export type AiStreamEvent =
+  | { type: 'text'; content: string }
+  | { type: 'tool_calls'; calls: Record<string, unknown>[] }
+  | { type: 'finish'; reason: string };
+
+/**
+ * AI 助手：流式对话（支持 OpenAI 工具调用协议）。
+ * messages/tools 为 OpenAI 兼容 JSON 的原样透传；onEvent 逐事件接收
+ * text（文本增量）/ tool_calls（工具调用增量，调用方按 index 聚合）/ finish。
+ * 返回 Promise 在流结束/失败时 resolve/reject。
+ */
 export async function aiChat(
-  messages: { role: string; content: string }[],
-  onDelta: (delta: string) => void,
+  messages: unknown[],
+  onEvent: (event: AiStreamEvent) => void,
+  tools?: unknown,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const channel = new Channel<string>();
@@ -515,9 +527,14 @@ export async function aiChat(
         resolve();
         return;
       }
-      onDelta(msg);
+      try {
+        const event = JSON.parse(msg) as AiStreamEvent;
+        onEvent(event);
+      } catch {
+        // 非 JSON 消息（异常情况）静默忽略
+      }
     };
-    invoke('ai_chat', { messages, channel }).catch((error) => {
+    invoke('ai_chat', { messages, tools, channel }).catch((error) => {
       if (!done) reject(String(error));
     });
   });
