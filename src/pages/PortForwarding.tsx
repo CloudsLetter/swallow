@@ -49,6 +49,7 @@ import {
 } from '../components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { ask } from '@tauri-apps/plugin-dialog';
+import { dedupeHostKeyConfirm } from '../lib/hostKeyConfirm';
 import { toast } from 'sonner';
 
 type ViewMode = 'grid' | 'list';
@@ -419,14 +420,18 @@ export function PortForwarding() {
       let result = await startPortForward(rule.id);
       while (result.status === 'needsHostKeyApproval') {
         const fingerprint = result.fingerprint ?? '';
-        const accepted = await ask(
-          t('connection.hostKeyBody', { host: result.host, port: result.port, fingerprint }),
-          {
-            title: t('connection.hostKeyTitle'),
-            kind: 'warning',
-            okLabel: t('connection.trustAndConnect'),
-            cancelLabel: t('common.cancel'),
-          },
+        const accepted = await dedupeHostKeyConfirm(
+          `${result.host}:${result.port}:${fingerprint}`,
+          () =>
+            ask(
+              t('connection.hostKeyBody', { host: result.host, port: result.port, fingerprint }),
+              {
+                title: t('connection.hostKeyTitle'),
+                kind: 'warning',
+                okLabel: t('connection.trustAndConnect'),
+                cancelLabel: t('common.cancel'),
+              },
+            ),
         );
         if (!accepted) {
           return;

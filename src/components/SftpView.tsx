@@ -80,6 +80,7 @@ import {
   ContextMenuTrigger,
 } from './ui/context-menu';
 import { ask, save, open } from '@tauri-apps/plugin-dialog';
+import { dedupeHostKeyConfirm } from '../lib/hostKeyConfirm';
 import { toast } from 'sonner';
 import { useTransferStore, isCancelRequested } from '../store/transferStore';
 import { SftpTransferPanel } from './SftpTransferPanel';
@@ -423,18 +424,22 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
           let connectResult = await sftpConnect(sessionId, sessionConfig);
           while (connectResult.status === 'needsHostKeyApproval') {
             const fingerprint = connectResult.fingerprint ?? '';
-            const accepted = await ask(
-              t('connection.hostKeyBody', {
-                host: connectResult.host,
-                port: connectResult.port,
-                fingerprint,
-              }),
-              {
-                title: t('connection.hostKeyTitle'),
-                okLabel: t('connection.trustAndConnect'),
-                cancelLabel: t('connection.decline'),
-                kind: 'warning',
-              },
+            const accepted = await dedupeHostKeyConfirm(
+              `${connectResult.host}:${connectResult.port}:${fingerprint}`,
+              () =>
+                ask(
+                  t('connection.hostKeyBody', {
+                    host: connectResult.host,
+                    port: connectResult.port,
+                    fingerprint,
+                  }),
+                  {
+                    title: t('connection.hostKeyTitle'),
+                    okLabel: t('connection.trustAndConnect'),
+                    cancelLabel: t('connection.decline'),
+                    kind: 'warning',
+                  },
+                ),
             );
             if (!accepted) {
               throw new Error(t('connection.declinedHostKey'));

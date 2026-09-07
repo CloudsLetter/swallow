@@ -3,6 +3,7 @@ import RFB from '@novnc/novnc';
 import { useTranslation } from 'react-i18next';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { ask } from '@tauri-apps/plugin-dialog';
+import { dedupeHostKeyConfirm } from '../lib/hostKeyConfirm';
 import { acceptHostKey, vncConnect, vncDisconnect } from '../services/sessionService';
 import type { VncTabConfig } from '../store/tabStore';
 import { useVncKeyboard } from '../store/vncKeyboard';
@@ -107,14 +108,18 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
       }
       // SSH 隧道首次遇到未知主机密钥：确认指纹后（写入 known_hosts）重试连接
       if (!result.wsUrl && result.hostKeyToken) {
-        const confirmed = await ask(
-          `${t('vnc.hostKeyFingerprint')}\n${result.fingerprint || ''}\n\n${result.host ?? ''}:${result.port ?? ''}`,
-          {
-            title: t('vnc.hostKeyTitle'),
-            kind: 'warning',
-            okLabel: t('vnc.hostKeyTrust'),
-            cancelLabel: t('vnc.hostKeyCancel'),
-          },
+        const confirmed = await dedupeHostKeyConfirm(
+          `${result.host ?? ''}:${result.port ?? ''}:${result.fingerprint || ''}`,
+          () =>
+            ask(
+              `${t('vnc.hostKeyFingerprint')}\n${result.fingerprint || ''}\n\n${result.host ?? ''}:${result.port ?? ''}`,
+              {
+                title: t('vnc.hostKeyTitle'),
+                kind: 'warning',
+                okLabel: t('vnc.hostKeyTrust'),
+                cancelLabel: t('vnc.hostKeyCancel'),
+              },
+            ),
         );
         if (gen !== genRef.current) return;
         if (!confirmed) {

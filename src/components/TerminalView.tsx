@@ -70,6 +70,7 @@ import {
 import type { ISearchOptions } from '@xterm/addon-search';
 import { toast } from 'sonner';
 import { cn } from '../lib/utils';
+import { dedupeHostKeyConfirm } from '../lib/hostKeyConfirm';
 
 // onError 事件可能高频到达：500ms 内去重，避免 toast 刷屏
 let lastErrorToastAt = 0;
@@ -144,14 +145,18 @@ async function connectSshWithHostKeyApproval(
   let result = await sshConnect(sessionId, sshConfig, cols, rows);
   while (result.status === 'needsHostKeyApproval') {
     const fingerprint = result.fingerprint ?? '';
-    const accepted = await ask(
-      t('connection.hostKeyBody', { host: result.host, port: result.port, fingerprint }),
-      {
-        title: t('connection.hostKeyTitle'),
-        kind: 'warning',
-        okLabel: t('connection.trustAndConnect'),
-        cancelLabel: t('common.cancel'),
-      },
+    const accepted = await dedupeHostKeyConfirm(
+      `${result.host}:${result.port}:${fingerprint}`,
+      () =>
+        ask(
+          t('connection.hostKeyBody', { host: result.host, port: result.port, fingerprint }),
+          {
+            title: t('connection.hostKeyTitle'),
+            kind: 'warning',
+            okLabel: t('connection.trustAndConnect'),
+            cancelLabel: t('common.cancel'),
+          },
+        ),
     );
     if (!accepted) {
       throw new Error(t('connection.declinedHostKey'));
@@ -173,14 +178,18 @@ async function connectMoshWithHostKeyApproval(
   let result = await moshConnect(sessionId, moshConfig, cols, rows);
   while (result.status === 'needsHostKeyApproval') {
     const fingerprint = result.fingerprint ?? '';
-    const accepted = await ask(
-      t('connection.hostKeyBody', { host: result.host, port: result.port, fingerprint }),
-      {
-        title: t('connection.hostKeyTitle'),
-        kind: 'warning',
-        okLabel: t('connection.trustAndConnect'),
-        cancelLabel: t('common.cancel'),
-      },
+    const accepted = await dedupeHostKeyConfirm(
+      `${result.host}:${result.port}:${fingerprint}`,
+      () =>
+        ask(
+          t('connection.hostKeyBody', { host: result.host, port: result.port, fingerprint }),
+          {
+            title: t('connection.hostKeyTitle'),
+            kind: 'warning',
+            okLabel: t('connection.trustAndConnect'),
+            cancelLabel: t('common.cancel'),
+          },
+        ),
     );
     if (!accepted) {
       throw new Error(t('connection.declinedHostKey'));

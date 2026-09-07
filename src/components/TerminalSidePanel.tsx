@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ask, save } from '@tauri-apps/plugin-dialog';
+import { dedupeHostKeyConfirm } from '../lib/hostKeyConfirm';
 import {
   Activity as IconActivity,
   ArrowUp as IconArrowUp,
@@ -326,24 +327,29 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
         let rounds = 0;
         while (result.status === 'needsHostKeyApproval' && result.hostKeyToken && rounds < 2) {
           rounds += 1;
-          const accepted = await ask(
-            t('connection.hostKeyBody', {
-              host: result.host,
-              port: result.port,
-              fingerprint: result.fingerprint ?? '',
-            }),
-            {
-              title: t('connection.hostKeyTitle'),
-              kind: 'warning',
-              okLabel: t('connection.trustAndConnect'),
-              cancelLabel: t('common.cancel'),
-            },
+          const fingerprint = result.fingerprint ?? '';
+          const accepted = await dedupeHostKeyConfirm(
+            `${result.host}:${result.port}:${fingerprint}`,
+            () =>
+              ask(
+                t('connection.hostKeyBody', {
+                  host: result.host,
+                  port: result.port,
+                  fingerprint,
+                }),
+                {
+                  title: t('connection.hostKeyTitle'),
+                  kind: 'warning',
+                  okLabel: t('connection.trustAndConnect'),
+                  cancelLabel: t('common.cancel'),
+                },
+              ),
           );
           if (!accepted) {
             approvalDeclinedRef.current = true;
             throw new Error(t('connection.declinedHostKey'));
           }
-          await acceptHostKey(result.hostKeyToken, result.fingerprint ?? '');
+          await acceptHostKey(result.hostKeyToken, fingerprint);
           result = await monitorStart(hostId);
         }
         if (result.status !== 'connected' || !result.sessionId) {
@@ -696,24 +702,29 @@ function FilesSection({ sessionId, sshConfig, active }: FilesSectionProps) {
       let rounds = 0;
       while (result.status === 'needsHostKeyApproval' && result.hostKeyToken && rounds < 2) {
         rounds += 1;
-        const accepted = await ask(
-          t('connection.hostKeyBody', {
-            host: result.host,
-            port: result.port,
-            fingerprint: result.fingerprint ?? '',
-          }),
-          {
-            title: t('connection.hostKeyTitle'),
-            kind: 'warning',
-            okLabel: t('connection.trustAndConnect'),
-            cancelLabel: t('common.cancel'),
-          },
+        const fingerprint = result.fingerprint ?? '';
+        const accepted = await dedupeHostKeyConfirm(
+          `${result.host}:${result.port}:${fingerprint}`,
+          () =>
+            ask(
+              t('connection.hostKeyBody', {
+                host: result.host,
+                port: result.port,
+                fingerprint,
+              }),
+              {
+                title: t('connection.hostKeyTitle'),
+                kind: 'warning',
+                okLabel: t('connection.trustAndConnect'),
+                cancelLabel: t('common.cancel'),
+              },
+            ),
         );
         if (!accepted) {
           approvalDeclinedRef.current = true;
           throw new Error(t('connection.declinedHostKey'));
         }
-        await acceptHostKey(result.hostKeyToken, result.fingerprint ?? '');
+        await acceptHostKey(result.hostKeyToken, fingerprint);
         result = await sftpConnect(panelSessionId, cfg);
       }
       if (result.status !== 'connected') {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { ask } from '@tauri-apps/plugin-dialog';
+import { dedupeHostKeyConfirm } from '../lib/hostKeyConfirm';
 import {
   Activity,
   ArrowDown,
@@ -573,14 +574,18 @@ export function Monitor() {
         let result = await monitorStart(host.id);
         while (result.status === 'needsHostKeyApproval') {
           const fingerprint = result.fingerprint ?? '';
-          const accepted = await ask(
-            t('connection.hostKeyBody', { host: result.host, port: result.port, fingerprint }),
-            {
-              title: t('connection.hostKeyTitle'),
-              kind: 'warning',
-              okLabel: t('connection.trustAndConnect'),
-              cancelLabel: t('common.cancel'),
-            },
+          const accepted = await dedupeHostKeyConfirm(
+            `${result.host}:${result.port}:${fingerprint}`,
+            () =>
+              ask(
+                t('connection.hostKeyBody', { host: result.host, port: result.port, fingerprint }),
+                {
+                  title: t('connection.hostKeyTitle'),
+                  kind: 'warning',
+                  okLabel: t('connection.trustAndConnect'),
+                  cancelLabel: t('common.cancel'),
+                },
+              ),
           );
           if (!accepted) return false;
           await acceptHostKey(result.hostKeyToken!, fingerprint);
