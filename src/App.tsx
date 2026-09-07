@@ -8,6 +8,7 @@ import { Layout } from './components/Layout';
 import { Home } from './pages/Home';
 import { Toaster } from './components/ui/sonner';
 import { OnboardingDialog } from './components/OnboardingDialog';
+import { SessionNotifications } from './components/SessionNotifications';
 import { DebugConsole } from './components/DebugConsole';
 import { CommandPalette } from './components/CommandPalette';
 import { AiAssistant } from './components/AiAssistant';
@@ -232,6 +233,7 @@ function App() {
           <Home />
         </Layout>
         <Toaster position="top-center" />
+        <SessionNotifications />
         <OnboardingDialog
           open={showOnboarding}
           onOpenChange={setShowOnboarding}

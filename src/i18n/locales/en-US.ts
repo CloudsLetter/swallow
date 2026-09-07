@@ -1709,4 +1709,9 @@ export default {
     defaultProfileName: 'Default',
     profilesHint: 'Tip: the OpenAI-compatible protocol covers DeepSeek, Moonshot, Qwen, OpenRouter, Ollama and Gemini\'s OpenAI endpoint; the Anthropic protocol is for the official Claude API. Add multiple profiles and switch anytime.',
   },
+
+  notify: {
+    sessionDisconnected: 'Connection lost: {{name}}',
+    view: 'View',
+  },
 };

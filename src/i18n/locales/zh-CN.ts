@@ -1707,4 +1707,9 @@ export default {
     defaultProfileName: '默认',
     profilesHint: '提示：OpenAI 兼容协议覆盖 DeepSeek、Moonshot、Qwen、OpenRouter、Ollama 及 Gemini 的 OpenAI 兼容端点；Anthropic 协议用于 Claude 官方 API。可添加多个档案随时切换。',
   },
+
+  notify: {
+    sessionDisconnected: '「{{name}}」连接已断开',
+    view: '查看',
+  },
 };

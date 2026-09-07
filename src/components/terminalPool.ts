@@ -74,6 +74,9 @@ type PoolItem = {
   // 自动重连状态（会话级，跨组件实例，避免分屏重挂载后丢失计数）
   reconnectAttempts?: number;
   silentReconnect?: boolean;
+  // 本次会话是否曾成功连上（progress ready 置位）：意外断开通知据此跳过「从未连上的失败」，
+  // 避免首次连接失败的 error/断开也打扰用户
+  everConnected?: boolean;
   // 输出缓冲：handlers 尚未注册时（挂载竞态/重挂载间隙）到达的会话输出先缓存，
   // registerEventHandlers 时回放，保证连接早期输出（Last login / motd）不丢失
   pendingOutputs?: string[];
@@ -456,6 +459,21 @@ export async function attachListeners(sessionId: string) {
       // 放在 handlers 判断之前，保证连接早期缓冲/重连间隙的输出也不漏记。
       if (event.kind === 'output') {
         appendOutput(sessionId, event.data);
+      }
+      // 会话级标记与全局通知（不依赖组件 handlers——非激活/后台会话断开时无组件在听）
+      if (event.kind === 'progress' && event.stage === 'ready') {
+        const pi = pool[sessionId];
+        if (pi) pi.everConnected = true;
+      }
+      // 意外断线：只有「本会话曾成功连上」才算（首次连接失败的断开不打扰）。
+      // disposeTerminal 会先 unlisten，用户主动关闭不会走到这里 → 无需额外意图标记。
+      if (event.kind === 'disconnected') {
+        const pi = pool[sessionId];
+        if (pi?.everConnected) {
+          window.dispatchEvent(
+            new CustomEvent('swallow:session-disconnected', { detail: { sessionId } }),
+          );
+        }
       }
       // 事件监听只建立一次，但回调始终转发到「当前挂载组件注册的最新回调」，
       // 这样标签合并/分屏重挂载后，断线/进度事件仍指向新组件实例而非已卸载的旧实例。
