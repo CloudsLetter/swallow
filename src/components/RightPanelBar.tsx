@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Bot as IconBot,
+  Copy as IconCopy,
   PanelRightClose as IconPanelClose,
   Search as IconSearch,
+  RadioTower as IconBroadcast,
   Settings as IconSettings,
   SquareTerminal as IconTerminal,
   Zap as IconSnippet,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -20,15 +22,100 @@ import { useBroadcastStore } from '../store/broadcast';
 import { useUiPage } from '../store/uiPage';
 import { useTerminalBackground } from '../hooks/useTerminalBackground';
 import { buildPanelTheme } from './panelTheme';
-import { AiChatPanel } from './AiChatPanel';
 import { SwitchRow } from '../pages/settingsComponents/shared';
 import {
   getSnippets,
   useSnippet as useSnippetApi,
   type Snippet,
 } from '../services/dataService';
-import { enqueueWriteToTargets, isConnected, listPool } from './terminalPool';
+import {
+  copyTerminalBufferToClipboard,
+  enqueueWriteToTargets,
+  isConnected,
+  listPool,
+} from './terminalPool';
 import type { Config } from '../types/config';
+
+/** 当前激活标签的终端会话（terminal/telnet/local/serial/mosh 共用终端池），无则 undefined。 */
+function useActiveTerminalSession(): string | undefined {
+  return useTabStore((s) => {
+    const tab = s.tabs.find((item) => item.id === s.activeTabId);
+    if (!tab || !['terminal', 'telnet', 'local', 'serial', 'mosh'].includes(tab.type)) return undefined;
+    return tab.sessionId ?? undefined;
+  });
+}
+
+// ==================== 终端操作分区 ====================
+
+/**
+ * 终端操作分区（原终端右上悬浮操作栏并入）：广播开关、复制全部输出、查找。
+ * 查找经 panelStore.findRequest 定向打开对应终端会话的查找条（TerminalView 消费）。
+ */
+function TerminalSection() {
+  const { t } = useTranslation();
+  const activeSessionId = useActiveTerminalSession();
+  const broadcastEnabled = useBroadcastStore((s) => s.enabled);
+  const requestTerminalFind = usePanelStore((s) => s.requestTerminalFind);
+
+  const copyAll = async () => {
+    if (!activeSessionId) return;
+    try {
+      if (await copyTerminalBufferToClipboard(activeSessionId)) {
+        toast.success(t('terminal.bufferCopied'));
+      } else {
+        toast.info(t('terminal.bufferEmpty'));
+      }
+    } catch (e) {
+      console.warn('[terminal] 复制全部缓冲失败:', e);
+    }
+  };
+
+  return (
+    <div className="space-y-4 px-3 py-3">
+      {/* 广播模式 */}
+      <SwitchRow
+        label={
+          <span className="flex items-center gap-1.5 text-xs">
+            <IconBroadcast size={13} className="shrink-0" />
+            {t('terminal.broadcast')}
+          </span>
+        }
+        desc={t('terminal.broadcastDesc')}
+        checked={broadcastEnabled}
+        onCheckedChange={() => useBroadcastStore.getState().toggle()}
+      />
+
+      {/* 操作行 */}
+      <section>
+        <div className="mb-2 text-xs font-medium text-muted-foreground">{t('panel.terminalOps')}</div>
+        <div className="space-y-1">
+          <button
+            type="button"
+            disabled={!activeSessionId}
+            onClick={() => void copyAll()}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+          >
+            <IconCopy size={13} className="shrink-0" />
+            {t('terminal.copyAllOutput')}
+          </button>
+          <button
+            type="button"
+            disabled={!activeSessionId}
+            onClick={() => activeSessionId && requestTerminalFind(activeSessionId)}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+          >
+            <IconSearch size={13} className="shrink-0" />
+            {t('terminal.find')}
+            <span className="ml-auto text-[10px] opacity-60">Ctrl+Shift+F</span>
+          </button>
+        </div>
+        {!activeSessionId && !broadcastEnabled && (
+          <p className="mt-2 px-1 text-[11px] text-muted-foreground">{t('panel.noActiveSession')}</p>
+        )}
+      </section>
+    </div>
+  );
+}
 
 // ==================== 指令分区 ====================
 
@@ -50,12 +137,7 @@ function CommandsSection({ active }: { active: boolean }) {
       .catch(() => setSnippets([]));
   }, [active]);
 
-  // 当前激活标签的终端会话（terminal/telnet/local/serial/mosh 共用终端池）
-  const activeSessionId = useTabStore((s) => {
-    const tab = s.tabs.find((item) => item.id === s.activeTabId);
-    if (!tab || !['terminal', 'telnet', 'local', 'serial', 'mosh'].includes(tab.type)) return undefined;
-    return tab.sessionId ?? undefined;
-  });
+  const activeSessionId = useActiveTerminalSession();
   const broadcastEnabled = useBroadcastStore((s) => s.enabled);
 
   const filtered = useMemo(() => {
@@ -81,7 +163,7 @@ function CommandsSection({ active }: { active: boolean }) {
   }, [filtered, t]);
 
   const handlePick = (snippet: Snippet) => {
-    // 发送目标与终端操作栏一致：广播开启时发全部已连会话，否则发当前会话
+    // 发送目标与原悬浮操作栏一致：广播开启时发全部已连会话，否则发当前会话
     const targets = useBroadcastStore.getState().enabled
       ? listPool().filter((id) => isConnected(id))
       : activeSessionId
@@ -269,9 +351,9 @@ function SettingsSection() {
  * 右侧功能面板（内嵌占位，与左侧终端面板对称）：
  * - 收起/展开（宽度过渡动画），展开时可拖拽左缘调整宽度（200–480px）；
  * - 「指令」：快捷指令搜索发送到终端（原悬浮弹窗并入）；
- * - 「AI」：AI 助手聊天（原悬浮球 + 抽屉并入）；
- * - 「设置」：主题快速切换等高频终端设置。
- * 三个分区常驻挂载（display 切换可见），分区间切换不丢 AI 会话/搜索状态；
+ * - 「终端」：广播 / 复制全部输出 / 查找（原悬浮操作栏并入）；
+ * - 「设置」：主题快速切换等高频终端设置。AI 助手为独立抽屉，不在本面板。
+ * 三个分区常驻挂载（display 切换可见），分区间切换不丢搜索状态；
  * 开关/宽度/分区由 usePanelStore 持久化，配色跟随终端主题（见 panelTheme）。
  */
 export function RightPanelBar() {
@@ -329,7 +411,7 @@ export function RightPanelBar() {
             {(
               [
                 { id: 'commands' as const, label: t('panel.commands'), icon: <IconTerminal size={13} strokeWidth={2} /> },
-                { id: 'ai' as const, label: 'AI', icon: <IconBot size={13} strokeWidth={2} /> },
+                { id: 'terminal' as const, label: t('panel.terminal'), icon: <IconBroadcast size={13} strokeWidth={2} /> },
                 { id: 'settings' as const, label: t('panel.settings'), icon: <IconSettings size={13} strokeWidth={2} /> },
               ]
             ).map((item) => (
@@ -362,14 +444,13 @@ export function RightPanelBar() {
           </Button>
         </div>
 
-        {/* 分区内容：指令/AI/设置都常驻挂载（display 切换可见性）——AI 会话与搜索
-            状态在分区间切换不丢失 */}
+        {/* 分区内容：指令/终端/设置都常驻挂载（display 切换可见性）——搜索状态在分区间切换不丢失 */}
         <div className="min-h-0 flex-1 overflow-hidden">
           <div style={{ display: section === 'commands' ? 'block' : 'none', height: '100%' }}>
             <CommandsSection active={sectionActive('commands')} />
           </div>
-          <div style={{ display: section === 'ai' ? 'block' : 'none', height: '100%' }}>
-            <AiChatPanel />
+          <div style={{ display: section === 'terminal' ? 'block' : 'none', height: '100%', overflowY: 'auto' }}>
+            <TerminalSection />
           </div>
           <div style={{ display: section === 'settings' ? 'block' : 'none', height: '100%', overflowY: 'auto' }}>
             <SettingsSection />

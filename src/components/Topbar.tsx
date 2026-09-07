@@ -1,4 +1,8 @@
-﻿import { PanelLeft as IconPanelLeft, PanelRight as IconPanelRight, Bot as IconBot } from 'lucide-react';
+﻿import {
+  Bot as IconBot,
+  PanelLeft as IconPanelLeft,
+  PanelRight as IconPanelRight,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { TabBar } from './TabBar';
 import { WindowControls } from './WindowControls';
@@ -23,23 +27,18 @@ export function Topbar() {
     !!activeTab &&
     (activeTab.type === 'terminal' || activeTab.type === 'telnet' || activeTab.type === 'local');
 
-  // 全局面板开关（左侧终端面板 / 右侧功能面板：指令 / AI / 设置）
-  const leftPanelOpen = usePanelStore((s) => s.leftPanelOpen);
-  const rightPanelOpen = usePanelStore((s) => s.rightPanelOpen);
-  const rightPanelSection = usePanelStore((s) => s.rightPanelSection);
+  // 全局面板状态
   const toggleLeftPanel = usePanelStore((s) => s.toggleLeftPanel);
   const toggleRightPanel = usePanelStore((s) => s.toggleRightPanel);
-  const openRightSection = usePanelStore((s) => s.openRightSection);
+  const aiOpen = usePanelStore((s) => s.aiOpen);
+  const setAiOpen = usePanelStore((s) => s.setAiOpen);
 
-  // 左侧面板仅 SSH/MOSH 标签挂载，其余标签下按钮禁用
+  // 首页没有左右面板，按钮整体隐藏；左侧面板仅 SSH/MOSH 标签挂载，其余标签禁用
+  const isHomeActive = activeTab?.type === 'home';
   const leftPanelAvailable = !!activeTab && (activeTab.type === 'terminal' || activeTab.type === 'mosh');
 
-  // 顶栏按钮统一风格：通高方角 + 右边框（与传输中心入口一致），激活态高亮
-  const panelButtonClass = (active: boolean) =>
-    cn(
-      'h-full w-9 shrink-0 rounded-none border-r border-border text-muted-foreground hover:bg-accent hover:text-foreground',
-      active && 'bg-accent text-foreground',
-    );
+  // 顶栏按钮统一风格：普通 ghost 图标（无通高边框、无激活高亮）
+  const topbarButtonClass = 'h-8 w-8 shrink-0 text-muted-foreground hover:bg-accent hover:text-foreground';
   const noDrag = { WebkitAppRegion: 'no-drag' } as React.CSSProperties;
 
   return (
@@ -61,35 +60,39 @@ export function Topbar() {
         <TabBar />
       </div>
       <TransferCenter />
+      {!isHomeActive && (
+        <>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={topbarButtonClass}
+            style={noDrag}
+            disabled={!leftPanelAvailable}
+            onClick={toggleLeftPanel}
+            title={t('panel.leftPanel')}
+            aria-label={t('panel.leftPanel')}
+          >
+            <IconPanelLeft size={16} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={topbarButtonClass}
+            style={noDrag}
+            onClick={toggleRightPanel}
+            title={t('panel.rightPanel')}
+            aria-label={t('panel.rightPanel')}
+          >
+            <IconPanelRight size={16} />
+          </Button>
+        </>
+      )}
       <Button
         variant="ghost"
         size="icon"
-        className={panelButtonClass(leftPanelAvailable && leftPanelOpen)}
+        className={topbarButtonClass}
         style={noDrag}
-        disabled={!leftPanelAvailable}
-        onClick={toggleLeftPanel}
-        title={t('panel.leftPanel')}
-        aria-label={t('panel.leftPanel')}
-      >
-        <IconPanelLeft size={16} />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        className={panelButtonClass(rightPanelOpen)}
-        style={noDrag}
-        onClick={toggleRightPanel}
-        title={t('panel.rightPanel')}
-        aria-label={t('panel.rightPanel')}
-      >
-        <IconPanelRight size={16} />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        className={panelButtonClass(rightPanelOpen && rightPanelSection === 'ai')}
-        style={noDrag}
-        onClick={() => openRightSection('ai')}
+        onClick={() => setAiOpen(!aiOpen)}
         title={t('panel.aiAssistant')}
         aria-label={t('panel.aiAssistant')}
       >

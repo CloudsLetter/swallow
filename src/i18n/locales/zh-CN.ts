@@ -446,6 +446,7 @@ export default {
 
   terminal: {
     broadcast: '命令广播',
+    broadcastDesc: '开启后，输入将同时发送到所有已连接的终端会话',
     snippets: '快捷指令',
     find: '查找',
     findPlaceholder: '在缓冲区中查找',
@@ -1639,6 +1640,8 @@ export default {
     leftPanel: '左侧面板',
     rightPanel: '功能面板',
     commands: '指令',
+    terminal: '终端',
+    terminalOps: '终端操作',
     settings: '设置',
     aiAssistant: 'AI 助手',
     noActiveSession: '无激活的终端会话，无法发送指令',

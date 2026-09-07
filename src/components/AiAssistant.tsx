@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  Bot as IconBot,
   CornerDownLeft as IconSend,
   Loader2 as IconLoader,
   Sparkles as IconSparkles,
@@ -8,6 +9,7 @@ import {
   Trash2 as IconTrash,
   X as IconX,
 } from 'lucide-react';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import { aiChat } from '../services/dataService';
@@ -33,12 +35,12 @@ function loadHistory(): ChatMessage[] {
 }
 
 /**
- * AI 助手聊天面板（嵌入右侧功能面板的「AI」分区，原右下浮球 + Sheet 抽屉已并入）。
+ * AI 助手侧栏：独立右侧抽屉聊天面板（不并入右侧功能面板）。
  * - 流式输出（后端 ai_chat 经 Channel 推送 delta）
  * - 可一键注入当前终端会话的屏幕输出作为上下文
- * - 历史保存在 localStorage（轻量持久化）；面板常驻挂载，分区间切换不丢会话状态
+ * - 历史保存在 localStorage（轻量持久化）
  */
-export function AiChatPanel() {
+export function AiAssistant({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const { t } = useTranslation();
   const [messages, setMessages] = useState<ChatMessage[]>(loadHistory);
   const [input, setInput] = useState('');
@@ -134,84 +136,96 @@ export function AiChatPanel() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {/* 工具行：清空会话 */}
-      <div className="flex h-8 shrink-0 items-center justify-end border-b border-sidebar-border pr-1">
-        <Button variant="ghost" size="icon-xs" className="h-6 w-6" title={t('ai.clearHistory')} onClick={() => setMessages([])}>
-          <IconTrash size={13} />
-        </Button>
-      </div>
-
-      {/* 消息列表 */}
-      <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
-        {messages.length === 0 && (
-          <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-xs text-muted-foreground">
-            <IconSparkles size={20} />
-            {t('ai.emptyHint')}
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="flex w-[420px] flex-col gap-0 p-0 sm:max-w-[420px]">
+        <SheetHeader className="flex-row items-center justify-between border-b px-4 py-3">
+          <SheetTitle className="flex items-center gap-2 text-sm">
+            <IconBot size={16} className="text-primary" />
+            {t('ai.panelTitle')}
+          </SheetTitle>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon" title={t('ai.clearHistory')} onClick={() => setMessages([])}>
+              <IconTrash size={14} />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)}>
+              <IconX size={14} />
+            </Button>
           </div>
-        )}
-        {messages.map((msg, index) => (
-          <div
-            // biome-ignore lint/suspicious/noArrayIndexKey: 消息列表只追加
-            key={index}
-            className={cn(
-              'max-w-[92%] whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-xs leading-relaxed',
-              msg.role === 'user' ? 'ml-auto bg-primary text-primary-foreground' : 'bg-muted text-foreground',
-            )}
-          >
-            {msg.content || (streaming && index === messages.length - 1 ? '…' : '')}
-          </div>
-        ))}
-      </div>
+        </SheetHeader>
 
-      {/* 输入区 */}
-      <div className="shrink-0 space-y-2 border-t border-sidebar-border p-2.5">
-        {context && (
-          <div className="flex items-center justify-between rounded-md bg-muted px-2 py-1 text-[11px] text-muted-foreground">
-            <span className="flex items-center gap-1 truncate">
-              <IconTerminal size={11} />
-              {t('ai.contextAttached', { chars: context.length })}
-            </span>
-            <button
-              type="button"
-              className="hover:text-foreground"
-              onClick={() => setContext(null)}
-              aria-label={t('common.delete')}
+        {/* 消息列表 */}
+        <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
+          {messages.length === 0 && (
+            <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-xs text-muted-foreground">
+              <IconSparkles size={20} />
+              {t('ai.emptyHint')}
+            </div>
+          )}
+          {messages.map((msg, index) => (
+            <div
+              // biome-ignore lint/suspicious/noArrayIndexKey: 消息列表只追加
+              key={index}
+              className={cn(
+                'max-w-[92%] whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-xs leading-relaxed',
+                msg.role === 'user'
+                  ? 'ml-auto bg-primary text-primary-foreground'
+                  : 'bg-muted text-foreground',
+              )}
             >
-              <IconX size={11} />
-            </button>
-          </div>
-        )}
-        <Textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-          placeholder={t('ai.inputPlaceholder')}
-          className="min-h-[56px] resize-none text-xs"
-        />
-        <div className="flex items-center justify-between">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 text-[11px]"
-            disabled={streaming}
-            onClick={grabContext}
-            title={t('ai.attachContext')}
-          >
-            <IconTerminal size={12} />
-            {t('ai.attachContext')}
-          </Button>
-          <Button size="sm" className="h-7 text-[11px]" disabled={streaming || !input.trim()} onClick={() => void send()}>
-            {streaming ? <IconLoader size={12} className="animate-spin" /> : <IconSend size={12} />}
-            {t('ai.send')}
-          </Button>
+              {msg.content || (streaming && index === messages.length - 1 ? '…' : '')}
+            </div>
+          ))}
         </div>
-      </div>
-    </div>
+
+        {/* 输入区 */}
+        <div className="space-y-2 border-t p-3">
+          {context && (
+            <div className="flex items-center justify-between rounded-md bg-muted px-2 py-1 text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1 truncate">
+                <IconTerminal size={11} />
+                {t('ai.contextAttached', { chars: context.length })}
+              </span>
+              <button
+                type="button"
+                className="hover:text-foreground"
+                onClick={() => setContext(null)}
+                aria-label={t('common.delete')}
+              >
+                <IconX size={11} />
+              </button>
+            </div>
+          )}
+          <Textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                void send();
+              }
+            }}
+            placeholder={t('ai.inputPlaceholder')}
+            className="min-h-[64px] resize-none text-xs"
+          />
+          <div className="flex items-center justify-between">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-[11px]"
+              disabled={streaming}
+              onClick={grabContext}
+              title={t('ai.attachContext')}
+            >
+              <IconTerminal size={12} />
+              {t('ai.attachContext')}
+            </Button>
+            <Button size="sm" className="h-7 text-[11px]" disabled={streaming || !input.trim()} onClick={() => void send()}>
+              {streaming ? <IconLoader size={12} className="animate-spin" /> : <IconSend size={12} />}
+              {t('ai.send')}
+            </Button>
+          </div>
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }

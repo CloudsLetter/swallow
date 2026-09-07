@@ -43,7 +43,6 @@ import {
   getSearchAddon,
   setFindToggleHandler,
   focusTerminal,
-  copyTerminalBufferToClipboard,
   serializeTerminalBuffer,
   setSessionType,
   type ConnectionStep,
@@ -62,11 +61,7 @@ import { Input } from './ui/input';
 import {
   ArrowDown as IconArrowDown,
   ArrowUp as IconArrowUp,
-  Copy as IconCopy,
-  RadioTower as IconBroadcast,
-  Search as IconSearch,
   X as IconX,
-  Zap as IconSnippet,
 } from 'lucide-react';
 import type { ISearchOptions } from '@xterm/addon-search';
 import { toast } from 'sonner';
@@ -258,8 +253,8 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
   const config = useConfigStore((state) => state.config);
   const terminalRef = useRef<HTMLDivElement>(null);
   const isAttachedRef = useRef(false);
-  // 广播模式（全局，跨终端标签）；快捷指令已并入右侧功能面板，按钮只负责跳转分区
-  const broadcastEnabled = useBroadcastStore((state) => state.enabled);
+  // 右侧功能面板「查找」按钮的定向打开请求（悬浮操作栏已整体并入面板）
+  const findRequest = usePanelStore((s) => s.findRequest);
 
   // —— 缓冲区查找（SearchAddon 由 terminalPool 统一挂载，这里只做 UI 与状态）——
   const [findOpen, setFindOpen] = useState(false);
@@ -292,10 +287,6 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
     }
   }, [config?.terminal.session_log_enabled, sessionId, sshConfig, sessionLabel]);
 
-  const openFind = () => {
-    findEverOpenedRef.current = true;
-    setFindOpen(true);
-  };
   const moveFind = (dir: 'next' | 'prev') => {
     if (!sessionId) return;
     const search = getSearchAddon(sessionId);
@@ -312,18 +303,13 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
     findEverOpenedRef.current = true;
     setFindOpen(false);
   };
-  const copyAllBuffer = async () => {
-    if (!sessionId) return;
-    try {
-      if (await copyTerminalBufferToClipboard(sessionId)) {
-        toast.success(t('terminal.bufferCopied'));
-      } else {
-        toast.info(t('terminal.bufferEmpty'));
-      }
-    } catch (e) {
-      console.warn('[terminal] 复制全部缓冲失败:', e);
-    }
-  };
+  // 面板「查找」请求：匹配当前会话时打开查找条（消费后立即清除）
+  useEffect(() => {
+    if (!findRequest || !sessionId || findRequest.sessionId !== sessionId) return;
+    usePanelStore.getState().clearFindRequest();
+    findEverOpenedRef.current = true;
+    setFindOpen(true);
+  }, [findRequest, sessionId]);
 
   // 查找快捷键 Ctrl+Shift+F 回调：每次渲染都注册最新闭包（toggle 用函数式更新，
   // 避免 stale）；组件卸载时由下面带清理的 effect 清空。
@@ -837,62 +823,7 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
         }}
       />
 
-      {/* 浮动操作栏：默认完全隐藏，悬停右上角触发条（角落 24×40 热区）浮现，
-          不常驻挡终端输出；广播开启时常驻显示。查找/复制均有快捷键兜底 */}
-      {!showProgress && (
-        <div className="group/termbar absolute right-0 top-0 z-20 h-10 w-6">
-          <div
-            className={`absolute right-0.5 top-1 flex items-center gap-1 transition-opacity duration-200 ${
-              broadcastEnabled
-                ? 'pointer-events-auto opacity-100'
-                : 'pointer-events-none opacity-0 group-hover/termbar:pointer-events-auto group-hover/termbar:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100'
-            }`}
-          >
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="h-7 w-7 rounded-md bg-background/80"
-            onClick={copyAllBuffer}
-            title={t('terminal.copyAllOutput')}
-            aria-label={t('terminal.copyAllOutput')}
-          >
-            <IconCopy size={14} strokeWidth={2} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="h-7 w-7 rounded-md bg-background/80"
-            onClick={openFind}
-            title={`${t('terminal.find')} (Ctrl+Shift+F)`}
-            aria-label={t('terminal.find')}
-          >
-            <IconSearch size={14} strokeWidth={2} />
-          </Button>
-          <Button
-            variant={broadcastEnabled ? 'default' : 'ghost'}
-            size="icon-xs"
-            className="h-7 w-7 rounded-md bg-background/80"
-            onClick={() => useBroadcastStore.getState().toggle()}
-            title={t('terminal.broadcast')}
-            aria-label={t('terminal.broadcast')}
-          >
-            <IconBroadcast size={14} strokeWidth={2} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="h-7 w-7 rounded-md bg-background/80"
-            onClick={() => usePanelStore.getState().openRightSection('commands')}
-            title={t('terminal.snippets')}
-            aria-label={t('terminal.snippets')}
-          >
-            <IconSnippet size={14} strokeWidth={2} />
-          </Button>
-          </div>
-        </div>
-      )}
-
-      {/* 缓冲区查找条（Ctrl+Shift+F / 搜索按钮打开；Enter 下一个、Shift+Enter 上一个、Esc 关闭） */}
+      {/* 缓冲区查找条（Ctrl+Shift+F / 面板「查找」打开；Enter 下一个、Shift+Enter 上一个、Esc 关闭） */}
       {!showProgress && findOpen && sessionId && (
         <div className="absolute bottom-2 right-2 z-30 flex items-center gap-1 rounded-lg border border-border bg-background/95 p-1 shadow-md">
           <Input

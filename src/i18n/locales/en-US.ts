@@ -448,6 +448,7 @@ export default {
 
   terminal: {
     broadcast: 'Broadcast input',
+    broadcastDesc: 'When enabled, input is sent to all connected terminal sessions simultaneously',
     snippets: 'Snippets',
     find: 'Find',
     findPlaceholder: 'Find in buffer',
@@ -1641,6 +1642,8 @@ export default {
     leftPanel: 'Side panel',
     rightPanel: 'Panel bar',
     commands: 'Commands',
+    terminal: 'Terminal',
+    terminalOps: 'Terminal actions',
     settings: 'Settings',
     aiAssistant: 'AI Assistant',
     noActiveSession: 'No active terminal session to send to',
