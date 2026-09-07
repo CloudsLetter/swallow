@@ -81,8 +81,9 @@ function clampWidth(w: number): number {
 
 // ==================== 格式化工具 ====================
 
-function formatBytes(bytes: number): string {
-  if (!bytes || bytes <= 0) return '0 B';
+/** 拆分字节数的数值与单位（供纯文本格式化与速率内联弱化单位共用）。 */
+function splitBytes(bytes: number): { num: string; unit: string } {
+  if (!bytes || bytes <= 0) return { num: '0', unit: 'B' };
   const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
   let value = bytes;
   let i = 0;
@@ -90,7 +91,12 @@ function formatBytes(bytes: number): string {
     value /= 1024;
     i += 1;
   }
-  return `${value >= 100 || i === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[i]}`;
+  return { num: value >= 100 || i === 0 ? value.toFixed(0) : value.toFixed(1), unit: units[i] };
+}
+
+function formatBytes(bytes: number): string {
+  const { num, unit } = splitBytes(bytes);
+  return `${num} ${unit}`;
 }
 
 function formatRate(bytesPerSec: number): string {
@@ -149,6 +155,8 @@ function parseRgb(color: string): { r: number; g: number; b: number } | null {
 /**
  * 面板跟随终端主题：以终端背景色为底，按亮度覆盖局部 CSS 变量（--sidebar* /
  * --muted* / --foreground / --primary），让面板内所有 shadcn 配色自动适配明暗。
+ * 文字不透明度收拢在 0.45~0.90 三级：核心 0.90（配 font-medium）/ 标签 0.65 /
+ * 辅助 0.45（--panel-faint，组件内以 var() 引用，未定义时回退语义变量）。
  * 仅「背景图 + 延伸顶栏」时半透明 + 毛玻璃透出全窗背景层；纯色场景直接用同色不透明。
  */
 function buildPanelTheme(terminalBackground: string, hasImage: boolean, extend: boolean) {
@@ -158,17 +166,28 @@ function buildPanelTheme(terminalBackground: string, hasImage: boolean, extend: 
   const dark = 0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b < 150;
   // 只有「背景图 + 延伸顶栏」时下层才有全窗背景层可透（fixed 层含图片）
   const translucent = hasImage && extend;
+  const base = dark ? '255,255,255' : '0,0,0';
   const vars: Record<string, string> = {
     '--sidebar': `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${translucent ? 0.6 : 1})`,
+    '--sidebar-foreground': `rgba(${base},0.9)`,
+    '--foreground': `rgba(${base},0.9)`,
+    '--muted-foreground': `rgba(${base},0.65)`,
+    // 辅助信息（PID / 单位 / us·sy·wa 等）与徽章配色，组件内以 var() 引用
+    '--panel-faint': `rgba(${base},0.45)`,
+    '--panel-badge-bg': dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+    '--panel-badge-fg': `rgba(${base},0.8)`,
   };
   if (dark) {
-    vars['--sidebar-foreground'] = 'rgba(255,255,255,0.92)';
-    vars['--foreground'] = 'rgba(255,255,255,0.92)';
     vars['--sidebar-border'] = 'rgba(255,255,255,0.1)';
     vars['--sidebar-accent'] = 'rgba(255,255,255,0.08)';
     vars['--muted'] = 'rgba(255,255,255,0.09)';
-    vars['--muted-foreground'] = 'rgba(255,255,255,0.6)';
     vars['--primary'] = '#818cf8';
+  } else {
+    // 浅色终端同样成套覆盖，避免深色应用主题残留出「浅底白字」
+    vars['--sidebar-border'] = 'rgba(0,0,0,0.1)';
+    vars['--sidebar-accent'] = 'rgba(0,0,0,0.05)';
+    vars['--muted'] = 'rgba(0,0,0,0.06)';
+    vars['--primary'] = '#4f46e5';
   }
   const style = {
     ...vars,
@@ -203,7 +222,7 @@ function MetricBar({
     <div className="space-y-1">
       <div className="flex items-baseline justify-between gap-2">
         <span className="shrink-0 text-muted-foreground">{label}</span>
-        <span className="truncate text-right tabular-nums">{detail}</span>
+        <span className="truncate text-right font-medium tabular-nums">{detail}</span>
       </div>
       <div className="h-1 overflow-hidden rounded-full bg-muted">
         <div
@@ -215,14 +234,27 @@ function MetricBar({
   );
 }
 
-/** 键值行：Label 固定宽度、Value 紧跟其后（视线不跳跃）；长值截断。 */
-function InfoRow({ label, value }: { label: string; value: string }) {
+/** 键值行：Label 固定宽度、Value 紧跟其后（视线不跳跃）；长值截断。
+ *  Value 支持内嵌弱化单位等富内容（此时建议显式传 title 纯文本）。 */
+function InfoRow({
+  label,
+  value,
+  title,
+}: {
+  label: string;
+  value: React.ReactNode;
+  /** 悬停提示；缺省时 value 为纯字符串才自动带 title */
+  title?: string;
+}) {
   return (
     <div className="flex items-baseline gap-2">
       <span className="w-16 shrink-0 truncate text-muted-foreground" title={label}>
         {label}
       </span>
-      <span className="min-w-0 flex-1 truncate tabular-nums" title={value}>
+      <span
+        className="min-w-0 flex-1 truncate font-medium tabular-nums"
+        title={title ?? (typeof value === 'string' ? value : undefined)}
+      >
         {value}
       </span>
     </div>
@@ -232,34 +264,46 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 /** 指标小节标题：紧凑大写小字，下留呼吸间距，配合分隔线强化层级。 */
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
       {children}
     </div>
   );
 }
 
-/** TCP 连接计数徽章：标签灰、数值亮，行内平铺自动换行。 */
+/** TCP 连接计数徽章：淡半透明底（暗色 0.06 白）、文字统一 0.80，数值加重；
+ *  行内平铺自动换行。 */
 function TcpBadge({ label, value }: { label: string; value: number }) {
   return (
-    <span className="rounded bg-muted/50 px-1.5 py-0.5 text-[10px] leading-none">
-      <span className="text-muted-foreground">{label}</span>{' '}
+    <span className="rounded bg-[color:var(--panel-badge-bg,transparent)] px-1.5 py-0.5 text-[10px] leading-none text-[color:var(--panel-badge-fg,var(--foreground))]">
+      <span>{label}</span>{' '}
       <span className="font-medium tabular-nums">{value}</span>
     </span>
   );
 }
 
-/** Top 进程行：微型三列表格（进程名 | PID | 占用率），PID 低不透明度区分层级。 */
+/** Top 进程行：微型三列表格（进程名 | PID | 占用率），PID 用弱化色区分层级。 */
 function ProcessRow({ name, pid, value }: { name: string; pid: number; value: string }) {
   return (
     <div className="flex items-baseline gap-2">
-      <span className="min-w-0 flex-1 truncate" title={`${name} (pid ${pid})`}>
+      <span className="min-w-0 flex-1 truncate font-medium" title={`${name} (pid ${pid})`}>
         {name}
       </span>
-      <span className="w-10 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground/60">
+      <span className="w-10 shrink-0 text-right text-[0.85em] tabular-nums text-[color:var(--panel-faint,var(--muted-foreground))]">
         {pid}
       </span>
-      <span className="w-11 shrink-0 text-right tabular-nums">{value}</span>
+      <span className="w-11 shrink-0 text-right font-medium tabular-nums">{value}</span>
     </div>
+  );
+}
+
+/** 速率片段：数字为核心数据色，单位弱化（0.45 / 0.85em）；内联用于复合速率行。 */
+function RateSpan({ bytesPerSec }: { bytesPerSec: number }) {
+  const { num, unit } = splitBytes(bytesPerSec);
+  return (
+    <span className="tabular-nums">
+      {num}{' '}
+      <span className="text-[0.85em] text-[color:var(--panel-faint,var(--muted-foreground))]">{unit}/s</span>
+    </span>
   );
 }
 
@@ -434,6 +478,11 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
           b.rxBytesPerSec + b.txBytesPerSec > a.rxBytesPerSec + a.txBytesPerSec ? b : a,
         )
       : null;
+  // 网络 / 磁盘 I/O 速率汇总（展示与 title 共用）
+  const netRx = snapshot?.net.reduce((a, n) => a + n.rxBytesPerSec, 0) ?? 0;
+  const netTx = snapshot?.net.reduce((a, n) => a + n.txBytesPerSec, 0) ?? 0;
+  const diskIoRx = snapshot?.disksIo.reduce((a, d) => a + d.rxBytesPerSec, 0) ?? 0;
+  const diskIoWx = snapshot?.disksIo.reduce((a, d) => a + d.wxBytesPerSec, 0) ?? 0;
   // 认证方式展示标签（复用 Hosts 页文案，缺失时回退原值）
   const authLabel = sshConfig.auth_type
     ? AUTH_LABEL_KEY[sshConfig.auth_type]
@@ -486,7 +535,7 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
                   detail={`${snapshot.cpuUsage.toFixed(1)}% · ${snapshot.cpuCores}C`}
                   color={CPU_COLOR}
                 />
-                <div className="text-[10px] tabular-nums text-muted-foreground/70">
+                <div className="text-[0.85em] tabular-nums text-[color:var(--panel-faint,var(--muted-foreground))]">
                   us {snapshot.cpuUser.toFixed(1)} · sy {snapshot.cpuSystem.toFixed(1)} · wa {snapshot.cpuIowait.toFixed(1)}
                   {snapshot.cpuSteal > 0.05 ? ` · st ${snapshot.cpuSteal.toFixed(1)}` : ''}
                 </div>
@@ -504,7 +553,7 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
                   detail={`${formatBytes(snapshot.memUsed)} / ${formatBytes(snapshot.memTotal)}`}
                   color={MEM_COLOR}
                 />
-                <div className="text-[10px] tabular-nums text-muted-foreground/70">
+                <div className="text-[0.85em] tabular-nums text-[color:var(--panel-faint,var(--muted-foreground))]">
                   {t('terminalPanel.cache')} {formatBytes(snapshot.memBuffCache)} · {t('terminalPanel.available')} {formatBytes(snapshot.memAvailable)}
                 </div>
               </div>
@@ -545,7 +594,14 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
                   {snapshot.disksIo.length > 0 && (
                     <InfoRow
                       label={t('terminalPanel.diskIo')}
-                      value={`${t('terminalPanel.read')} ↓ ${formatRate(snapshot.disksIo.reduce((a, d) => a + d.rxBytesPerSec, 0))} · ${t('terminalPanel.write')} ↑ ${formatRate(snapshot.disksIo.reduce((a, d) => a + d.wxBytesPerSec, 0))}`}
+                      title={`${t('terminalPanel.read')} ↓ ${formatRate(diskIoRx)} · ${t('terminalPanel.write')} ↑ ${formatRate(diskIoWx)}`}
+                      value={
+                        <>
+                          {t('terminalPanel.read')} ↓ <RateSpan bytesPerSec={diskIoRx} />
+                          {' · '}
+                          {t('terminalPanel.write')} ↑ <RateSpan bytesPerSec={diskIoWx} />
+                        </>
+                      }
                     />
                   )}
                 </div>
@@ -556,12 +612,23 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
                 <SectionTitle>{t('terminalPanel.network')}</SectionTitle>
                 <InfoRow
                   label="↓ / ↑"
-                  value={`${formatRate(snapshot.net.reduce((a, n) => a + n.rxBytesPerSec, 0))} / ${formatRate(snapshot.net.reduce((a, n) => a + n.txBytesPerSec, 0))}`}
+                  title={`${formatRate(netRx)} / ${formatRate(netTx)}`}
+                  value={
+                    <>
+                      <RateSpan bytesPerSec={netRx} /> / <RateSpan bytesPerSec={netTx} />
+                    </>
+                  }
                 />
                 {busiestNic && (
                   <InfoRow
                     label={t('terminalPanel.busiestNic')}
-                    value={`${busiestNic.interface} ↓ ${formatRate(busiestNic.rxBytesPerSec)} · ↑ ${formatRate(busiestNic.txBytesPerSec)}`}
+                    title={`${busiestNic.interface} ↓ ${formatRate(busiestNic.rxBytesPerSec)} · ↑ ${formatRate(busiestNic.txBytesPerSec)}`}
+                    value={
+                      <>
+                        {busiestNic.interface} ↓ <RateSpan bytesPerSec={busiestNic.rxBytesPerSec} />
+                        {' · '}↑ <RateSpan bytesPerSec={busiestNic.txBytesPerSec} />
+                      </>
+                    }
                   />
                 )}
               </div>
@@ -583,7 +650,7 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
                   <SectionTitle>{t('terminalPanel.processes')}</SectionTitle>
                   {snapshot.topCpu.length > 0 && (
                     <div className="space-y-0.5">
-                      <div className="text-[10px] text-muted-foreground/60">{t('terminalPanel.topCpu')}</div>
+                      <div className="text-[0.85em] text-[color:var(--panel-faint,var(--muted-foreground))]">{t('terminalPanel.topCpu')}</div>
                       {snapshot.topCpu.slice(0, 3).map((p) => (
                         <ProcessRow key={`cpu-${p.pid}`} name={p.name} pid={p.pid} value={`${p.cpuPercent.toFixed(1)}%`} />
                       ))}
@@ -591,7 +658,7 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
                   )}
                   {snapshot.topMem.length > 0 && (
                     <div className="space-y-0.5">
-                      <div className="text-[10px] text-muted-foreground/60">{t('terminalPanel.topMem')}</div>
+                      <div className="text-[0.85em] text-[color:var(--panel-faint,var(--muted-foreground))]">{t('terminalPanel.topMem')}</div>
                       {snapshot.topMem.slice(0, 3).map((p) => (
                         <ProcessRow key={`mem-${p.pid}`} name={p.name} pid={p.pid} value={`${p.memPercent.toFixed(1)}%`} />
                       ))}
@@ -601,7 +668,7 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
               )}
 
               {error && (
-                <p className="break-all text-muted-foreground/70">{error}</p>
+                <p className="break-all text-[color:var(--panel-faint,var(--muted-foreground))]">{error}</p>
               )}
               {gaveUp && (
                 <Button variant="outline" size="sm" className="h-7 w-full text-xs" onClick={manualRetry}>
@@ -876,7 +943,7 @@ function FilesSection({ sessionId, sshConfig, active }: FilesSectionProps) {
                   </span>
                   <span className="min-w-0 flex-1 truncate">{item.name}</span>
                   {!isDir && (
-                    <span className="shrink-0 tabular-nums text-muted-foreground/70">
+                    <span className="shrink-0 tabular-nums text-[color:var(--panel-faint,var(--muted-foreground))]">
                       {formatBytes(item.size)}
                     </span>
                   )}
