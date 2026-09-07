@@ -1639,8 +1639,11 @@ export default {
 
   panel: {
     leftPanel: 'Side panel',
-    quickSettings: 'Quick settings',
+    rightPanel: 'Panel bar',
+    commands: 'Commands',
+    settings: 'Settings',
     aiAssistant: 'AI Assistant',
+    noActiveSession: 'No active terminal session to send to',
     openSettings: 'All settings',
   },
   ai: {

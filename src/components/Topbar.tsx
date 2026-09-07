@@ -23,13 +23,13 @@ export function Topbar() {
     !!activeTab &&
     (activeTab.type === 'terminal' || activeTab.type === 'telnet' || activeTab.type === 'local');
 
-  // 全局面板开关（左侧终端面板 / 右侧快捷设置 / AI 助手）
+  // 全局面板开关（左侧终端面板 / 右侧功能面板：指令 / AI / 设置）
   const leftPanelOpen = usePanelStore((s) => s.leftPanelOpen);
   const rightPanelOpen = usePanelStore((s) => s.rightPanelOpen);
-  const aiOpen = usePanelStore((s) => s.aiOpen);
+  const rightPanelSection = usePanelStore((s) => s.rightPanelSection);
   const toggleLeftPanel = usePanelStore((s) => s.toggleLeftPanel);
   const toggleRightPanel = usePanelStore((s) => s.toggleRightPanel);
-  const setAiOpen = usePanelStore((s) => s.setAiOpen);
+  const openRightSection = usePanelStore((s) => s.openRightSection);
 
   // 左侧面板仅 SSH/MOSH 标签挂载，其余标签下按钮禁用
   const leftPanelAvailable = !!activeTab && (activeTab.type === 'terminal' || activeTab.type === 'mosh');
@@ -79,17 +79,17 @@ export function Topbar() {
         className={panelButtonClass(rightPanelOpen)}
         style={noDrag}
         onClick={toggleRightPanel}
-        title={t('panel.quickSettings')}
-        aria-label={t('panel.quickSettings')}
+        title={t('panel.rightPanel')}
+        aria-label={t('panel.rightPanel')}
       >
         <IconPanelRight size={16} />
       </Button>
       <Button
         variant="ghost"
         size="icon"
-        className={panelButtonClass(aiOpen)}
+        className={panelButtonClass(rightPanelOpen && rightPanelSection === 'ai')}
         style={noDrag}
-        onClick={() => setAiOpen(!aiOpen)}
+        onClick={() => openRightSection('ai')}
         title={t('panel.aiAssistant')}
         aria-label={t('panel.aiAssistant')}
       >

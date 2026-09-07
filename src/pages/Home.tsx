@@ -2,6 +2,7 @@
 import { SideMenu } from '../components/SideMenu';
 import { TerminalView } from '../components/TerminalView';
 import { TerminalSidePanel } from '../components/TerminalSidePanel';
+import { RightPanelBar } from '../components/RightPanelBar';
 import { SftpView } from '../components/SftpView';
 import { SplitView } from '../components/SplitView';
 import { QuickConnect } from './QuickConnect';
@@ -213,6 +214,9 @@ export function Home() {
           );
         })}
       </div>
+
+      {/* 右侧功能面板（指令/AI/设置）：内嵌占位，展开时挤压内容区，配色跟随终端主题 */}
+      <RightPanelBar />
     </div>
   );
 }

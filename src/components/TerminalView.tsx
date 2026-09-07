@@ -55,8 +55,8 @@ import {
   appendReplaySnapshot,
   startSessionLog,
 } from './sessionLog';
-import { SnippetPicker } from './SnippetPicker';
 import { useBroadcastStore } from '../store/broadcast';
+import { usePanelStore } from '../store/panelStore';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import {
@@ -258,9 +258,8 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
   const config = useConfigStore((state) => state.config);
   const terminalRef = useRef<HTMLDivElement>(null);
   const isAttachedRef = useRef(false);
-  // 广播模式（全局，跨终端标签）与快捷指令弹窗
+  // 广播模式（全局，跨终端标签）；快捷指令已并入右侧功能面板，按钮只负责跳转分区
   const broadcastEnabled = useBroadcastStore((state) => state.enabled);
-  const [snippetPickerOpen, setSnippetPickerOpen] = useState(false);
 
   // —— 缓冲区查找（SearchAddon 由 terminalPool 统一挂载，这里只做 UI 与状态）——
   const [findOpen, setFindOpen] = useState(false);
@@ -883,7 +882,7 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
             variant="ghost"
             size="icon-xs"
             className="h-7 w-7 rounded-md bg-background/80"
-            onClick={() => setSnippetPickerOpen(true)}
+            onClick={() => usePanelStore.getState().openRightSection('commands')}
             title={t('terminal.snippets')}
             aria-label={t('terminal.snippets')}
           >
@@ -952,19 +951,7 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
         </div>
       )}
 
-      {/* 快捷指令选择器 */}
-      <SnippetPicker
-        open={snippetPickerOpen}
-        onOpenChange={setSnippetPickerOpen}
-        onPick={(command) => {
-          if (!sessionId) return;
-          const data = command.trimEnd() + '\r';
-          const targets = useBroadcastStore.getState().enabled
-            ? listPool().filter((id) => isConnected(id))
-            : [sessionId];
-          enqueueWriteToTargets(targets, data);
-        }}
-      />
+      {/* 快捷指令已并入右侧功能面板（openRightSection('commands')），此处不再有弹窗 */}
 
       {/* 进度窗口覆盖在终端上方 */}
       {showProgress && (

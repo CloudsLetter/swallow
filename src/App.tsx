@@ -10,12 +10,9 @@ import { Toaster } from './components/ui/sonner';
 import { OnboardingDialog } from './components/OnboardingDialog';
 import { DebugConsole } from './components/DebugConsole';
 import { CommandPalette } from './components/CommandPalette';
-import { AiAssistant } from './components/AiAssistant';
-import { QuickSettingsPanel } from './components/QuickSettingsPanel';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import './App.css';
 import { useConfigStore } from './store/config';
-import { usePanelStore } from './store/panelStore';
 import { initTransferProgressListener } from './store/transferStore';
 import { useTabStore, type Tab } from './store/tabStore';
 import { loadOpenSessions, saveOpenSessions, getHosts } from './services/dataService';
@@ -23,9 +20,6 @@ import { checkForAppUpdates } from './services/updaterService';
 import i18next from './i18n/i18n';
 
 function App() {
-  // AI 助手抽屉开关（Topbar AI 按钮与本处共享 panelStore 状态）
-  const aiOpen = usePanelStore((s) => s.aiOpen);
-  const setAiOpen = usePanelStore((s) => s.setAiOpen);
   const loadConfig = useConfigStore((state) => state.loadConfig);
   const config = useConfigStore((state) => state.config);
   const updateConfig = useConfigStore((state) => state.updateConfig);
@@ -237,9 +231,6 @@ function App() {
           onOpenChange={setShowOnboarding}
           onFinish={finishOnboarding}
         />
-        <AiAssistant open={aiOpen} onOpenChange={setAiOpen} />
-        {/* 右侧快捷设置面板（Topbar 右上角开关控制显隐） */}
-        <QuickSettingsPanel />
         {config?.advanced?.debug_mode && (
           <ErrorBoundary>
             <DebugConsole />

@@ -1637,8 +1637,11 @@ export default {
 
   panel: {
     leftPanel: '左侧面板',
-    quickSettings: '快捷设置',
+    rightPanel: '功能面板',
+    commands: '指令',
+    settings: '设置',
     aiAssistant: 'AI 助手',
+    noActiveSession: '无激活的终端会话，无法发送指令',
     openSettings: '打开全部设置',
   },
   ai: {
