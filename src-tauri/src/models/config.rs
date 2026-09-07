@@ -1210,16 +1210,51 @@ impl Default for ThemeColors {
 	}
 }
 
-/// AI 助手设置：OpenAI 兼容端点（base_url 填到 /v1 为止，如
-/// https://api.deepseek.com/v1）。api_key 保存在本地 config.toml。
+/// AI 提供商档案：支持多个模型配置与多种协议。
+/// - protocol = "openai"：OpenAI 兼容 Chat Completions（DeepSeek/Moonshot/Qwen/
+///   OpenRouter/Ollama/Gemini OpenAI 兼容端点等）
+/// - protocol = "anthropic"：Anthropic Messages API（Claude）
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct AiProfile {
+	pub id: String,
+	pub name: String,
+	pub protocol: String,
+	/// base_url 填到版本段为止：openai 填到 /v1，anthropic 填到域名根
+	pub base_url: String,
+	pub api_key: String,
+	pub model: String,
+}
+
+impl Default for AiProfile {
+	fn default() -> Self {
+		Self {
+			id: crate::utils::sqlite::new_id("aiprofile"),
+			name: "Default".into(),
+			protocol: "openai".into(),
+			base_url: "".into(),
+			api_key: "".into(),
+			model: "".into(),
+		}
+	}
+}
+
+/// AI 助手设置：多提供商档案 + 当前激活档案。
+/// 旧版单档案字段（base_url/api_key/model）保留：老 config.toml 仍可反序列化，
+/// 运行时在 ai 命令里做 fallback（profiles 为空且旧字段非空时按 openai 协议使用）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Ai {
+	// 旧单档案字段（被 profiles 取代，仅为老 config.toml 兼容保留，不再由 UI 写入）
 	pub base_url: String,
 	pub api_key: String,
 	pub model: String,
 	/// 注入提示词的终端上下文上限（字符数），防止 token 爆炸
 	pub context_max_chars: u32,
+	/// 提供商档案列表
+	pub profiles: Vec<AiProfile>,
+	/// 当前激活档案 id；为空时取 profiles 第一个
+	pub active_profile: String,
 }
 
 impl Default for Ai {
@@ -1229,6 +1264,8 @@ impl Default for Ai {
 			api_key: "".into(),
 			model: "".into(),
 			context_max_chars: 12000,
+			profiles: Vec::new(),
+			active_profile: "".into(),
 		}
 	}
 }

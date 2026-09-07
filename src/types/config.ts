@@ -294,10 +294,26 @@ export interface Advanced {
   send_analytics: boolean;
 }
 
-/** AI 助手设置：OpenAI 兼容端点（base_url 填到 /v1 为止） */
+/** AI 提供商协议 */
+export type AiProtocol = 'openai' | 'anthropic';
+
+/** AI 提供商档案：多模型/多协议配置 */
+export interface AiProfile {
+  id: string;
+  name: string;
+  protocol: AiProtocol;
+  /** openai 填到 /v1；anthropic 填到域名根 */
+  base_url: string;
+  api_key: string;
+  model: string;
+}
+
+/** AI 助手设置：多提供商档案 + 当前激活档案（旧单档案字段为老 config.toml 兼容保留） */
 export interface Ai {
   base_url: string;
   api_key: string;
   model: string;
   context_max_chars: number;
+  profiles: AiProfile[];
+  active_profile: string;
 }
