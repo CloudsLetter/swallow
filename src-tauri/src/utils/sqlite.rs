@@ -71,7 +71,8 @@ pub fn init_database() -> Result<(), String> {
             size INTEGER NOT NULL,
             key_path TEXT,
             public_key_path TEXT,
-            source TEXT
+            source TEXT,
+            format_warning TEXT
         );
 
         CREATE TABLE IF NOT EXISTS certificates (
@@ -174,6 +175,7 @@ pub fn init_database() -> Result<(), String> {
     ensure_column(&conn, "sftp_connections", "key_id", "TEXT")?;
     ensure_column(&conn, "keys", "key_path", "TEXT")?;
     ensure_column(&conn, "keys", "public_key_path", "TEXT")?;
+    ensure_column(&conn, "keys", "format_warning", "TEXT")?;
     ensure_column(&conn, "keys", "source", "TEXT")?;
     ensure_column(&conn, "keys", "private_key", "TEXT")?;
     ensure_column(&conn, "keys", "public_key", "TEXT")?;

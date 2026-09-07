@@ -8,7 +8,8 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use crate::ssh::session::{require_approval, verify_host_key, HostKeyCheck, SshConfig, userauth_pubkey_from_content};
+use crate::ssh::host_keys::{require_approval, verify_host_key, HostKeyCheck};
+use crate::ssh::session::{SshConfig, userauth_pubkey_from_content};
 
 /// 单文件整体传输大小上限（字节）：整文件内存传输的保护线（分块传输不受此限制）。
 const MAX_FILE_TRANSFER_BYTES: u64 = 100 * 1024 * 1024;

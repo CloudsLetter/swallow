@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import i18n from '../i18n/i18n';
 import {
@@ -224,20 +225,23 @@ export function Keys() {
         });
       }
       if (actionMode === 'import') {
-        if (importMethod === 'file') {
-          await importKeyFile({
-            name: nextName,
-            privateKeyBase64: await readFileAsBase64(privateFile),
-            publicKeyBase64: await readFileAsBase64(publicFile),
-            privateFileName: privateFile?.name,
-            publicFileName: publicFile?.name,
-          });
-        } else {
-          await importKeyText({
-            name: nextName,
-            privateKey: privateText.trim() || undefined,
-            publicKey: publicText.trim() || undefined,
-          });
+        const imported =
+          importMethod === 'file'
+            ? await importKeyFile({
+                name: nextName,
+                privateKeyBase64: await readFileAsBase64(privateFile),
+                publicKeyBase64: await readFileAsBase64(publicFile),
+                privateFileName: privateFile?.name,
+                publicFileName: publicFile?.name,
+              })
+            : await importKeyText({
+                name: nextName,
+                privateKey: privateText.trim() || undefined,
+                publicKey: publicText.trim() || undefined,
+              });
+        // 传统 PEM 私钥：导入成功但端口转发隧道（russh）不支持，立即提示转换
+        if (imported?.formatWarning) {
+          toast.warning(imported.formatWarning, { duration: 12000 });
         }
       }
       setSheetOpen(false);

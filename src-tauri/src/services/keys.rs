@@ -13,7 +13,7 @@ use crate::utils::sqlite;
 
 fn load_key_record(conn: &Connection, id: &str) -> Result<KeyRecord, String> {
     conn.query_row(
-        "SELECT id, name, key_type, fingerprint, created_at, size, key_path, public_key_path, source
+        "SELECT id, name, key_type, fingerprint, created_at, size, key_path, public_key_path, source, format_warning
          FROM keys WHERE id = ?1",
         params![id],
         |row| {
@@ -27,6 +27,7 @@ fn load_key_record(conn: &Connection, id: &str) -> Result<KeyRecord, String> {
                 key_path: row.get(6)?,
                 public_key_path: row.get(7)?,
                 source: row.get(8)?,
+                format_warning: row.get(9)?,
             })
         },
     )
@@ -44,8 +45,8 @@ fn save_key_record(conn: &Connection, mut key: KeyRecord) -> Result<KeyRecord, S
     }
 
     conn.execute(
-        "INSERT INTO keys (id, name, key_type, fingerprint, created_at, size, key_path, public_key_path, source)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        "INSERT INTO keys (id, name, key_type, fingerprint, created_at, size, key_path, public_key_path, source, format_warning)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
          ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             key_type = excluded.key_type,
@@ -54,7 +55,8 @@ fn save_key_record(conn: &Connection, mut key: KeyRecord) -> Result<KeyRecord, S
             size = excluded.size,
             key_path = excluded.key_path,
             public_key_path = excluded.public_key_path,
-            source = excluded.source",
+            source = excluded.source,
+            format_warning = excluded.format_warning",
         params![
             key.id,
             key.name,
@@ -64,7 +66,8 @@ fn save_key_record(conn: &Connection, mut key: KeyRecord) -> Result<KeyRecord, S
             key.size,
             key.key_path,
             key.public_key_path,
-            key.source
+            key.source,
+            key.format_warning
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -112,6 +115,30 @@ pub fn load_key_content(
     .ok_or_else(|| "该密钥已被删除或不存在，请到“账号/主机”页重新选择密钥。".to_string())
 }
 
+
+/// 检测私钥是否为传统 PEM 格式（fork ssh-key 未启用传统 PEM 解析，
+/// russh 隧道无法使用），返回给前端的转换提示。
+fn legacy_pem_warning(private_key: Option<&str>) -> Option<String> {
+    let content = private_key?;
+    let legacy: Option<&str> = if content.contains("BEGIN OPENSSH PRIVATE KEY") {
+        None
+    } else if content.contains("BEGIN RSA PRIVATE KEY") {
+        Some("PKCS#1 PEM")
+    } else if content.contains("BEGIN EC PRIVATE KEY") {
+        Some("SEC1 PEM")
+    } else if content.contains("BEGIN PRIVATE KEY") {
+        Some("PKCS#8 PEM")
+    } else {
+        return None;
+    };
+    let Some(legacy) = legacy else {
+        return None;
+    };
+    Some(format!(
+        "检测到 {} 格式的私钥：SSH 终端可以正常使用，端口转发隧道会自动回退到兼容模式（ssh2）。建议用 `ssh-keygen -p -f <私钥文件>` 转换为 OpenSSH 新格式以获得最佳体验。",
+        legacy
+    ))
+}
 
 /// 将 ssh-keygen 输出的原始算法名（如 `ssh-ed25519` / `ssh-rsa` / `ecdsa-sha2-nistp256`）
 /// 规范化为前端 `Key.type` 枚举使用的 `ED25519` / `RSA` / `ECDSA`。
@@ -199,7 +226,7 @@ fn derive_key_size_from_content(public_key: &str) -> u32 {
 pub fn list_keys() -> Result<Vec<KeyRecord>, String> {
     let conn = sqlite::open_connection()?;
     let mut stmt = conn
-        .prepare("SELECT id, name, key_type, fingerprint, created_at, size, key_path, public_key_path, source FROM keys ORDER BY name COLLATE NOCASE ASC")
+        .prepare("SELECT id, name, key_type, fingerprint, created_at, size, key_path, public_key_path, source, format_warning FROM keys ORDER BY name COLLATE NOCASE ASC")
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([], |row| {
@@ -213,6 +240,7 @@ pub fn list_keys() -> Result<Vec<KeyRecord>, String> {
                 key_path: row.get(6)?,
                 public_key_path: row.get(7)?,
                 source: row.get(8)?,
+                format_warning: row.get(9)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -254,7 +282,7 @@ pub fn delete_key(id: String) -> Result<(), String> {
     let conn = sqlite::open_connection()?;
     let key = conn
         .query_row(
-            "SELECT id, name, key_type, fingerprint, created_at, size, key_path, public_key_path, source
+            "SELECT id, name, key_type, fingerprint, created_at, size, key_path, public_key_path, source, format_warning
              FROM keys WHERE id = ?1",
             params![id],
             |row| {
@@ -268,6 +296,7 @@ pub fn delete_key(id: String) -> Result<(), String> {
                     key_path: row.get(6)?,
                     public_key_path: row.get(7)?,
                     source: row.get(8)?,
+                    format_warning: row.get(9)?,
                 })
             },
         )
@@ -341,6 +370,8 @@ pub fn create_key_pair(request: CreateKeyPairRequest) -> Result<KeyRecord, Strin
         key_path: None,
         public_key_path: None,
         source: Some("generated".to_string()),
+        // 自生成的密钥固定为 OpenSSH 新格式
+        format_warning: None,
     };
 
     let key = save_key_record(&conn, key)?;
@@ -392,6 +423,9 @@ pub fn import_key_file(request: ImportKeyRequest) -> Result<KeyRecord, String> {
         key_path: None,
         public_key_path: None,
         source: Some("imported".to_string()),
+        // 传统 PEM（PKCS#1/PKCS#8/SEC1）对 ssh2 终端可用，但 russh 隧道不支持，
+        // 导入时即提示转换，避免等到建隧道才报错
+        format_warning: legacy_pem_warning(private_key_content.as_deref()),
     };
 
     let key = save_key_record(&conn, key)?;
@@ -440,6 +474,9 @@ pub fn import_key_text(request: ImportKeyTextRequest) -> Result<KeyRecord, Strin
         key_path: None,
         public_key_path: None,
         source: Some("imported".to_string()),
+        // 传统 PEM（PKCS#1/PKCS#8/SEC1）对 ssh2 终端可用，但 russh 隧道不支持，
+        // 导入时即提示转换，避免等到建隧道才报错
+        format_warning: legacy_pem_warning(private_key_content.as_deref()),
     };
 
     let key = save_key_record(&conn, key)?;

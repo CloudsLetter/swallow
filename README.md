@@ -59,7 +59,7 @@
 
 ## 数据与隐私
 
-- 数据仅存本机：设置 `%APPDATA%\Swallow`，known_hosts 复用 `~/.ssh/known_hosts`，**无遥测**。
+- 数据仅存本机：设置 `%APPDATA%\Swallow`，known_hosts 由应用内管理（SQLite），**无遥测**。
 - 密码 / 私钥口令 → 系统钥匙串；密钥 / 证书材料 → SQLite，全程不落明文文件。
 - 云同步为可选自建服务，处于实验阶段，一般用户无需启用。
 

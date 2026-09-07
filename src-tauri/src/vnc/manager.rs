@@ -253,7 +253,7 @@ mod tests {
 
     /// 建立到 bridge 的 WebSocket 客户端。
     async fn ws_connect(url: &str) -> Result<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>, String> {
-        use futures_util::StreamExt;
+        
         let (ws, _) = tokio_tungstenite::connect_async(url)
             .await
             .map_err(|e| e.to_string())?;
@@ -393,7 +393,7 @@ mod tests {
         let m = VncManager::new();
         let res = m.start("sess-6", bind_loopback().await, TcpStream::connect(addr).await.unwrap(), None, 1).unwrap();
         let (mut ws, _) = tokio_tungstenite::connect_async(res.ws_url.as_ref().unwrap()).await.unwrap();
-        use futures_util::StreamExt;
+        
         // 客户端主动关 WebSocket
         let _ = ws.close(None).await;
         // TCP 侧应出现 EOF（服务端读到 0）

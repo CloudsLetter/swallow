@@ -57,8 +57,11 @@ type TypeFilter = 'all' | RuleType;
 
 const sectionClass = 'flex flex-col gap-3 rounded-lg bg-muted/40 p-4';
 
-function normalizeRuleStatus(status?: PortForwarding['status']): 'connected' | 'disconnected' | 'error' {
+type NormalizedRuleStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
+
+function normalizeRuleStatus(status?: PortForwarding['status']): NormalizedRuleStatus {
   if (status === 'connected') return 'connected';
+  if (status === 'connecting') return 'connecting';
   if (status === 'error') return 'error';
   return 'disconnected';
 }
@@ -171,20 +174,34 @@ export function PortForwarding() {
     void bootstrap();
   }, []);
 
+  // 连接中的阶段记录：ruleId -> tcp|ssh|auth（后端 on_progress 推送）
+  const [connectingStage, setConnectingStage] = useState<Record<string, string>>({});
+
   // ============ 隧道断开事件 ============
   // 后端看门狗检测到隧道意外断开时推送事件，前端即时刷新状态。
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     const attach = async () => {
       try {
-        unlisten = await listen<{ ruleId: string; status: string }>(
+        unlisten = await listen<{ ruleId: string; status: string; stage?: string }>(
           'port-forward-status',
           (event) => {
             // 用 payload 定向更新对应规则，避免全量 reload
-            const { ruleId, status } = event.payload;
+            const { ruleId, status, stage } = event.payload;
             setRules((prev) =>
               prev.map((r) => (r.id === ruleId ? { ...r, status: status as PortForwarding['status'] } : r)),
             );
+            // 连接中记录当前阶段（卡片副标题展示「连接中：<阶段>」），结束时清除
+            if (status === 'connecting') {
+              setConnectingStage((prev) => ({ ...prev, [ruleId]: stage || 'tcp' }));
+            } else {
+              setConnectingStage((prev) => {
+                if (!(ruleId in prev)) return prev;
+                const next = { ...prev };
+                delete next[ruleId];
+                return next;
+              });
+            }
           },
         );
       } catch (e) {
@@ -497,17 +514,21 @@ export function PortForwarding() {
               'absolute -right-0.5 -top-0.5 size-2 rounded-full ring-2 ring-card',
               normalizeRuleStatus(rule.status) === 'connected'
                 ? 'bg-success ring-success/20'
-                : normalizeRuleStatus(rule.status) === 'error'
-                  ? 'bg-destructive ring-destructive/20'
-                  : 'bg-muted-foreground/40',
+                : normalizeRuleStatus(rule.status) === 'connecting'
+                  ? 'animate-pulse bg-warning ring-warning/20'
+                  : normalizeRuleStatus(rule.status) === 'error'
+                    ? 'bg-destructive ring-destructive/20'
+                    : 'bg-muted-foreground/40',
             )}
             title={
               i18n.t(
                 normalizeRuleStatus(rule.status) === 'connected'
                   ? 'portForwarding.statusConnected'
-                  : normalizeRuleStatus(rule.status) === 'error'
-                    ? 'portForwarding.statusError'
-                    : 'portForwarding.statusDisconnected',
+                  : normalizeRuleStatus(rule.status) === 'connecting'
+                    ? 'portForwarding.statusConnecting'
+                    : normalizeRuleStatus(rule.status) === 'error'
+                      ? 'portForwarding.statusError'
+                      : 'portForwarding.statusDisconnected',
               )
             }
           />
@@ -521,6 +542,18 @@ export function PortForwarding() {
             <span className="text-muted-foreground/60"> → </span>
             {rule.type === 'dynamic' ? 'SOCKS5' : `${rule.targetHost || '—'}:${rule.targetPort}`}
           </div>
+          {normalizeRuleStatus(rule.status) === 'connecting' && (
+            <div className="mt-0.5 flex items-center gap-1 truncate text-xs text-warning">
+              <IconLoader size={11} strokeWidth={2} className="animate-spin" />
+              {t(
+                connectingStage[rule.id] === 'ssh'
+                  ? 'portForwarding.stageSsh'
+                  : connectingStage[rule.id] === 'auth'
+                    ? 'portForwarding.stageAuth'
+                    : 'portForwarding.stageTcp',
+              )}
+            </div>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button

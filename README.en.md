@@ -59,7 +59,7 @@ Cross-platform terminal client: **SSH / SFTP / Telnet / local shell / VNC / RDP 
 
 ## Data & privacy
 
-- Data stays on this machine: settings under `%APPDATA%\Swallow`, known_hosts at `~/.ssh/known_hosts` — **no telemetry**.
+- Data stays on this machine: settings under `%APPDATA%\Swallow`, known_hosts managed in-app (SQLite) — **no telemetry**.
 - Passwords / passphrases → OS keyring; key & certificate material → SQLite, never written as plaintext files.
 - Cloud sync is an optional self-hosted service in an experimental stage; most users won't need it.
 

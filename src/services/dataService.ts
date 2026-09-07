@@ -48,6 +48,8 @@ export interface Key {
   keyPath?: string;
   publicKeyPath?: string;
   source?: string;
+  /** 非 OpenSSH 新格式私钥的格式警告（导入时检测，russh 隧道不支持传统 PEM） */
+  formatWarning?: string;
 }
 
 export interface SftpConnection {
@@ -113,7 +115,8 @@ export interface PortForwarding {
   /** 目标主机（local/remote 转发用，dynamic 转发可省略） */
   targetHost?: string;
   targetPort: number;
-  status: 'connected' | 'disconnected' | 'error';
+  /** connecting：后端连接过程中经 port-forward-status 事件推送的瞬态状态 */
+  status: 'connected' | 'connecting' | 'disconnected' | 'error';
   description?: string;
   createdAt: string;
   lastUsed?: string;

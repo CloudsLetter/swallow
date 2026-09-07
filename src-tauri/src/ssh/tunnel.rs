@@ -33,21 +33,31 @@ impl SshTunnel {
         let _ = self.session.disconnect(None, "Tunnel stopped", None);
     }
 
-    /// 隧道是否仍在运行（未被 stop、未意外断开）。
-    pub fn is_running(&self) -> bool {
-        self.running.load(Ordering::SeqCst)
-    }
+}
 
-    /// 检测底层 SSH 会话是否仍存活（发送 keepalive 探测包）。
-    pub fn is_alive(&self) -> bool {
-        self.session.keepalive_send().is_ok()
+/// 运行中的端口转发隧道（双后端）：终端/SFTP 等仍走 ssh2；端口转发已迁移
+/// russh（单 Session 大锁并发串行问题，见 docs/SSH_BACKEND_MIGRATION.md §2）。
+#[derive(Clone)]
+pub enum RunningTunnel {
+    Ssh2(Arc<SshTunnel>),
+    Russh(Arc<crate::ssh::russh_tunnel::RusshTunnel>),
+}
+
+impl RunningTunnel {
+    pub fn stop(&self) {
+        match self {
+            Self::Ssh2(t) => t.stop(),
+            Self::Russh(t) => t.stop(),
+        }
     }
+    // 注：不再提供 is_running/is_alive 探测——russh 路径断线为事件驱动
+    // （disconnected 回调），ssh2 备份路径由后续操作错误暴露断线。
 }
 
 /// 端口转发隧道注册表：rule_id -> 运行中的隧道。
 #[derive(Clone)]
 pub struct TunnelManager {
-    tunnels: Arc<Mutex<HashMap<String, Arc<SshTunnel>>>>,
+    tunnels: Arc<Mutex<HashMap<String, Arc<RunningTunnel>>>>,
 }
 
 impl TunnelManager {
@@ -58,7 +68,7 @@ impl TunnelManager {
     }
 
     /// 注册（或替换）某规则的隧道；若已存在同名隧道则先停止旧的。
-    pub fn insert(&self, rule_id: String, tunnel: Arc<SshTunnel>) {
+    pub fn insert(&self, rule_id: String, tunnel: Arc<RunningTunnel>) {
         let mut tunnels = self.tunnels.lock().unwrap();
         if let Some(old) = tunnels.insert(rule_id, tunnel) {
             old.stop();
@@ -178,7 +188,7 @@ pub fn start_tunnel(
 }
 
 /// 判断监听地址是否为回环地址（防止 local/dynamic 转发被绑定到所有网卡暴露服务）。
-fn is_loopback_host(host: &str) -> bool {
+pub(crate) fn is_loopback_host(host: &str) -> bool {
     let h = host.trim().to_ascii_lowercase();
     h == "localhost" || h == "::1" || h.starts_with("127.")
 }

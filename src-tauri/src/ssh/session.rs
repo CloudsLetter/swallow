@@ -1,19 +1,16 @@
 use anyhow::{Context, Result};
-use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD};
-use base64::Engine as _;
 use serde::{Deserialize, Serialize};
-use ssh2::{Channel, CheckResult, HashType, HostKeyType, KnownHostKeyFormat, Session};
-use std::collections::HashMap;
+use ssh2::{Channel, Session};
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use crate::session_events::{emit_session_event, SessionEvent};
+use crate::ssh::host_keys::{require_approval, verify_host_key, HostKeyCheck};
 
 /// 连接超时兜底值（秒），配置缺失或锁中毒时使用。
 pub(crate) const DEFAULT_CONNECTION_TIMEOUT_SECS: u32 = 30;
@@ -29,7 +26,7 @@ pub struct SshConfig {
     pub host: String,
     pub port: u16,
     pub username: String,
-    pub auth_type: String, // "password" | "key" | "certificate"
+    pub auth_type: String, // "password" | "key" | "certificate" | "agent"
     pub password: Option<String>,
     pub key_path: Option<String>,
     /// OpenSSH 证书文件（-cert.pub），certificate 认证时必填
@@ -90,88 +87,6 @@ pub struct SshSession {
     /// 跳板机传输层：随本会话存活，断开时一并释放。
     #[allow(dead_code)]
     jump: Option<JumpTransport>,
-}
-
-/// 主机密钥校验结果。
-#[derive(Debug, Clone)]
-pub enum HostKeyCheck {
-    Matched,
-    Unknown { fingerprint: String },
-}
-
-/// 首次连接遇到未知主机密钥：需要前端确认后才能写入 known_hosts。
-/// 携带 host/port 供前端展示，token 供前端回传（`accept_host_key` 凭 token 从后端
-/// 内存取回待确认主机的完整配置，避免密钥/证书明文经 IPC 往返）。
-#[derive(Debug)]
-pub struct HostKeyApprovalRequired {
-    pub fingerprint: String,
-    pub host: String,
-    pub port: u16,
-    pub token: String,
-}
-
-impl std::fmt::Display for HostKeyApprovalRequired {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Host key approval required: {}", self.fingerprint)
-    }
-}
-
-impl std::error::Error for HostKeyApprovalRequired {}
-
-/// 待确认主机密钥条目：前端确认后凭 token 取回，经（可能的）跳板机重建连接验证指纹。
-struct PendingHostKey {
-    config: SshConfig,
-}
-
-/// 待确认主机密钥表：token -> 待确认主机完整配置。进程级内存，应用重启即清空；
-/// 前端取消确认时残留少量条目（低频、无敏感落盘，可接受）。
-static PENDING_HOST_KEYS: OnceLock<Mutex<HashMap<String, PendingHostKey>>> = OnceLock::new();
-
-fn pending_host_keys() -> &'static Mutex<HashMap<String, PendingHostKey>> {
-    PENDING_HOST_KEYS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-static HOST_KEY_TOKEN_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// 生成待确认主机密钥的唯一 token。
-fn new_host_key_token() -> String {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let seq = HOST_KEY_TOKEN_COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("hk-{nanos}-{seq}")
-}
-
-/// 记录「待确认主机」的完整配置（含跳板机），返回其 token，供前端确认后回传。
-fn register_pending_host_key(config: SshConfig) -> String {
-    let token = new_host_key_token();
-    pending_host_keys()
-        .lock()
-        .unwrap()
-        .insert(token.clone(), PendingHostKey { config });
-    token
-}
-
-/// 取回（并移除）某 token 对应的待确认主机配置。
-fn take_pending_host_key(token: &str) -> Option<SshConfig> {
-    pending_host_keys()
-        .lock()
-        .unwrap()
-        .remove(token)
-        .map(|e| e.config)
-}
-
-/// 记录待确认主机并返回 HostKeyApprovalRequired（供 SSH/SFTP 连接与 accept_host_key 使用）。
-pub(crate) fn require_approval(config: SshConfig, fingerprint: String) -> anyhow::Error {
-    let token = register_pending_host_key(config.clone());
-    HostKeyApprovalRequired {
-        fingerprint,
-        host: config.host,
-        port: config.port,
-        token,
-    }
-    .into()
 }
 
 /// 用数据库中的密钥内容做公钥认证：把内容写入系统临时文件后调用
@@ -276,7 +191,7 @@ fn spawn_jump_bridge(mut channel: Channel, remote_side: TcpStream) -> std::threa
 /// 建立到目标主机的传输层 TCP 连接：直连，或经跳板机 direct-tcpip 桥接到本地 loopback 对。
 /// 返回「目标会话可绑定的 TcpStream」与「可选的跳板机传输层」；跳板机传输层须由调用方
 /// 随目标会话一同持有（否则桥接线程断开会话失效）。
-fn establish_transport(
+pub(crate) fn establish_transport(
     config: &SshConfig,
     timeout_secs: u32,
     on_progress: &dyn Fn(&str, Option<&str>),
@@ -397,6 +312,29 @@ impl SshSession {
                     )?;
                 } else {
                     anyhow::bail!("No private key available for key authentication");
+                }
+            }
+            "agent" => {
+                // SSH Agent 认证：私钥永不出 agent，签名由 agent 完成。
+                // 枚举 agent 身份逐一尝试（libssh2 agent API）。
+                let mut agent = session
+                    .agent()
+                    .context("无法创建 SSH Agent 会话（libssh2 构建需包含 agent 支持）")?;
+                agent.connect().context("无法连接 SSH Agent")?;
+                agent.list_identities().context("SSH Agent 请求身份列表失败")?;
+                let identities = agent.identities()?;
+                if identities.is_empty() {
+                    anyhow::bail!("SSH Agent 中没有可用密钥（请先用 ssh-add 添加）");
+                }
+                let mut authenticated = false;
+                for identity in &identities {
+                    if agent.userauth(&config.username, identity).is_ok() {
+                        authenticated = true;
+                        break;
+                    }
+                }
+                if !authenticated {
+                    anyhow::bail!("SSH Agent 认证失败：服务器拒绝了 Agent 中的全部密钥");
                 }
             }
             "certificate" => {
@@ -746,118 +684,5 @@ impl SshSession {
     #[allow(dead_code)]
     pub fn is_connected(&self) -> bool {
         *self.is_connected.lock().unwrap()
-    }
-}
-
-/// 校验主机密钥：匹配放行，未知返回指纹（不自动写入），不匹配/失败拒绝。
-///
-/// - 匹配：放行；
-/// - 首次连接（NotFound）：返回 Unknown 指纹，由前端确认后调用 accept_host_key；
-/// - 不匹配：拒绝（可能是主机变更或中间人攻击）；
-/// - 校验失败：拒绝。
-pub(crate) fn verify_host_key(session: &Session, host: &str, port: u16) -> Result<HostKeyCheck> {
-    let Some((key, _host_key_type)) = session.host_key() else {
-        anyhow::bail!("Host key unavailable after handshake");
-    };
-
-    // 信任源为 DB（纯软件内管理，不走系统 ~/.ssh/known_hosts）：
-    // 把全部已信任条目装载进 libssh2 内存 known_hosts 再比对
-    let mut known = session.known_hosts()?;
-    for (entry_host, entry_type, key_data) in
-        crate::utils::sqlite::known_host_key_entries().map_err(|e| anyhow::anyhow!(e))?
-    {
-        if let Ok(blob) = STANDARD.decode(&key_data) {
-            if let Some(fmt) = key_format_from_name(&entry_type) {
-                let _ = known.add(&entry_host, &blob, "", fmt);
-            }
-        }
-    }
-
-    match known.check_port(host, port, key) {
-        CheckResult::Match => Ok(HostKeyCheck::Matched),
-        CheckResult::NotFound => Ok(HostKeyCheck::Unknown {
-            fingerprint: host_key_fingerprint(session),
-        }),
-        CheckResult::Mismatch => anyhow::bail!(
-            "Host key mismatch for {}:{} — the host may have changed or this could be a man-in-the-middle attack",
-            host,
-            port
-        ),
-        CheckResult::Failure => anyhow::bail!(
-            "Host key verification failed for {}:{}",
-            host,
-            port
-        ),
-    }
-}
-
-/// 前端确认后调用：凭 token 从内存取回待确认主机的完整配置，经（可能的）跳板机
-/// 重建连接并校验指纹一致后，把主机密钥写入 known_hosts。密钥/证书内容不经 IPC 往返。
-pub fn accept_host_key(token: &str, expected_fingerprint: &str, timeout_secs: u32) -> Result<()> {
-    let timeout_secs = timeout_secs.max(1);
-    // 取回（并移除）待确认配置；过期/不存在则报错，前端需重新连接重新生成
-    let config = take_pending_host_key(token)
-        .ok_or_else(|| anyhow::anyhow!("主机密钥确认已过期或不存在，请重新连接"))?;
-
-    // 经跳板机（或直连）重建到目标主机的 TCP 连接；跳板机传输层随函数作用域存活
-    let (tcp, _jump) = establish_transport(&config, timeout_secs, &|_, _| {})?;
-
-    let mut session = Session::new()?;
-    session.set_tcp_stream(tcp);
-    session.set_timeout(timeout_secs.saturating_mul(1000));
-    session.handshake()?;
-
-    let actual_fingerprint = host_key_fingerprint(&session);
-    if actual_fingerprint != expected_fingerprint {
-        anyhow::bail!(
-            "Host key fingerprint mismatch: expected {}, got {}",
-            expected_fingerprint,
-            actual_fingerprint
-        );
-    }
-
-    let Some((key, host_key_type)) = session.host_key() else {
-        anyhow::bail!("Host key unavailable after handshake");
-    };
-
-    // 信任写入 DB（纯软件内管理）；非 22 端口按 OpenSSH 的 [host]:port 记录
-    let add_host = if config.port == 22 {
-        config.host.clone()
-    } else {
-        format!("[{}]:{}", config.host, config.port)
-    };
-    let key_type_name = match host_key_type {
-        HostKeyType::Rsa => "ssh-rsa",
-        HostKeyType::Dss => "ssh-dss",
-        HostKeyType::Ecdsa256 => "ecdsa-sha2-nistp256",
-        HostKeyType::Ecdsa384 => "ecdsa-sha2-nistp384",
-        HostKeyType::Ecdsa521 => "ecdsa-sha2-nistp521",
-        HostKeyType::Ed25519 => "ssh-ed25519",
-        HostKeyType::Unknown => anyhow::bail!("Unsupported host key type"),
-    };
-    crate::utils::sqlite::insert_known_host(&add_host, key_type_name, &STANDARD.encode(key))
-        .map_err(|e| anyhow::anyhow!(e))?;
-
-    Ok(())
-}
-
-/// 计算 OpenSSH 风格的 SHA256 主机密钥指纹。
-fn host_key_fingerprint(session: &Session) -> String {
-    session
-        .host_key_hash(HashType::Sha256)
-        .map(|hash| format!("SHA256:{}", STANDARD_NO_PAD.encode(hash)))
-        .unwrap_or_else(|| "SHA256:unknown".to_string())
-}
-
-/// OpenSSH 主机密钥算法名 → libssh2 KnownHostKeyFormat（DB 装载用）。
-fn key_format_from_name(name: &str) -> Option<KnownHostKeyFormat> {
-    match name {
-        "ssh-rsa" | "rsa-sha2-256" | "rsa-sha2-512" => Some(KnownHostKeyFormat::SshRsa),
-        "ssh-dss" => Some(KnownHostKeyFormat::SshDss),
-        "ecdsa-sha2-nistp256" => Some(KnownHostKeyFormat::Ecdsa256),
-        "ecdsa-sha2-nistp384" => Some(KnownHostKeyFormat::Ecdsa384),
-        "ecdsa-sha2-nistp521" => Some(KnownHostKeyFormat::Ecdsa521),
-        "ssh-ed25519" => Some(KnownHostKeyFormat::Ed25519),
-        _ => None,
     }
 }

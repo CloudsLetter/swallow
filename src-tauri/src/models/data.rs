@@ -55,6 +55,9 @@ pub struct KeyRecord {
     pub key_path: Option<String>,
     pub public_key_path: Option<String>,
     pub source: Option<String>,
+    /// 非 OpenSSH 新格式私钥的格式警告（导入时检测）：SSH 终端可用，
+    /// 但 russh 隧道暂不支持传统 PEM，提示用户转换。OpenSSH 格式为 None。
+    pub format_warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
