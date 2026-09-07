@@ -1042,7 +1042,8 @@ export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTermin
   };
   const onDragMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragState.current) return;
-    const dx = dragState.current.startX - e.clientX;
+    // 手柄在面板右缘：向右拖 = 变宽（dx 取光标实际位移，边缘跟随光标）
+    const dx = e.clientX - dragState.current.startX;
     const width = clampWidth(dragState.current.startWidth + dx);
     if (width !== prefs.width) {
       updatePrefs({ width });
