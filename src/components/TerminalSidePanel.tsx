@@ -35,6 +35,7 @@ import {
 } from '../services/monitorService';
 import { disposeSftpSession, type FileItem } from './sftpPool';
 import { useTerminalBackground } from '../hooks/useTerminalBackground';
+import { usePanelStore } from '../store/panelStore';
 
 // ==================== 偏好持久化 ====================
 
@@ -1004,7 +1005,8 @@ export interface TerminalSidePanelProps {
  *   分区/收起/标签切换只暂停轮询，只有关标签才断开）；
  * - 「文件」分区：用终端同一套凭据建立独立 SFTP 连接浏览文件，
  *   支持目录导航/路径跳转/刷新/下载。
- * 偏好（开关/宽度/分区）持久化到 localStorage，跨标签、跨重启生效。
+ * 偏好（宽度/分区）持久化到 localStorage，跨标签、跨重启生效；
+ * 开关状态由 usePanelStore 共享（Topbar 右上角可切换），持久化同样落在该 localStorage key。
  */
 export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTerminal }: TerminalSidePanelProps) {
   const { t } = useTranslation();
@@ -1012,6 +1014,10 @@ export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTermin
   const [dragging, setDragging] = useState(false);
   const [resizeSignal, setResizeSignal] = useState(0);
   const config = useConfigStore((s) => s.config);
+  // open 状态由共享 store 驱动（Topbar 右上角开关与面板自身按钮单一事实来源）；
+  // width/section 仍由本组件持久化到 localStorage
+  const leftOpen = usePanelStore((s) => s.leftPanelOpen);
+  const setLeftPanelOpen = usePanelStore((s) => s.setLeftPanelOpen);
   // 面板背景跟随终端主题：与 TerminalView 同源计算终端背景，按亮度覆盖局部配色变量。
   // 用 terminalBackground（透明终端时为 'transparent' → 保持应用默认面板色，与终端一致地透出应用底色）
   const { terminalBackground, terminalForeground, hasBackgroundImage, extendToTopbar } = useTerminalBackground(config, isActive);
@@ -1025,6 +1031,11 @@ export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTermin
       return next;
     });
   }, []);
+
+  // 共享 store 的开关变化（Topbar 切换 / 其他标签实例收展）同步到本地 prefs
+  useEffect(() => {
+    setPrefs((p) => (p.open === leftOpen ? p : { ...p, open: leftOpen }));
+  }, [leftOpen]);
 
   // 收展动画结束后重新 fit 终端（宽度过渡 200ms）
   useEffect(() => {
@@ -1101,7 +1112,7 @@ export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTermin
               variant="ghost"
               size="icon-xs"
               className="h-7 w-7 shrink-0"
-              onClick={() => updatePrefs({ open: false })}
+              onClick={() => setLeftPanelOpen(false)}
               title={t('terminalPanel.collapse')}
               aria-label={t('terminalPanel.collapse')}
             >
@@ -1145,7 +1156,7 @@ export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTermin
               variant="ghost"
               size="icon-xs"
               className="absolute left-0.5 top-1 h-7 w-7 rounded-md bg-background/80 opacity-0 transition-opacity duration-200 pointer-events-none focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/panel-open:pointer-events-auto group-hover/panel-open:opacity-100"
-              onClick={() => updatePrefs({ open: true })}
+              onClick={() => setLeftPanelOpen(true)}
               title={t('terminalPanel.expand')}
               aria-label={t('terminalPanel.expand')}
             >

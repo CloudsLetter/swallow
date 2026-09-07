@@ -1637,6 +1637,12 @@ export default {
     missingConfig: 'Missing RDP connection config',
   },
 
+  panel: {
+    leftPanel: 'Side panel',
+    quickSettings: 'Quick settings',
+    aiAssistant: 'AI Assistant',
+    openSettings: 'All settings',
+  },
   ai: {
     settingsTitle: 'AI 助手',
     settingsDesc: '配置 OpenAI 兼容端点后即可在右侧 AI 面板中对话。数据仅保存在本机。',
