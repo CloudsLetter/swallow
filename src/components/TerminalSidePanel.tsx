@@ -173,6 +173,46 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** 指标小节标题：紧凑大写小字。 */
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+      {children}
+    </div>
+  );
+}
+
+/** 双值小卡（TCP 连接等计数）：数字为主、标签为辅。 */
+function MiniStat({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="rounded-md bg-muted/40 px-2 py-1.5">
+      <div className="text-sm font-medium leading-none tabular-nums">{value}</div>
+      <div className="mt-1 truncate text-[10px] text-muted-foreground">{label}</div>
+    </div>
+  );
+}
+
+/** Top 进程行：进程名 + pid，右侧百分比。 */
+function ProcessRow({ name, pid, value }: { name: string; pid: number; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <span className="min-w-0 truncate" title={`${name} (pid ${pid})`}>
+        {name} <span className="text-muted-foreground/50">{pid}</span>
+      </span>
+      <span className="shrink-0 tabular-nums text-muted-foreground">{value}</span>
+    </div>
+  );
+}
+
+/** 终端标签的 auth_type → 展示标签（复用 Hosts 页文案）。 */
+const AUTH_LABEL_KEY: Record<string, string> = {
+  password: 'hosts.authTypePassword',
+  key: 'hosts.authTypeKey',
+  certificate: 'hosts.authTypeCertificate',
+  agent: 'hosts.authTypeAgent',
+  none: 'hosts.authTypeNone',
+};
+
 interface StatusSectionProps {
   sshConfig?: SshTabConfig;
   /** 面板可见且处于状态分区时才建立/轮询监控会话 */
@@ -322,6 +362,19 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
 
   const hostLabel = `${sshConfig.username}@${sshConfig.host}`;
   const hasMonitor = !!hostId;
+  // 最忙网卡（rx+tx 之和最大者；其余接口在汇总里体现）
+  const busiestNic =
+    snapshot && snapshot.net.length > 0
+      ? snapshot.net.reduce((a, b) =>
+          b.rxBytesPerSec + b.txBytesPerSec > a.rxBytesPerSec + a.txBytesPerSec ? b : a,
+        )
+      : null;
+  // 认证方式展示标签（复用 Hosts 页文案，缺失时回退原值）
+  const authLabel = sshConfig.auth_type
+    ? AUTH_LABEL_KEY[sshConfig.auth_type]
+      ? t(AUTH_LABEL_KEY[sshConfig.auth_type], { defaultValue: sshConfig.auth_type })
+      : sshConfig.auth_type
+    : '—';
 
   return (
     <div className="space-y-4 p-3 text-xs">
@@ -360,16 +413,35 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
             <p className="text-muted-foreground">{t('terminalPanel.monitorConnecting')}</p>
           ) : snapshot ? (
             <>
-              <MetricBar
-                label={t('terminalPanel.cpu')}
-                value={snapshot.cpuUsage}
-                detail={`${snapshot.cpuUsage.toFixed(1)}% · ${snapshot.cpuCores}C`}
-              />
-              <MetricBar
-                label={t('terminalPanel.memory')}
-                value={(snapshot.memUsed / Math.max(1, snapshot.memTotal)) * 100}
-                detail={`${formatBytes(snapshot.memUsed)} / ${formatBytes(snapshot.memTotal)}`}
-              />
+              {/* CPU：总使用率 + user/system/iowait 细分 + 负载 */}
+              <div className="space-y-1">
+                <MetricBar
+                  label={t('terminalPanel.cpu')}
+                  value={snapshot.cpuUsage}
+                  detail={`${snapshot.cpuUsage.toFixed(1)}% · ${snapshot.cpuCores}C`}
+                />
+                <div className="text-[10px] tabular-nums text-muted-foreground/70">
+                  us {snapshot.cpuUser.toFixed(1)} · sy {snapshot.cpuSystem.toFixed(1)} · wa {snapshot.cpuIowait.toFixed(1)}
+                  {snapshot.cpuSteal > 0.05 ? ` · st ${snapshot.cpuSteal.toFixed(1)}` : ''}
+                </div>
+                <InfoRow
+                  label={t('terminalPanel.load')}
+                  value={`${snapshot.load1.toFixed(2)} / ${snapshot.load5.toFixed(2)} / ${snapshot.load15.toFixed(2)}`}
+                />
+              </div>
+
+              {/* 内存：使用率 + 缓存/可用细分 */}
+              <div className="space-y-1">
+                <MetricBar
+                  label={t('terminalPanel.memory')}
+                  value={(snapshot.memUsed / Math.max(1, snapshot.memTotal)) * 100}
+                  detail={`${formatBytes(snapshot.memUsed)} / ${formatBytes(snapshot.memTotal)}`}
+                />
+                <div className="text-[10px] tabular-nums text-muted-foreground/70">
+                  {t('terminalPanel.cache')} {formatBytes(snapshot.memBuffCache)} · {t('terminalPanel.available')} {formatBytes(snapshot.memAvailable)}
+                </div>
+              </div>
+
               {snapshot.swapTotal > 0 && (
                 <MetricBar
                   label={t('terminalPanel.swap')}
@@ -377,25 +449,88 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
                   detail={`${formatBytes(snapshot.swapUsed)} / ${formatBytes(snapshot.swapTotal)}`}
                 />
               )}
-              {snapshot.disks.slice(0, 4).map((d) => (
-                <MetricBar
-                  key={`${d.filesystem}-${d.mount}`}
-                  label={`${t('terminalPanel.disk')} ${d.mount}`}
-                  value={d.percent}
-                  detail={`${formatBytes(d.used)} / ${formatBytes(d.total)}`}
-                />
-              ))}
+
+              {/* 系统：主机名 / 内核 / 架构 / 开机时长 */}
               <div className="space-y-1 border-t border-sidebar-border pt-2">
-                <InfoRow
-                  label={t('terminalPanel.network')}
-                  value={`↓${formatRate(snapshot.net.reduce((a, n) => a + n.rxBytesPerSec, 0))} ↑${formatRate(snapshot.net.reduce((a, n) => a + n.txBytesPerSec, 0))}`}
-                />
-                <InfoRow
-                  label={t('terminalPanel.load')}
-                  value={`${snapshot.load1.toFixed(2)} / ${snapshot.load5.toFixed(2)} / ${snapshot.load15.toFixed(2)}`}
-                />
+                <SectionTitle>{t('terminalPanel.system')}</SectionTitle>
+                <InfoRow label="Hostname" value={snapshot.hostname !== 'unknown' ? snapshot.hostname : '—'} />
+                <InfoRow label="Kernel" value={snapshot.kernel !== 'unknown' ? snapshot.kernel : '—'} />
+                <InfoRow label="Arch" value={snapshot.arch !== 'unknown' ? snapshot.arch : '—'} />
                 <InfoRow label={t('terminalPanel.hostUptime')} value={formatUptime(snapshot.uptimeSecs)} />
               </div>
+
+              {/* 磁盘：各挂载点用量 + I/O 速率 */}
+              {snapshot.disks.length > 0 && (
+                <div className="space-y-2 border-t border-sidebar-border pt-2">
+                  <SectionTitle>{t('terminalPanel.disk')}</SectionTitle>
+                  <div className="space-y-2">
+                    {snapshot.disks.slice(0, 4).map((d) => (
+                      <MetricBar
+                        key={`${d.filesystem}-${d.mount}`}
+                        label={d.mount}
+                        value={d.percent}
+                        detail={`${formatBytes(d.used)} / ${formatBytes(d.total)}`}
+                      />
+                    ))}
+                  </div>
+                  {snapshot.disksIo.length > 0 && (
+                    <InfoRow
+                      label={t('terminalPanel.diskIo')}
+                      value={`${t('terminalPanel.read')} ↓${formatRate(snapshot.disksIo.reduce((a, d) => a + d.rxBytesPerSec, 0))} · ${t('terminalPanel.write')} ↑${formatRate(snapshot.disksIo.reduce((a, d) => a + d.wxBytesPerSec, 0))}`}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* 网络：汇总速率 + 最忙网卡 */}
+              <div className="space-y-1 border-t border-sidebar-border pt-2">
+                <SectionTitle>{t('terminalPanel.network')}</SectionTitle>
+                <InfoRow
+                  label="↓ / ↑"
+                  value={`${formatRate(snapshot.net.reduce((a, n) => a + n.rxBytesPerSec, 0))} / ${formatRate(snapshot.net.reduce((a, n) => a + n.txBytesPerSec, 0))}`}
+                />
+                {busiestNic && (
+                  <InfoRow
+                    label={t('terminalPanel.busiestNic')}
+                    value={`${busiestNic.interface} ↓${formatRate(busiestNic.rxBytesPerSec)} ↑${formatRate(busiestNic.txBytesPerSec)}`}
+                  />
+                )}
+              </div>
+
+              {/* TCP 连接计数 */}
+              <div className="space-y-1 border-t border-sidebar-border pt-2">
+                <SectionTitle>{t('terminalPanel.tcp')}</SectionTitle>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <MiniStat label="established" value={snapshot.tcp.established} />
+                  <MiniStat label="time-wait" value={snapshot.tcp.timeWait} />
+                  <MiniStat label="close-wait" value={snapshot.tcp.closeWait} />
+                  <MiniStat label="listening" value={snapshot.tcp.listening} />
+                </div>
+              </div>
+
+              {/* 资源占用 Top 进程 */}
+              {(snapshot.topCpu.length > 0 || snapshot.topMem.length > 0) && (
+                <div className="space-y-1.5 border-t border-sidebar-border pt-2">
+                  <SectionTitle>{t('terminalPanel.processes')}</SectionTitle>
+                  {snapshot.topCpu.length > 0 && (
+                    <div className="space-y-0.5">
+                      <div className="text-[10px] text-muted-foreground/60">{t('terminalPanel.topCpu')}</div>
+                      {snapshot.topCpu.slice(0, 3).map((p) => (
+                        <ProcessRow key={`cpu-${p.pid}`} name={p.name} pid={p.pid} value={`${p.cpuPercent.toFixed(1)}%`} />
+                      ))}
+                    </div>
+                  )}
+                  {snapshot.topMem.length > 0 && (
+                    <div className="space-y-0.5">
+                      <div className="text-[10px] text-muted-foreground/60">{t('terminalPanel.topMem')}</div>
+                      {snapshot.topMem.slice(0, 3).map((p) => (
+                        <ProcessRow key={`mem-${p.pid}`} name={p.name} pid={p.pid} value={`${p.memPercent.toFixed(1)}%`} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {error && (
                 <p className="break-all text-muted-foreground/70">{error}</p>
               )}
@@ -409,9 +544,16 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
           ) : null}
         </div>
       ) : (
-        <p className="rounded-md bg-muted/50 p-2 leading-relaxed text-muted-foreground">
-          {t('terminalPanel.monitorHint')}
-        </p>
+        <div className="space-y-2">
+          {/* 无监控（快速连接）：展示会话基础信息 */}
+          <div className="space-y-1 rounded-md bg-muted/40 p-2">
+            <InfoRow label={t('terminalPanel.protocol')} value="SSH" />
+            <InfoRow label={t('terminalPanel.auth')} value={authLabel} />
+          </div>
+          <p className="rounded-md bg-muted/50 p-2 leading-relaxed text-muted-foreground">
+            {t('terminalPanel.monitorHint')}
+          </p>
+        </div>
       )}
     </div>
   );
