@@ -33,8 +33,7 @@ export function Topbar() {
   const aiOpen = usePanelStore((s) => s.aiOpen);
   const setAiOpen = usePanelStore((s) => s.setAiOpen);
 
-  // 首页没有左右面板，按钮整体隐藏；左侧面板仅 SSH/MOSH 标签挂载，其余标签禁用
-  const isHomeActive = activeTab?.type === 'home';
+  // 左右面板仅 SSH/MOSH 标签可用（与 TerminalSidePanel 同显隐），其余标签按钮整体不显示
   const panelAvailable = !!activeTab && (activeTab.type === 'terminal' || activeTab.type === 'mosh');
 
   // 顶栏按钮统一风格：普通 ghost 图标（无通高边框、无激活高亮）
@@ -60,14 +59,13 @@ export function Topbar() {
         <TabBar />
       </div>
       <TransferCenter />
-      {!isHomeActive && (
+      {panelAvailable && (
         <>
           <Button
             variant="ghost"
             size="icon"
             className={topbarButtonClass}
             style={noDrag}
-            disabled={!panelAvailable}
             onClick={toggleLeftPanel}
             title={t('panel.leftPanel')}
             aria-label={t('panel.leftPanel')}
@@ -79,7 +77,6 @@ export function Topbar() {
             size="icon"
             className={topbarButtonClass}
             style={noDrag}
-            disabled={!panelAvailable}
             onClick={toggleRightPanel}
             title={t('panel.rightPanel')}
             aria-label={t('panel.rightPanel')}
