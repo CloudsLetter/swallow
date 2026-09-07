@@ -324,12 +324,12 @@ export function AiAssistant({ open, onOpenChange }: { open: boolean; onOpenChang
                         </span>
                       </div>
 
-                      {/* 确认交互：send_to_terminal 等待用户放行 */}
+                      {/* 确认交互：高危工具（发命令/读日志）等待用户放行 */}
                       {awaitingConfirm && (
                         <div className="border-t border-border/60 px-2 py-1.5">
                           <div className="mb-1.5 flex items-center gap-1 text-foreground">
                             <IconPlay size={10} className="text-amber-500" />
-                            {t('ai.confirmCommand')}
+                            {call.name === 'read_session_log' ? t('ai.confirmReadLog') : t('ai.confirmCommand')}
                           </div>
                           <div className="flex items-center justify-end gap-1.5">
                             <Button

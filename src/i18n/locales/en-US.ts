@@ -1684,6 +1684,7 @@ export default {
     toolDenied: 'Denied',
     toolResult: 'Tool result',
     confirmCommand: 'AI wants to send a command to the terminal',
+    confirmReadLog: 'AI wants to read a session log (may contain echoed commands/passwords)',
     allow: 'Allow',
     deny: 'Deny',
     profileName: 'Profile name',

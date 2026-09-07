@@ -82,6 +82,57 @@ pub fn session_log_read(path: String) -> Result<String, String> {
         .map_err(|e| format!("无法读取回放文件 {path}: {e}"))
 }
 
+/// 日志文件条目（AI 工具/日志页共用，仅元数据不含内容）。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionLogFile {
+    pub path: String,
+    pub name: String,
+    pub kind: String,
+    pub size: u64,
+    pub modified: u64,
+}
+
+/// 枚举会话日志目录下的日志文件（.log 纯文本 / .replay.jsonl 回放），按修改时间倒序。
+/// directory 缺省空时由命令方传入设置目录；失败返回空列表而非报错（无日志目录很常见）。
+#[tauri::command]
+pub fn session_log_list(directory: String) -> Vec<SessionLogFile> {
+    let Ok(entries) = std::fs::read_dir(&directory) else {
+        return Vec::new();
+    };
+    let mut files = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let kind = if name.ends_with(".replay.jsonl") {
+            "replay"
+        } else if name.ends_with(".log") {
+            "plain"
+        } else {
+            continue;
+        };
+        let meta = match entry.metadata() {
+            Ok(m) if m.is_file() => m,
+            _ => continue,
+        };
+        let modified = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        files.push(SessionLogFile {
+            path: path.to_string_lossy().into_owned(),
+            name,
+            kind: kind.into(),
+            size: meta.len(),
+            modified,
+        });
+    }
+    files.sort_by(|a, b| b.modified.cmp(&a.modified));
+    files
+}
+
 /// 追加写文件（追加模式：不存在则创建）。
 fn write_log_file(path: &str, content: &str) -> Result<(), String> {
     let mut file = OpenOptions::new()

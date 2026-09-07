@@ -8,13 +8,17 @@
  *
  * 工具循环（调用 → 执行 → 结果回传 → 续轮）由 AiAssistant 组件驱动。
  */
+import { invoke } from '@tauri-apps/api/core';
 import { useTabStore, type Tab } from '../store/tabStore';
+import { useConfigStore } from '../store/config';
 import {
   enqueueWriteToTargets,
+  getConnectionSteps,
   isConnected,
   serializeTerminalBuffer,
 } from '../components/terminalPool';
-import { getHosts, getSnippets } from './dataService';
+import { getHosts, getKnownHosts, getSnippets } from './dataService';
+import type { MonitorSnapshot } from './monitorService';
 
 export interface ToolCall {
   id: string;
@@ -79,6 +83,59 @@ export const TOOL_SCHEMAS = [
           sessionId: { type: 'string', description: '目标终端会话 ID，缺省为当前激活会话' },
         },
         required: ['command'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'diagnose_connection',
+      description:
+        '排查某台保存主机连不上的原因（认证/主机密钥/代理/会话报错）。只读。先调 list_hosts 拿到候选主机，再以 hostName 调用本工具；它会返回该主机的脱敏连接配置、known_hosts 信任状态与相关开放会话的失败阶段，据此给出分步建议（不要回传/猜测密码）。',
+      parameters: {
+        type: 'object',
+        properties: {
+          hostName: { type: 'string', description: '要诊断的已保存主机名称（来自 list_hosts）' },
+        },
+        required: ['hostName'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_monitor',
+      description:
+        '读取某台主机的实时状态监控采样（CPU/内存/磁盘/网络/负载/TCP/Top 进程），回答「服务器为什么卡/内存够不够/磁盘满了没」这类问题。只读。缺省 hostName 时返回当前有监控会话的第一台主机。没有监控会话时告知用户先连接并开启监控。',
+      parameters: {
+        type: 'object',
+        properties: {
+          hostName: { type: 'string', description: '要读取监控的主机名称（来自 list_hosts），缺省自动选' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_session_logs',
+      description:
+        '列出本机保存的会话日志文件（纯文本 .log 或回放 .replay.jsonl），按时间倒序，最多 50 个。用户问「查会话记录/刚才那次操作记录」或需要日志复盘时先用它找到目标日志，再调 read_session_log。',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_session_log',
+      description:
+        '读取指定会话日志文件的文本内容（返回尾部最多 8000 字符）。日志是终端回显的原始输出，可能包含用户键入的命令甚至口令，属敏感操作：框架会先弹确认框，用户允许后才读取。只在用户明确要求分析某次会话记录时使用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: '日志文件完整路径（来自 list_session_logs 的 path 字段）' },
+        },
+        required: ['path'],
       },
     },
   },
@@ -189,6 +246,178 @@ export async function executeToolCall(
 
       enqueueWriteToTargets([target.sessionId], command.trimEnd() + '\r');
       return { result: `命令已发送到会话「${target.tabName}」并回车执行：${command.slice(0, 200)}`, denied: false };
+    }
+
+    case 'diagnose_connection': {
+      try {
+        const hostName = typeof args.hostName === 'string' ? args.hostName : '';
+        if (!hostName.trim()) return { result: '缺少 hostName 参数。', denied: false };
+        const hosts = await getHosts();
+        const host = hosts.find((h) => h.name === hostName);
+        if (!host) {
+          const names = hosts.map((h) => h.name).join('、') || '（空）';
+          return {
+            result: `未找到名为「${hostName}」的保存主机。请先调 list_hosts 核对名称（现有：${names}）。`,
+            denied: false,
+          };
+        }
+        // —— 脱敏连接配置（绝不回传 password/key/cert 内容）——
+        const lines: string[] = [
+          `主机「${host.name}」连接诊断：`,
+          `目标 ${host.host}:${host.port}  用户 ${host.username || '(缺省)'}  认证方式 ${host.authType || '未知'}`,
+          `密钥/证书：${host.keyId ? '已绑定 key' : '无 key'}${host.certificateId ? ' + cert' : ''}`,
+        ];
+        if (host.useProxy) {
+          const proxyHosts = await getHosts();
+          const proxy = proxyHosts.find((p) => p.id === host.proxyHostId);
+          lines.push(`经代理：${proxy ? `${proxy.name} (${proxy.host}:${proxy.port})` : `hostId=${host.proxyHostId}（未找到）`}`);
+        } else {
+          lines.push('直连（无代理）');
+        }
+        // —— known_hosts 信任状态 ——
+        try {
+          const known = await getKnownHosts();
+          const relevant = known.filter((k) => k.host.includes(host.host));
+          if (relevant.length === 0) {
+            lines.push('known_hosts：该主机**未被信任**（首次连接会要求确认指纹；若是换机/改密钥后也会拒绝）');
+          } else {
+            lines.push(`known_hosts：已信任 ${relevant.length} 条 → ${relevant.map((k) => `${k.keyType} ${k.fingerprint.slice(0, 16)}…`).join('、')}`);
+          }
+        } catch (e) {
+          lines.push(`known_hosts 读取失败：${String(e)}`);
+        }
+        // —— 关联的开放会话与失败阶段 ——
+        const { tabs } = useTabStore.getState();
+        const related = tabs.filter((tab) => {
+          if (tab.type === 'terminal') {
+            const cfg = (tab as unknown as { sshConfig?: { host?: string; hostId?: string } }).sshConfig;
+            return cfg?.hostId === host.id || cfg?.host === host.host;
+          }
+          if (tab.type === 'mosh') {
+            const cfg = (tab as unknown as { moshConfig?: { host?: string; hostId?: string } }).moshConfig;
+            return cfg?.hostId === host.id || cfg?.host === host.host;
+          }
+          return false;
+        });
+        if (related.length === 0) {
+          lines.push('开放会话：无（需要重连后复现，或检查主机地址可达性）');
+        } else {
+          lines.push('开放会话：');
+          for (const tab of related) {
+            const sid = tab.sessionId;
+            const status = sid && isConnected(sid) ? '已连接' : sid ? '未连接' : '无 session';
+            lines.push(`- 「${tab.name}」${tab.type} ${status}`);
+            if (sid) {
+              const steps = getConnectionSteps(sid) ?? [];
+              const failed = steps.filter((s) => s.status === 'error');
+              const active = steps.find((s) => s.status === 'loading');
+              if (failed.length > 0) {
+                for (const s of failed) lines.push(`  失败阶段「${s.label}」：${s.message || '无详情'}`);
+              } else if (active) {
+                lines.push(`  正在「${active.label}」阶段…`);
+              } else if (steps.length > 0) {
+                lines.push(`  阶段：${steps.map((s) => `${s.label}:${s.status === 'success' ? 'ok' : s.status}`).join(' → ')}`);
+              }
+            }
+          }
+        }
+        return { result: lines.join('\n'), denied: false };
+      } catch (e) {
+        return { result: `诊断执行失败：${String(e)}`, denied: false };
+      }
+    }
+
+    case 'read_monitor': {
+      try {
+        const hostName = typeof args.hostName === 'string' ? args.hostName : '';
+        const hosts = await getHosts();
+        const host = hostName ? hosts.find((h) => h.name === hostName) : undefined;
+        if (hostName && !host) {
+          return { result: `未找到名为「${hostName}」的主机，请先调 list_hosts 核对。`, denied: false };
+        }
+        const ids = await invoke<string[]>('monitor_list_sessions');
+        if (!ids || ids.length === 0) {
+          return { result: '当前没有活动的监控会话（左侧面板未开监控或已关闭）。请让用户先连接主机并开启左侧「状态」监控，之后再来读取。', denied: false };
+        }
+        // 匹配：hostName → 该主机的监控会话；否则取第一个（尽力还原主机名）
+        let sid: string | undefined;
+        let sidHostName: string | undefined;
+        if (host) {
+          const prefix = `monitor-${host.id}-`;
+          sid = ids.find((i) => i.startsWith(prefix));
+          sidHostName = host.name;
+        }
+        if (!sid) {
+          sid = ids[0];
+          // 从 id 前缀还原 hostId（hostId 假设无 '-'，monitor 会话 id 形如 monitor-{hostId}-{ts}）
+          const stripped = sid.startsWith('monitor-') ? sid.slice('monitor-'.length) : '';
+          const dash = stripped.lastIndexOf('-');
+          const hostIdGuess = dash > 0 ? stripped.slice(0, dash) : stripped;
+          sidHostName = hosts.find((h) => h.id === hostIdGuess)?.name ?? '未知主机';
+          if (host && hostName) {
+            return { result: `主机「${host.name}」没有活动的监控会话（当前监控的是「${sidHostName}」）。请确认该主机的状态监控已开启。`, denied: false };
+          }
+        }
+        if (!sid) return { result: '无可用监控会话。', denied: false };
+        const snap = await invoke<MonitorSnapshot>('monitor_collect', { sessionId: sid });
+        const fmt = (n: number) => (n >= 1073741824 ? `${(n / 1073741824).toFixed(1)}G` : n >= 1048576 ? `${(n / 1048576).toFixed(1)}M` : `${(n / 1024).toFixed(0)}K`);
+        const out: string[] = [
+          `监控（${sidHostName} / ${snap.hostname}，${snap.kernel} ${snap.arch}）：`,
+          `运行 ${Math.floor(snap.uptimeSecs / 3600)}h${Math.floor((snap.uptimeSecs % 3600) / 60)}m  负载 ${snap.load1}/${snap.load5}/${snap.load15}（${snap.cpuCores} 核）`,
+          `CPU ${snap.cpuUsage.toFixed(1)}%（user ${snap.cpuUser.toFixed(1)}/sys ${snap.cpuSystem.toFixed(1)}/iowait ${snap.cpuIowait.toFixed(1)}/steal ${snap.cpuSteal.toFixed(1)}）`,
+          `内存 已用 ${fmt(snap.memUsed)} / ${fmt(snap.memTotal)}（可用 ${fmt(snap.memAvailable)}，buff/cache ${fmt(snap.memBuffCache)}）`,
+          `交换 ${snap.swapTotal > 0 ? `${fmt(snap.swapUsed)} / ${fmt(snap.swapTotal)}` : '未启用'}`,
+        ];
+        const diskTop = [...snap.disks].sort((a, b) => b.percent - a.percent).slice(0, 6);
+        if (diskTop.length > 0) out.push(`磁盘：${diskTop.map((d) => `${d.mount} ${d.percent}%`).join('，')}`);
+        if (snap.net.length > 0) {
+          out.push(`网络：${snap.net.map((n) => `${n.interface} ↓${fmt(n.rxBytesPerSec)}/s ↑${fmt(n.txBytesPerSec)}/s`).join('，')}`);
+        }
+        out.push(`TCP established ${snap.tcp.established} / timewait ${snap.tcp.timeWait} / closewait ${snap.tcp.closeWait}`);
+        if (snap.topCpu.length > 0) out.push(`CPU Top：${snap.topCpu.slice(0, 5).map((p) => `${p.name}(${p.pid}) ${p.cpuPercent.toFixed(1)}%`).join('，')}`);
+        if (snap.topMem.length > 0) out.push(`内存 Top：${snap.topMem.slice(0, 5).map((p) => `${p.name}(${p.pid}) ${fmt(p.memBytes)}`).join('，')}`);
+        return { result: out.join('\n'), denied: false };
+      } catch (e) {
+        return { result: `读取监控失败：${String(e)}`, denied: false };
+      }
+    }
+
+    case 'list_session_logs': {
+      try {
+        const directory = useConfigStore.getState().config?.terminal?.session_log_directory ?? '';
+        if (!directory) return { result: '尚未配置会话日志目录。', denied: false };
+        const files = await invoke<
+          { path: string; name: string; kind: string; size: number; modified: number }[]
+        >('session_log_list', { directory });
+        if (!files || files.length === 0) {
+          return { result: '日志目录为空：还没有任何会话日志（需在「设置 → 终端 → 会话日志」开启记录后产生）。', denied: false };
+        }
+        const brief = files.slice(0, 50).map((f) => {
+          const d = f.modified ? new Date(f.modified * 1000).toLocaleString() : '';
+          return `- ${f.name} [${f.kind}] ${(f.size / 1024).toFixed(1)}KB ${d}\n  path: ${f.path}`;
+        });
+        return { result: `本机会话日志（共 ${files.length} 个，取最近 ${Math.min(files.length, 50)}）：\n${brief.join('\n')}`, denied: false };
+      } catch (e) {
+        return { result: `枚举日志失败：${String(e)}`, denied: false };
+      }
+    }
+
+    case 'read_session_log': {
+      const path = typeof args.path === 'string' ? args.path : '';
+      if (!path.trim()) return { result: '缺少 path 参数，请先用 list_session_logs 找到目标日志。', denied: false };
+      const allowed = await requestConfirm(call);
+      if (!allowed) return { result: `用户拒绝读取日志文件 ${path.slice(0, 120)}。不要擅自重试，先询问用户。`, denied: true };
+      try {
+        const text = await invoke<string>('session_log_read', { path });
+        const max = 8000;
+        const trimmed = text.length > max ? text.slice(-max) : text;
+        return {
+          result: `日志「${path.split(/[\\/]/).pop() ?? path}」共 ${text.length} 字符，返回尾部 ${trimmed.length} 字符（含终端回显，可能含用户输入）：\n\`\`\`\n${trimmed}\n\`\`\``,
+          denied: false,
+        };
+      } catch (e) {
+        return { result: `读取日志失败：${String(e)}`, denied: false };
+      }
     }
 
     default:

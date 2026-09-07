@@ -207,6 +207,7 @@ pub fn run() {
             services::session_log::session_log_append,
             services::session_log::session_log_close,
             services::session_log::session_log_read,
+            services::session_log::session_log_list,
             services::monitor_state::monitor_get_state,
             services::monitor_state::monitor_save_state,
         ])

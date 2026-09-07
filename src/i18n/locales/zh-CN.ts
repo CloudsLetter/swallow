@@ -1682,6 +1682,7 @@ export default {
     toolDenied: '已拒绝',
     toolResult: '工具结果',
     confirmCommand: 'AI 请求向终端发送命令',
+    confirmReadLog: 'AI 请求读取会话日志（内容可能含命令与口令回显）',
     allow: '允许执行',
     deny: '拒绝',
     profileName: '档案名称',
