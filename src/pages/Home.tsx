@@ -55,6 +55,10 @@ export function Home() {
 
   const homeTab = tabs.find((t: Tab) => t.type === 'home');
   const isHomeActive = activeTabId === (homeTab?.id ?? 'home-tab');
+  // 左右面板与左侧 TerminalSidePanel 同显隐：仅 SSH 终端与 MOSH 标签激活时存在
+  const activeSessionTab = tabs.find((t: Tab) => t.id === activeTabId);
+  const isSidePanelTab =
+    activeSessionTab?.type === 'terminal' || activeSessionTab?.type === 'mosh';
 
   // 向 keep-alive 页面广播「当前可见页面」（切到会话标签时置 null）
   useEffect(() => {
@@ -216,9 +220,9 @@ export function Home() {
       </div>
 
       {/* 右侧功能面板（指令/终端/设置）：内嵌占位，展开时挤压内容区，配色跟随终端主题。
-          与左侧面板行为对齐：home 标签激活时不渲染（面板开关状态保留在 panelStore，
-          切回终端类标签后自动恢复原样） */}
-      {!isHomeActive && <RightPanelBar />}
+          与左侧 TerminalSidePanel 同显隐：仅终端/MOSH 标签激活时渲染（面板开关状态
+          保留在 panelStore，切回终端类标签后自动恢复原样） */}
+      {isSidePanelTab && <RightPanelBar />}
     </div>
   );
 }
