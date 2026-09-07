@@ -1,6 +1,7 @@
 ﻿import { useState, useEffect, lazy, Suspense, type ReactNode } from 'react';
 import { SideMenu } from '../components/SideMenu';
 import { TerminalView } from '../components/TerminalView';
+import { TerminalSidePanel } from '../components/TerminalSidePanel';
 import { SftpView } from '../components/SftpView';
 import { SplitView } from '../components/SplitView';
 import { QuickConnect } from './QuickConnect';
@@ -122,11 +123,36 @@ export function Home() {
               style={{ display: isActive ? 'block' : 'none', flex: 1, minHeight: 0 }}
             >
               {tab.type === 'terminal' ? (
-                <TerminalView
+                // SSH 终端：包一层可伸缩侧栏（主机状态 / 文件浏览）
+                <TerminalSidePanel
                   sessionId={tab.sessionId || undefined}
                   sshConfig={tab.sshConfig}
-                  skipAutoConnect={tab.skipAutoConnect}
                   isActive={isActive}
+                  renderTerminal={(resizeSignal) => (
+                    <TerminalView
+                      sessionId={tab.sessionId || undefined}
+                      sshConfig={tab.sshConfig}
+                      skipAutoConnect={tab.skipAutoConnect}
+                      isActive={isActive}
+                      resizeSignal={resizeSignal}
+                    />
+                  )}
+                />
+              ) : tab.type === 'mosh' && tab.moshConfig ? (
+                // MOSH：引导字段同 SSH，侧栏同样可用（监控/文件走 SSH 通道）
+                <TerminalSidePanel
+                  sessionId={tab.sessionId || undefined}
+                  sshConfig={tab.moshConfig}
+                  isActive={isActive}
+                  renderTerminal={(resizeSignal) => (
+                    <TerminalView
+                      sessionId={tab.sessionId || undefined}
+                      moshConfig={tab.moshConfig}
+                      skipAutoConnect={tab.skipAutoConnect}
+                      isActive={isActive}
+                      resizeSignal={resizeSignal}
+                    />
+                  )}
                 />
               ) : tab.type === 'telnet' ? (
                 <TerminalView
@@ -146,13 +172,6 @@ export function Home() {
                 <TerminalView
                   sessionId={tab.sessionId || undefined}
                   serialConfig={tab.serialConfig}
-                  skipAutoConnect={tab.skipAutoConnect}
-                  isActive={isActive}
-                />
-              ) : tab.type === 'mosh' && tab.moshConfig ? (
-                <TerminalView
-                  sessionId={tab.sessionId || undefined}
-                  moshConfig={tab.moshConfig}
                   skipAutoConnect={tab.skipAutoConnect}
                   isActive={isActive}
                 />
