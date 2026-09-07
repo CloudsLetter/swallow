@@ -546,6 +546,12 @@ export function TerminalSettings() {
               })
             }
           />
+          <SwitchRow
+            label={t('settings.panelAutoConnect')}
+            desc={t('settings.panelAutoConnectDesc')}
+            checked={config.terminal.side_panel_auto_connect}
+            onCheckedChange={(v) => updateTerminalConfig({ side_panel_auto_connect: v })}
+          />
 
           <div>
             <Label className="mb-2 block text-sm font-medium">{t('settings.bellStyle')}</Label>

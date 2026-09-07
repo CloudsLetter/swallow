@@ -254,6 +254,10 @@ pub struct Terminal {
 	/// 右键直接粘贴（与右键选择单词互斥；选词开启时优先选词）。
 	#[serde(default)]
 	pub right_click_pastes: bool,
+	/// 左侧面板（状态监控/文件浏览）是否随 SSH/MOSH 会话自动建立连接；
+	/// 关闭时需在面板内手动启动。默认关闭（安静）。
+	#[serde(default)]
+	pub side_panel_auto_connect: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -890,6 +894,7 @@ impl Default for Terminal {
 			session_log_format: default_session_log_format(),
 			autocomplete_enabled: true,
 			right_click_pastes: false,
+			side_panel_auto_connect: false,
 		}
 	}
 }

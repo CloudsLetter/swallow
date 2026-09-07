@@ -219,6 +219,8 @@ export interface Terminal {
   autocomplete_enabled: boolean;
   // 右键直接粘贴（与右键选择单词互斥）
   right_click_pastes: boolean;
+  // 左侧面板（状态监控/文件浏览）随 SSH/MOSH 会话自动建立连接；关闭时手动启动
+  side_panel_auto_connect: boolean;
 }
 
 export interface TerminalThemePreset {

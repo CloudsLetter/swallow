@@ -12,9 +12,11 @@ import {
   PanelLeftClose as IconPanelClose,
   PanelLeftOpen as IconPanelOpen,
   RefreshCw as IconRefresh,
+  Zap as IconZap,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { Switch } from './ui/switch';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useOnlineHosts } from '../store/uiState';
@@ -259,9 +261,11 @@ interface StatusSectionProps {
   active: boolean;
   /** 终端标签是否处于激活（非激活标签暂停轮询，会话保留） */
   tabActive: boolean;
+  /** 自动连接开关：关闭时不自动建监控会话，改由面板内「开始监控」手动触发 */
+  autoConnect: boolean;
 }
 
-function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
+function StatusSection({ sshConfig, active, tabActive, autoConnect }: StatusSectionProps) {
   const { t } = useTranslation();
   const hostId = sshConfig?.hostId;
   const hostKey = sshConfig ? `${sshConfig.host}:${sshConfig.port}` : '';
@@ -285,8 +289,24 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
   tabActiveRef.current = tabActive;
   // 用户拒绝过主机密钥确认：停止自动重试，等手动重试
   const approvalDeclinedRef = useRef(false);
+  // 自动连接关闭后由「开始监控」按钮手动拉起会话（manualRun=true 等效开启）
+  const [manualRun, setManualRun] = useState(false);
   // 轮询句柄：分区/标签转为可见时立即触发一次，不等 3s 周期
   const tickRef = useRef<() => void>(() => {});
+
+  // 自动连接开关变化时复位手动拉起状态
+  useEffect(() => {
+    setManualRun(false);
+  }, [autoConnect]);
+
+  /** 手动启动监控（autoConnect 关闭时按钮调用；开启时无此场景）。 */
+  const startMonitor = () => {
+    approvalDeclinedRef.current = false;
+    failCountRef.current = 0;
+    setGaveUp(false);
+    setError(null);
+    setManualRun(true);
+  };
 
   useEffect(() => {
     if (online) {
@@ -307,9 +327,11 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
   }, [online]);
 
   // 监控会话生命周期跟随终端标签：挂载即管理会话、卸载（关标签）才断开；
-  // 分区隐藏/面板收起/标签失活只暂停轮询，会话与快照保留 —— 切换状态/文件分区不重连
+  // 分区隐藏/面板收起/标签失活只暂停轮询，会话与快照保留 —— 切换状态/文件分区不重连。
+  // autoConnect 关闭且未手动拉起时不建会话；开关在运行中关闭会断开已建会话。
+  const runActive = autoConnect || manualRun;
   useEffect(() => {
-    if (!hostId || approvalDeclinedRef.current || gaveUp) return;
+    if (!hostId || !runActive || approvalDeclinedRef.current || gaveUp) return;
     let cancelled = false;
 
     const stopSession = () => {
@@ -398,7 +420,7 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
       stopSession();
       setSnapshot(null);
     };
-  }, [hostId, retryNonce, gaveUp, t]);
+  }, [hostId, retryNonce, gaveUp, runActive, t]);
 
   // 分区/标签转为可见时立即轮询一次（会话仍在，秒级刷新）
   useEffect(() => {
@@ -471,8 +493,7 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
             </div>
           ) : starting && !snapshot ? (
             <p className="text-muted-foreground">{t('terminalPanel.monitorConnecting')}</p>
-          ) : snapshot ? (
-            <>
+          ) : snapshot ? (            <>
               {/* CPU：总使用率 + user/system/iowait 细分 + 负载 */}
               <div className="space-y-1">
                 <MetricBar
@@ -619,7 +640,25 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
                 </Button>
               )}
             </>
-          ) : null}
+          ) : (
+            <div className="space-y-2">
+              <p className="rounded-md bg-muted/50 p-2 leading-relaxed text-muted-foreground">
+                {runActive ? t('terminalPanel.monitorConnecting') : t('terminalPanel.monitorPaused')}
+              </p>
+              {!runActive && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 w-full text-xs"
+                  disabled={!online}
+                  onClick={startMonitor}
+                >
+                  <IconZap size={12} strokeWidth={2} />
+                  {t('terminalPanel.startMonitor')}
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-2">
@@ -645,9 +684,11 @@ interface FilesSectionProps {
   sshConfig?: SshTabConfig;
   /** 面板可见且处于文件分区时才建立连接 */
   active: boolean;
+  /** 自动连接开关：关闭时不自动建 SFTP 会话，改由「连接」按钮手动触发 */
+  autoConnect: boolean;
 }
 
-function FilesSection({ sessionId, sshConfig, active }: FilesSectionProps) {
+function FilesSection({ sessionId, sshConfig, active, autoConnect }: FilesSectionProps) {
   const { t } = useTranslation();
   // 独立的 SFTP 会话 id：随终端会话派生，避免与终端/其他面板冲突
   const panelSessionId = `panel-sftp-${sessionId}`;
@@ -766,13 +807,13 @@ function FilesSection({ sessionId, sshConfig, active }: FilesSectionProps) {
     }
   }, [loading, panelSessionId]);
 
-  // 首次可见时自动连接
+  // 首次可见时自动连接（仅自动连接开启时）
   useEffect(() => {
-    if (activeRef.current && status === 'idle' && sshConfig) {
+    if (autoConnect && activeRef.current && status === 'idle' && sshConfig) {
       void connectAndList('/');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
+  }, [active, autoConnect]);
 
   const retry = () => {
     approvalDeclinedRef.current = false;
@@ -851,7 +892,17 @@ function FilesSection({ sessionId, sshConfig, active }: FilesSectionProps) {
       {/* 列表区 */}
       <div className="panel-scroll min-h-0 flex-1 overflow-y-auto p-1">
         {status === 'idle' || status === 'connecting' ? (
-          <p className="p-2 text-muted-foreground">{t('terminalPanel.filesConnecting')}</p>
+          !autoConnect && status === 'idle' ? (
+            <div className="space-y-2 p-2">
+              <p className="leading-relaxed text-muted-foreground">{t('terminalPanel.filesPaused')}</p>
+              <Button variant="outline" size="sm" className="h-7 w-full text-xs" onClick={retry}>
+                <IconRefresh size={12} strokeWidth={2} />
+                {t('terminalPanel.connectFiles')}
+              </Button>
+            </div>
+          ) : (
+            <p className="p-2 text-muted-foreground">{t('terminalPanel.filesConnecting')}</p>
+          )
         ) : status === 'error' ? (
           <div className="space-y-2 p-2">
             <p className="break-all text-destructive">{t('terminalPanel.filesConnectFailed')}</p>
@@ -964,6 +1015,7 @@ export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTermin
   const [dragging, setDragging] = useState(false);
   const [resizeSignal, setResizeSignal] = useState(0);
   const config = useConfigStore((s) => s.config);
+  const updateConfig = useConfigStore((s) => s.updateConfig);
   // open 状态由共享 store 驱动（Topbar 右上角开关与面板自身按钮单一事实来源）；
   // width/section 仍由本组件持久化到 localStorage
   const leftOpen = usePanelStore((s) => s.leftPanelOpen);
@@ -981,6 +1033,14 @@ export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTermin
       return next;
     });
   }, []);
+
+  // 左面板自动连接：单一事实源为全局配置（terminal.side_panel_auto_connect）——
+  // 面板头部小开关与「设置 → 终端 → 行为」开关读写同一字段，天然同步
+  const autoConnect = config?.terminal?.side_panel_auto_connect ?? false;
+  const toggleAutoConnect = (v: boolean) => {
+    if (!config) return;
+    updateConfig({ terminal: { ...config.terminal, side_panel_auto_connect: v } });
+  };
 
   // 共享 store 的开关变化（Topbar 切换 / 其他标签实例收展）同步到本地 prefs
   useEffect(() => {
@@ -1032,7 +1092,7 @@ export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTermin
           )}
           style={{ width: prefs.width, ...panelTheme.style }}
         >
-          {/* 头部：分区切换 + 收起按钮 */}
+          {/* 头部：分区切换 + 自动连接开关 + 收起按钮 */}
           <div className="flex h-11 shrink-0 items-center justify-between gap-1 border-b border-sidebar-border pl-1.5 pr-1">
             <div className="flex min-w-0 items-center gap-1">
               {(
@@ -1058,6 +1118,26 @@ export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTermin
                 </button>
               ))}
             </div>
+            {/* 自动连接：开=监控/文件随会话自动连；关=需用时手动点「连接」 */}
+            <div
+              className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-sidebar-accent"
+              title={t('terminalPanel.autoConnect')}
+            >
+              <IconZap
+                size={12}
+                strokeWidth={2}
+                className={cn(
+                  'shrink-0',
+                  autoConnect ? 'text-primary' : 'text-muted-foreground opacity-60',
+                )}
+              />
+              <Switch
+                checked={autoConnect}
+                onCheckedChange={toggleAutoConnect}
+                className="scale-[0.8]"
+                aria-label={t('terminalPanel.autoConnect')}
+              />
+            </div>
             <Button
               variant="ghost"
               size="icon-xs"
@@ -1074,10 +1154,20 @@ export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTermin
               连接跟随终端标签生命周期，分区间切换不重连，只有关标签才释放 */}
           <div className="min-h-0 flex-1 overflow-hidden">
             <div className="panel-scroll" style={{ display: prefs.section === 'status' ? 'block' : 'none', height: '100%', overflowY: 'auto' }}>
-              <StatusSection sshConfig={sshConfig} active={sectionActive('status')} tabActive={isActive} />
+              <StatusSection
+                sshConfig={sshConfig}
+                active={sectionActive('status')}
+                tabActive={isActive}
+                autoConnect={autoConnect}
+              />
             </div>
             <div style={{ display: prefs.section === 'files' ? 'block' : 'none', height: '100%' }}>
-              <FilesSection sessionId={sessionId || ''} sshConfig={sshConfig} active={sectionActive('files')} />
+              <FilesSection
+                sessionId={sessionId || ''}
+                sshConfig={sshConfig}
+                active={sectionActive('files')}
+                autoConnect={autoConnect}
+              />
             </div>
           </div>
 
