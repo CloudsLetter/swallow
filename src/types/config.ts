@@ -278,6 +278,8 @@ export interface ShortcutBinding {
   terminal_copy: string;
   terminal_paste: string;
   terminal_select_all: string;
+  // 终端内缓冲区查找（默认 Ctrl+Shift+F）
+  terminal_find: string;
   enabled: boolean;
 }
 

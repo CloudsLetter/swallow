@@ -319,6 +319,14 @@ export default {
     shortcutsDesc: 'Press the key combination you want, supporting Ctrl, Shift, Alt and other modifiers',
     shortcutsPlaceholder: 'Custom shortcuts feature coming soon',
     toggleShortcutsDesc: 'Shortcuts are disabled by default on this page to avoid conflicts; toggle to enable/disable global shortcuts',
+    shortcutPresets: 'Shortcut presets',
+    shortcutPresetsDesc: 'Apply a mainstream keymap in one click (not saved automatically; fine-tune rows after applying)',
+    shortcutPreset_default: 'Default',
+    shortcutPreset_termius: 'Termius',
+    shortcutPreset_warp: 'Warp',
+    shortcutPresetDesc_default: 'Current default: Ctrl+T new tab / Ctrl+W close / Ctrl+Shift+←→ switch tabs',
+    shortcutPresetDesc_termius: 'Termius style: Ctrl+Alt+T new tab, Ctrl+Tab / Ctrl+Shift+Tab to cycle',
+    shortcutPresetDesc_warp: 'Warp (Windows) style: Ctrl+Tab / Ctrl+Shift+Tab to cycle tabs, rest unchanged',
 
     // Cloud Sync
     cloudSyncDesc: 'Cloud sync allows you to synchronize configurations, connection information, and keys across multiple devices. Data is transmitted using end-to-end encryption.',
@@ -525,6 +533,7 @@ export default {
     terminal_copy: 'Copy (in terminal)',
     terminal_paste: 'Paste (in terminal)',
     terminal_select_all: 'Select All (in terminal)',
+    terminal_find: 'Find (in terminal)',
   },
 
   window: {

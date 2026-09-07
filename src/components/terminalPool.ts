@@ -408,8 +408,9 @@ export function setupTerminalInteractions(sessionId: string) {
       terminal.selectAll();
       return false;
     }
-    // 缓冲区查找（固定 Ctrl+Shift+F，与主流终端一致）；回调由 TerminalView 注册
-    if (matchesShortcut(event, 'Ctrl+Shift+F')) {
+    // 缓冲区查找（默认 Ctrl+Shift+F，可自定义）；回调由 TerminalView 注册
+    const bindFind = shortcutOrDefault(sc?.terminal_find, 'Ctrl+Shift+F');
+    if (matchesShortcut(event, bindFind)) {
       event.preventDefault();
       pool[sessionId]?.onFindToggle?.();
       return false;

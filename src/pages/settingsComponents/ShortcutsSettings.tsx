@@ -16,7 +16,7 @@ export function ShortcutsSettings() {
 
   const updateConfig = useConfigStore((state) => state.updateConfig);
   const [editingKey, setEditingKey] = useState<string | null>(null);
-  const DEFAULT_SHORTCUTS: Record<string, string> = {
+  const DEFAULT_SHORTCUTS: Record<string, string | boolean> = {
     new_tab: 'Ctrl+T',
     close_tab: 'Ctrl+W',
     next_tab: 'Ctrl+Shift+→',
@@ -27,6 +27,17 @@ export function ShortcutsSettings() {
     terminal_copy: 'Ctrl+Shift+C',
     terminal_paste: 'Ctrl+Shift+V',
     terminal_select_all: 'Ctrl+Shift+A',
+    terminal_find: 'Ctrl+Shift+F',
+    enabled: true,
+  };
+
+  /** 快捷键预设（覆盖常用键，应用后仍可逐项重绑）。 */
+  const PRESETS: Record<string, Record<string, string | boolean>> = {
+    default: DEFAULT_SHORTCUTS,
+    // Termius 桌面端：新建标签 Ctrl+Alt+T，Ctrl+Tab / Ctrl+Shift+Tab 循环标签
+    termius: { ...DEFAULT_SHORTCUTS, new_tab: 'Ctrl+Alt+T', next_tab: 'Ctrl+Tab', prev_tab: 'Ctrl+Shift+Tab' },
+    // Warp（Windows）：Ctrl+Tab / Ctrl+Shift+Tab 循环标签，其余同默认
+    warp: { ...DEFAULT_SHORTCUTS, next_tab: 'Ctrl+Tab', prev_tab: 'Ctrl+Shift+Tab' },
   };
 
   // 与默认值合并：老 config 未存 terminal_* 时也显示并可用（保存后落盘）
@@ -115,6 +126,28 @@ export function ShortcutsSettings() {
             updateConfig({ ...config, shortcuts: { ...config.shortcuts, enabled: checked } })
           }
         />
+      </div>
+
+      {/* 预设一键套用（应用后仍可逐项重绑；不自动保存） */}
+      <div className="rounded-lg border border-border bg-card p-4">
+        <Label className="text-sm font-medium">{t('settings.shortcutPresets')}</Label>
+        <p className="mt-1 mb-3 text-xs text-muted-foreground">{t('settings.shortcutPresetsDesc')}</p>
+        <div className="flex flex-wrap gap-2">
+          {(Object.keys(PRESETS) as Array<keyof typeof PRESETS>).map((id) => (
+            <Button
+              key={id}
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setLocalShortcuts({ ...PRESETS[id] });
+                setEditingKey(null);
+              }}
+              title={t(`settings.shortcutPresetDesc_${id}`)}
+            >
+              {t(`settings.shortcutPreset_${id}`)}
+            </Button>
+          ))}
+        </div>
       </div>
 
       {/* 快捷键列表 */}

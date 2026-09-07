@@ -378,6 +378,9 @@ pub struct ShortcutBinding {
 	/// 终端内全选
 	#[serde(default)]
 	pub terminal_select_all: String,
+	/// 终端内缓冲区查找（默认 Ctrl+Shift+F）
+	#[serde(default)]
+	pub terminal_find: String,
 	pub enabled: bool,
 }
 
@@ -1093,6 +1096,7 @@ impl Default for ShortcutBinding {
 			terminal_copy: "Ctrl+Shift+C".into(),
 			terminal_paste: "Ctrl+Shift+V".into(),
 			terminal_select_all: "Ctrl+Shift+A".into(),
+			terminal_find: "Ctrl+Shift+F".into(),
 			enabled: true,
 		}
 	}
