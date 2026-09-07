@@ -1,5 +1,6 @@
 import { useTabStore, Tab, canMergeTabs } from '../store/tabStore';
 import { useConfigStore } from '../store/config';
+import { OsLogo, HostIcon, hasOsLogo } from './osLogo';
 import { type SplitDirection } from '../store/splitLayout';
 import { useRef, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -138,8 +139,18 @@ function TabItem({ tab, isActive, extendActive, dragOverClass, onClose, onFocus,
           )}
         />
       )}
-      {Icon && <Icon size={14} strokeWidth={2} className="shrink-0 opacity-80" />}
-      <span className={cn('flex-1 truncate text-sm', isActive && 'font-medium')}>{tab.name}</span>
+  {(tab.type === 'terminal' || tab.type === 'mosh' || tab.type === 'local') &&
+  (tab.customIcon || hasOsLogo(tab.osId)) ? (
+    // SSH 类会话：优先显示主机手动设置的图标（customIcon），其次探测到的 OS 图标
+    tab.customIcon ? (
+      <HostIcon icon={tab.customIcon} size={15} className="shrink-0 opacity-80" />
+    ) : (
+      <OsLogo osId={tab.osId} className="shrink-0 opacity-80" />
+    )
+  ) : Icon ? (
+    <Icon size={14} strokeWidth={2} className="shrink-0 opacity-80" />
+  ) : null}
+  <span className={cn('flex-1 truncate text-sm', isActive && 'font-medium')}>{tab.name}</span>
       <Button
         variant="ghost"
         size="icon-xs"
@@ -402,7 +413,16 @@ export function TabBar() {
                   const HiddenIcon = tabIcon(tab.type);
                   return (
                     <DropdownMenuItem key={tab.id} onClick={() => focusTab(tab.id)}>
-                      <HiddenIcon size={14} strokeWidth={2} className="shrink-0 opacity-70" />
+                      {(tab.type === 'terminal' || tab.type === 'mosh' || tab.type === 'local') &&
+                      (tab.customIcon || hasOsLogo(tab.osId)) ? (
+                        tab.customIcon ? (
+                          <HostIcon icon={tab.customIcon} size={14} className="shrink-0 opacity-70" />
+                        ) : (
+                          <OsLogo osId={tab.osId} size={14} className="shrink-0 opacity-70" />
+                        )
+                      ) : (
+                        <HiddenIcon size={14} strokeWidth={2} className="shrink-0 opacity-70" />
+                      )}
                       <span className="flex-1 truncate">{tab.name}</span>
                     </DropdownMenuItem>
                   );

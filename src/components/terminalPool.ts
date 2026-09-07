@@ -38,6 +38,8 @@ interface TerminalEventHandlers {
   onDisconnect: () => void;
   onError: (msg: string) => void;
   onProgress?: (stage: string) => void;
+  /** 远端操作系统探测结果（连接成功后、shell 建立前） */
+  onOsDetected?: (os: string) => void;
 }
 
 type PoolItem = {
@@ -67,6 +69,8 @@ type PoolItem = {
   showProgress?: boolean;
   // 会话事件回调（当前挂载组件注册；分屏重挂载后由新组件覆盖，避免 stale closure）
   eventHandlers?: TerminalEventHandlers;
+  // 连接早期（组件 handlers 未注册时）到达的 osDetected 结果，注册时回放
+  pendingOs?: string;
   // 自动重连状态（会话级，跨组件实例，避免分屏重挂载后丢失计数）
   reconnectAttempts?: number;
   silentReconnect?: boolean;
@@ -466,6 +470,12 @@ export async function attachListeners(sessionId: string) {
             if (buf.join('').length < 1024 * 1024) buf.push(event.data);
           }
         }
+        // osDetected 同样可能早于事件监听建立（连接早期 emit）——缓存待注册回放，
+        // 否则竞态下会「时灵时不灵」（某发行版图标不出现）
+        if (event.kind === 'osDetected') {
+          const itemRef = pool[sessionId];
+          if (itemRef && !itemRef.pendingOs) itemRef.pendingOs = event.os;
+        }
         return;
       }
       switch (event.kind) {
@@ -481,6 +491,9 @@ export async function attachListeners(sessionId: string) {
         case 'progress':
           handlers.onProgress?.(event.stage);
           break;
+        case 'osDetected':
+          handlers.onOsDetected?.(event.os);
+          break;
       }
     });
   } catch (e) {
@@ -493,6 +506,16 @@ export function registerEventHandlers(sessionId: string, handlers: TerminalEvent
   const item = pool[sessionId];
   if (!item) return;
   item.eventHandlers = handlers;
+  // 回放连接早期到达的 OS 探测结果（osDetected emit 早于事件监听建立时可能被缓存）
+  if (item.pendingOs && handlers.onOsDetected) {
+    const os = item.pendingOs;
+    item.pendingOs = undefined;
+    try {
+      handlers.onOsDetected(os);
+    } catch (e) {
+      console.warn(`[${sessionId}] Failed to replay pending os:`, e);
+    }
+  }
   // 回放缓冲的早期输出（连接成功到组件注册之间的 motd / Last login 等），
   // 回放后清空，避免重复
   if (item.pendingOutputs && item.pendingOutputs.length > 0) {

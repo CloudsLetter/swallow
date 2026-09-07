@@ -194,6 +194,10 @@ pub fn accept_host_key(token: &str, expected_fingerprint: &str, timeout_secs: u3
     let (config, backend) = take_pending_host_key(token)
         .ok_or_else(|| anyhow::anyhow!("主机密钥确认已过期或不存在，请重新连接"))?;
 
+    // 主机密钥被接受/更换 = 该 host 远端身份可能已变化（换机/重装/IP 复用）：
+    // 失效 OS 探测缓存，重连后会重新探测刷新图标
+    crate::ssh::session::invalidate_os_cache(&config.host, config.port);
+
     match backend {
         PendingBackend::Ssh2 => accept_host_key_ssh2(&config, expected_fingerprint, timeout_secs),
         // russh 首次连接弹出的确认必须用 russh 重建：两库协商的 host key

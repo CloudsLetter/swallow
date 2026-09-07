@@ -33,6 +33,7 @@ pub fn init_database() -> Result<(), String> {
             account_id TEXT,
             username TEXT NOT NULL,
             status TEXT NOT NULL,
+            icon TEXT,
             last_connected TEXT,
             auth_type TEXT,
             password TEXT,
@@ -172,6 +173,7 @@ pub fn init_database() -> Result<(), String> {
     ensure_column(&conn, "hosts", "account_id", "TEXT")?;
     ensure_column(&conn, "hosts", "certificate_id", "TEXT")?;
     ensure_column(&conn, "hosts", "proxy_cert_id", "TEXT")?;
+    ensure_column(&conn, "hosts", "icon", "TEXT")?;
     ensure_column(&conn, "sftp_connections", "key_id", "TEXT")?;
     ensure_column(&conn, "keys", "key_path", "TEXT")?;
     ensure_column(&conn, "keys", "public_key_path", "TEXT")?;

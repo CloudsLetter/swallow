@@ -139,6 +139,10 @@ export interface Tab {
   splitLayout?: SplitLayout;
   /** 运行期标记：恢复的密码类会话（无密码）跳过自动连接，等待用户重连（不持久化） */
   skipAutoConnect?: boolean;
+  /** 运行期标记：连接成功后探测到的远端 OS（ubuntu/centos/windows…），驱动标签 OS 图标（不持久化） */
+  osId?: string;
+  /** 运行期标记：主机手动设置的图标（os:xxx 或 data:/file: 自定义图），优先级高于 osId（不持久化） */
+  customIcon?: string;
 }
 
 interface TabStore {

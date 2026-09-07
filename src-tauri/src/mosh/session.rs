@@ -112,15 +112,24 @@ fn read_channel_stderr(channel: &mut ssh2::Channel) -> String {
 
 /// SSH 引导：远程执行 `mosh-server new`，拿到 UDP 端口与密钥后关闭 SSH 会话。
 /// 主机密钥待确认时向上透出 `HostKeyApprovalRequired`（lib.rs 照 ssh_connect 处理）。
+/// 引导前复用已认证会话探测远端 OS（同一 Session 锁内先探测，结果经 on_os 回调带出）。
 pub fn bootstrap(
     config: &crate::ssh::SshConfig,
     timeout_secs: u32,
     on_progress: &dyn Fn(&str, Option<&str>),
+    on_os: Option<&dyn Fn(&str)>,
 ) -> Result<MoshBootstrap> {
     on_progress("tcp", None);
     let established =
         SshSession::establish_authenticated_session(config, timeout_secs.max(1), on_progress)?;
     let session = established.session;
+
+    // 引导通道打开前探测 OS（同 ssh2 全局锁规则：此阶段无并发读，安全）
+    if let Some(cb) = on_os {
+        if let Some(os) = crate::ssh::session::probe_remote_os(&session) {
+            cb(&os);
+        }
+    }
 
     on_progress("shell", Some("启动 mosh-server"));
     // 官方 mosh 脚本同款：优先 C.UTF-8 locale；服务器没有时去掉 -l 重试一次

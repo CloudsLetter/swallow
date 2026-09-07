@@ -37,6 +37,8 @@ import {
   Monitor as IconMonitor,
   Radio as IconRadio,
   Usb as IconUsb,
+  X as IconX,
+  Image as IconImage,
 } from 'lucide-react';
 import { useTabStore } from '../store/tabStore';
 import { Button } from '../components/ui/button';
@@ -46,6 +48,7 @@ import { Badge } from '../components/ui/badge';
 import { Switch } from '../components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '../components/ui/sheet';
+import { HostIcon, OsLogo, OS_PRESET_IDS } from '../components/osLogo';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Skeleton } from '../components/ui/skeleton';
@@ -201,8 +204,41 @@ const filterChips: { key: AuthFilter; label: string }[] = [
   { key: 'proxy', label: 'hosts.authProxy' },
 ];
 
-export function Hosts() {
-  const { t } = useTranslation();
+/** 主机自定义图标上传：SVG/超大文件原样存 data URL；位图压缩到 64px 内 PNG。 */
+async function compressIconFile(file: File): Promise<string> {
+  const raw = await readFileAsDataURL(file);
+  if (file.type === 'image/svg+xml' || file.size > 1_500_000) return raw;
+  try {
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('decode'));
+      img.src = raw;
+    });
+    if (!img.width || !img.height) return raw;
+    const canvas = document.createElement('canvas');
+    const scale = Math.min(64 / img.width, 64 / img.height, 1);
+    canvas.width = Math.max(1, Math.round(img.width * scale));
+    canvas.height = Math.max(1, Math.round(img.height * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return raw;
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/png');
+  } catch {
+    return raw;
+  }
+}
+
+function readFileAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('read'));
+    reader.readAsDataURL(file);
+  });
+}
+
+export function Hosts() {  const { t } = useTranslation();
   // ============ 数据状态 ============
   const [hosts, setHosts] = useState<Host[]>([]);
   const [accounts, setAccounts] = useState<SupportedAccount[]>([]);
@@ -225,6 +261,7 @@ export function Hosts() {
 
   // 表单状态
   const [name, setName] = useState('');
+  const [hostIcon, setHostIcon] = useState<string | undefined>(undefined);
   const [host, setHost] = useState('');
   const [port, setPort] = useState(22);
   const [authSource, setAuthSource] = useState<AuthSource>('account');
@@ -257,6 +294,15 @@ export function Hosts() {
       }
     };
     void bootstrap();
+  }, []);
+
+  // 连接探测自动回写主机图标后刷新列表（TerminalView 广播 hosts:icons-changed）
+  useEffect(() => {
+    const refresh = () => {
+      void loadHosts();
+    };
+    window.addEventListener('hosts:icons-changed', refresh);
+    return () => window.removeEventListener('hosts:icons-changed', refresh);
   }, []);
 
   // ============ 键盘快捷键 ============
@@ -489,6 +535,7 @@ export function Hosts() {
   // ============ 表单逻辑 ============
   const resetForm = () => {
     setName('');
+    setHostIcon(undefined);
     setHost('');
     setPort(22);
     setSelectedAccountId('');
@@ -522,6 +569,7 @@ export function Hosts() {
     const matchedAccount = findHostAccount(host, latestAccounts);
 
     setName(host.name);
+    setHostIcon(host.icon);
     setHost(host.host);
     setPort(host.port);
     setEditingHost(host);
@@ -643,6 +691,7 @@ export function Hosts() {
       name: nextName,
       host: nextHost,
       port,
+      icon: hostIcon || undefined,
       accountId: selectedAccount?.id,
       username: selectedAccount?.username || nextManualUsername,
       status: editingHost?.status || 'disconnected',
@@ -846,7 +895,11 @@ export function Hosts() {
         {/* 图标块 + 状态角标 */}
         <div className="relative shrink-0">
           <div className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-accent">
-            <IconServer size={15} strokeWidth={2} />
+            {host.icon ? (
+              <HostIcon icon={host.icon} size={17} />
+            ) : (
+              <IconServer size={15} strokeWidth={2} />
+            )}
           </div>
           {statusCornerBadge(liveHostStatus(host))}
         </div>
@@ -921,7 +974,11 @@ export function Hosts() {
         <TableCell className="min-w-0">
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-accent">
-              <IconServer size={15} strokeWidth={2} />
+              {host.icon ? (
+                <HostIcon icon={host.icon} size={17} />
+              ) : (
+                <IconServer size={15} strokeWidth={2} />
+              )}
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
@@ -1287,6 +1344,65 @@ export function Hosts() {
                   </>,
                 )}
                 <Input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="host" />
+              </div>
+
+              {/* 图标：无图标 / 内置 OS 图标库 / 上传自定义图片（自动压缩到 64px） */}
+              <div>
+                {fieldLabel(t('hosts.formIcon'))}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setHostIcon(undefined)}
+                    title={t('hosts.iconNone')}
+                    className={cn(
+                      'flex size-8 items-center justify-center rounded-lg border transition-colors',
+                      !hostIcon
+                        ? 'border-primary text-foreground'
+                        : 'border-border text-muted-foreground hover:bg-muted',
+                    )}
+                  >
+                    <IconX size={14} />
+                  </button>
+                  {OS_PRESET_IDS.map((osId) => {
+                    const selected = hostIcon === `os:${osId}`;
+                    return (
+                      <button
+                        key={osId}
+                        type="button"
+                        onClick={() => setHostIcon(`os:${osId}`)}
+                        title={osId}
+                        className={cn(
+                          'flex size-8 items-center justify-center rounded-lg border transition-colors',
+                          selected
+                            ? 'border-primary text-foreground'
+                            : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground',
+                        )}
+                      >
+                        <OsLogo osId={osId} size={17} />
+                      </button>
+                    );
+                  })}
+                  <label
+                    className="flex h-8 cursor-pointer items-center gap-1 rounded-lg border border-dashed border-border px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    title={t('hosts.iconUpload')}
+                  >
+                    <IconImage size={13} />
+                    {t('hosts.iconUpload')}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = '';
+                        if (file) void compressIconFile(file).then(setHostIcon).catch(() => {});
+                      }}
+                    />
+                  </label>
+                </div>
+                {hostIcon?.startsWith('data:image/') && (
+                  <p className="mt-1.5 text-xs text-muted-foreground">{t('hosts.iconCustomNote')}</p>
+                )}
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <div className="col-span-2">

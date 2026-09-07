@@ -367,8 +367,8 @@ fn restore_hosts(conn: &rusqlite::Connection, hosts: &[Host]) -> Result<usize, S
         conn.execute(
             "INSERT INTO hosts (id, name, host, port, account_id, username, status, last_connected, auth_type, password,
                     key_id, certificate_id, use_proxy, proxy_host_id, proxy_auth_type, proxy_key_id,
-                    proxy_cert_id, proxy_host, proxy_port, proxy_username, proxy_password)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, '', ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, '')
+                    proxy_cert_id, proxy_host, proxy_port, proxy_username, proxy_password, icon)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, '', ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, '', ?20)
              ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 host = excluded.host,
@@ -389,7 +389,8 @@ fn restore_hosts(conn: &rusqlite::Connection, hosts: &[Host]) -> Result<usize, S
                 proxy_host = excluded.proxy_host,
                 proxy_port = excluded.proxy_port,
                 proxy_username = excluded.proxy_username,
-                proxy_password = ''",
+                proxy_password = '',
+                icon = excluded.icon",
             rusqlite::params![
                 host.id,
                 host.name,
@@ -410,6 +411,7 @@ fn restore_hosts(conn: &rusqlite::Connection, hosts: &[Host]) -> Result<usize, S
                 host.proxy_host,
                 host.proxy_port,
                 host.proxy_username,
+                host.icon,
             ],
         )
         .map_err(|e| e.to_string())?;

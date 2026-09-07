@@ -10,6 +10,9 @@ pub enum SessionEvent {
     Error { message: String },
     /// 连接进度：stage 为 tcp/ssh/auth/shell/ready 之一，表示该阶段已完成。
     Progress { stage: String, message: Option<String> },
+    /// 远端操作系统探测结果（连接成功后、shell 建立前检测），os 为归一化标识
+    /// （ubuntu/debian/centos/rhel/fedora/arch/windows/macos/linux 等，见 ssh/session.rs）。
+    OsDetected { os: String },
 }
 
 /// 向指定会话的事件通道发送统一事件。

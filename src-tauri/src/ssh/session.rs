@@ -87,6 +87,33 @@ pub struct SshSession {
     /// 跳板机传输层：随本会话存活，断开时一并释放。
     #[allow(dead_code)]
     jump: Option<JumpTransport>,
+    /// OS 探测缓存键（host, port）：同一主机再次连接不再重复探测；host key 变更时失效
+    probe_key: Option<(String, u16)>,
+}
+
+/// 远端 OS 探测缓存（host, port）→ 归一化 osId。
+/// 「已有 icon 就跳过探测」：同主机重复连接/自动重连直接命中缓存，
+/// 不再发探测命令；`accept_host_key`（换机/密钥变更）时整键失效重新探测。
+static OS_CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<(String, u16), String>>> =
+    std::sync::OnceLock::new();
+
+/// 使某主机的 OS 探测缓存失效（主机密钥变更后调用，重连将重新探测）。
+pub fn invalidate_os_cache(host: &str, port: u16) {
+    if let Some(cache) = OS_CACHE.get() {
+        if let Ok(mut guard) = cache.lock() {
+            guard.remove(&(host.to_string(), port));
+        }
+    }
+}
+
+/// 读取某主机的 OS 缓存（无缓存返回 None）。
+pub fn get_os_cache(host: &str, port: u16) -> Option<String> {
+    OS_CACHE
+        .get()?
+        .lock()
+        .ok()?
+        .get(&(host.to_string(), port))
+        .cloned()
 }
 
 /// 用数据库中的密钥内容做公钥认证：把内容写入系统临时文件后调用
@@ -403,6 +430,7 @@ impl SshSession {
             is_connected: Arc::new(Mutex::new(true)),
             disconnect_handler: Arc::new(Mutex::new(None)),
             jump: established.jump,
+            probe_key: Some((config.host.clone(), config.port)),
         })
     }
 
@@ -419,6 +447,38 @@ impl SshSession {
         keep_alive_interval: u32,
     ) -> Result<()> {
         let session = self.session.lock().unwrap();
+        // —— 远端 OS 探测（必须在本 Session 打开 shell 通道之前：ssh2 的 Session 是全局锁，
+        //     通道已开的阻塞读会与二次 channel_session 排队互等；此刻通道未开、无并发读）——
+        // 「有 icon 就跳过」：同主机已有缓存（首次连接已探测过）直接复用，不发探测命令；
+        // host key 变更（换机/重装）由 accept_host_key 失效缓存 → 重连会重新探测。
+        let os = match &self.probe_key {
+            Some((host, port)) => {
+                let cached = get_os_cache(host, *port);
+                if cached.is_some() {
+                    cached
+                } else {
+                    let detected = probe_remote_os(&session);
+                    if let Some(v) = &detected {
+                        if let Some(cache) = OS_CACHE.get() {
+                            if let Ok(mut guard) = cache.lock() {
+                                guard.insert((host.clone(), *port), v.clone());
+                            }
+                        }
+                    }
+                    detected
+                }
+            }
+            // 无缓存键（理论不出现）：探测但不缓存
+            None => probe_remote_os(&session),
+        };
+        if let Some(os) = os {
+            emit_session_event(
+                &app_handle,
+                &self.session_id,
+                &SessionEvent::OsDetected { os },
+            );
+        }
+
         let mut channel = session.channel_session()?;
         
         // 请求 PTY 并设置正确的窗口大小
@@ -684,5 +744,167 @@ impl SshSession {
     #[allow(dead_code)]
     pub fn is_connected(&self) -> bool {
         *self.is_connected.lock().unwrap()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 远端 OS 探测
+// ---------------------------------------------------------------------------
+
+/// 归一化后的操作系统标识（与前端 osLogo.tsx 的 key 对齐）。
+/// linux 为「已知是 Linux 但无法细分发行版」的兜底。
+pub fn normalize_os_id(uname_line: &str, release_text: &str) -> String {
+    let uname = uname_line.trim().to_ascii_lowercase();
+    if uname.is_empty() {
+        return "linux".into();
+    }
+    if uname.contains("mingw") || uname.contains("msys") || uname.contains("cygwin") {
+        return "windows".into();
+    }
+    if uname.contains("darwin") {
+        return "macos".into();
+    }
+    // /etc/os-release 的 ID / ID_LIKE（可能带引号）
+    let mut id = String::new();
+    let mut id_like = String::new();
+    for line in release_text.lines() {
+        if let Some((key, value)) = line.split_once('=') {
+            let value = value.trim().trim_matches('"').to_ascii_lowercase();
+            match key {
+                "ID" => id = value,
+                "ID_LIKE" => id_like = value,
+                _ => {}
+            }
+        }
+    }
+    if !id.is_empty() {
+        // 统一常见别名
+        return match id.as_str() {
+            "opensuse-leap" | "opensuse-tumbleweed" | "suse" | "opensuse" => "opensuse".into(),
+            "linuxmint" => "mint".into(),
+            "raspberrypi-os" | "raspbian" => "raspbian".into(),
+            "pop" | "pop_os" => "pop".into(),
+            "ol" | "oracle" => "rhel".into(),
+            "rocky" | "almalinux" | "redhat" | "centos" | "rhel" | "fedora" | "ubuntu"
+            | "debian" | "arch" | "manjaro" | "alpine" | "kali" | "nixos" | "elementary"
+            | "gentoo" | "linux" => id,
+            _ => {
+                // 未知发行版：看 ID_LIKE 是否能落到已知家族（如 debian/ubuntu/arch/rhel）
+                let known = ["debian", "ubuntu", "arch", "rhel", "fedora", "suse", "centos"];
+                id_like
+                    .split_whitespace()
+                    .map(|x| {
+                        if x == "suse" {
+                            "opensuse"
+                        } else {
+                            x
+                        }
+                    })
+                    .find(|x| known.contains(x))
+                    .unwrap_or("linux")
+                    .to_string()
+            }
+        };
+    }
+    "linux".into()
+}
+
+/// 向已认证会话执行一条命令并读完输出（单条简单命令，无 && / 重定向 / 引号——
+/// 兼容远端默认 shell 为 csh/tcsh 等非 POSIX 的环境；命令输出极小，正常即 EOF）。
+/// 失败/无输出返回 None（不中断建连）。必须在打开 shell 通道前调用（ssh2 全局锁）。
+fn exec_capture(session: &Session, cmd: &str) -> Option<String> {
+    let mut channel = session.channel_session().ok()?;
+    channel.exec(cmd).ok()?;
+    let mut out = Vec::new();
+    let mut buf = [0u8; 256];
+    loop {
+        match channel.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                out.extend_from_slice(&buf[..n]);
+                if out.len() >= 8192 {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    let _ = channel.close();
+    let _ = channel.wait_close();
+    let text = String::from_utf8_lossy(&out).trim().to_string();
+    Some(text)
+}
+
+/// 探测远端 OS：三条独立简单命令（分次 exec，规避 shell 语法差异）：
+/// `uname -s`、`cat /etc/os-release`、`cat /etc/redhat-release`（旧版 CentOS/RHEL 无
+/// os-release 时兜底）。无 os-release 的平台 cat 报错但 stdout 为空，归一化自然落到
+/// uname 家族：Darwin→macos、MINGW→windows、Linux 无 ID→linux。
+pub fn probe_remote_os(session: &Session) -> Option<String> {
+    let uname = exec_capture(session, "uname -s")?;
+    if uname.trim().is_empty() {
+        return None; // 命令不存在（如 cmd.exe 下）：不做任何识别
+    }
+    let release = exec_capture(session, "cat /etc/os-release").unwrap_or_default();
+    let normalized = normalize_os_id(&uname, &release);
+    // 新版 os-release 已命中或本就不是 Linux：直接用
+    if normalized != "linux" || !uname.trim().eq_ignore_ascii_case("linux") {
+        return Some(normalized);
+    }
+    // 老系统兜底：无 os-release（CentOS6 等），读 redhat-release 关键字
+    let legacy = exec_capture(session, "cat /etc/redhat-release").unwrap_or_default();
+    let t = legacy.to_ascii_lowercase();
+    let result = if t.contains("rocky") {
+        Some("rocky".into())
+    } else if t.contains("centos") {
+        Some("centos".into())
+    } else if t.contains("red hat enterprise") {
+        Some("rhel".into())
+    } else if t.contains("almalinux") {
+        Some("almalinux".into())
+    } else {
+        Some("linux".into())
+    };
+    // 诊断：Linux 却解析不出发行版时打印原始探测文本（dev 控制台可见），定位环境差异
+    eprintln!(
+        "[os-probe] uname={:?} os-release(前240字符)={:?} redhat-release={:?}",
+        uname.trim(),
+        release.chars().take(240).collect::<String>(),
+        legacy.chars().take(120).collect::<String>()
+    );
+    result
+}
+
+#[cfg(test)]
+mod os_probe_tests {
+    use super::normalize_os_id;
+
+    #[test]
+    fn maps_common_distros() {
+        let cases = [
+            ("Linux", "ID=ubuntu\nID_LIKE=debian", "ubuntu"),
+            ("Linux", "ID=debian", "debian"),
+            ("Linux", "ID=\"rocky\"\nID_LIKE=\"rhel fedora\"", "rocky"),
+            ("Linux", "ID=\"rhel\"", "rhel"),
+            ("Linux", "ID=\"almalinux\"", "almalinux"),
+            ("Linux", "ID=\"centos\"", "centos"),
+            ("Linux", "ID=\"ol\"", "rhel"),
+            ("Linux", "ID=fedora", "fedora"),
+            ("Linux", "ID=arch", "arch"),
+            ("Linux", "ID=\"linuxmint\"\nID_LIKE=\"ubuntu debian\"", "mint"),
+            ("Linux", "ID=\"opensuse-leap\"", "opensuse"),
+            ("Linux", "ID=alpine", "alpine"),
+            ("Linux", "ID=kali", "kali"),
+            ("Linux", "ID=\"pop\"\nID_LIKE=\"ubuntu debian\"", "pop"),
+            ("Linux", "ID=\"raspberrypi-os\"", "raspbian"),
+            ("Linux", "ID=unknownthing\nID_LIKE=\"debian\"", "debian"),
+            ("Linux", "ID=unknownthing\nID_LIKE=\"ubuntu\"", "ubuntu"),
+            ("Linux", "", "linux"),
+            ("Darwin", "ID=macos", "macos"),
+            ("MINGW64_NT-10.0-19045", "", "windows"),
+        ];
+        for (uname, release, expect) in cases {
+            let got = normalize_os_id(uname, release);
+            assert_eq!(got, expect, "uname={uname:?} release={release:?}");
+        }
     }
 }

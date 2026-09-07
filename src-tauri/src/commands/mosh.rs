@@ -41,6 +41,8 @@ pub async fn mosh_connect(
     // SSH 引导：远程启动 mosh-server，拿 UDP 端口 + 会话密钥（阻塞线程池）
     let progress_app = app_handle.clone();
     let progress_session_id = session_id.clone();
+    let os_app = app_handle.clone();
+    let os_session_id = session_id.clone();
     let boot_config = config.clone();
     let boot = tauri::async_runtime::spawn_blocking(move || {
         let on_progress = |stage: &str, message: Option<&str>| {
@@ -52,7 +54,14 @@ pub async fn mosh_connect(
                 },
             );
         };
-        crate::mosh::session::bootstrap(&boot_config, timeout_secs, &on_progress)
+        // 引导前探测远端 OS（mosd 复用 SSH 认证通道），探测结果 emit 给前端驱动图标
+        let on_os = |os: &str| {
+            let _ = os_app.emit(
+                &format!("session-{}", os_session_id),
+                crate::session_events::SessionEvent::OsDetected { os: os.to_string() },
+            );
+        };
+        crate::mosh::session::bootstrap(&boot_config, timeout_secs, &on_progress, Some(&on_os))
     })
     .await
     .map_err(|e| format!("MOSH 引导任务异常: {e}"))?;

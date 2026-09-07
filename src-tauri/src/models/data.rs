@@ -10,6 +10,8 @@ pub struct Host {
     pub account_id: Option<String>,
     pub username: String,
     pub status: String,
+    /// 主机图标（可空）：null 无图标；`os:ubuntu` 内置 OS 标识；`data:image/...;base64,...` 自定义内容；`file:绝对路径` 本地图片
+    pub icon: Option<String>,
     pub last_connected: Option<String>,
     pub auth_type: Option<String>,
     pub password: Option<String>,

@@ -8,6 +8,8 @@ export interface Host {
   accountId?: string;
   username: string;
   status: 'connected' | 'disconnected' | 'error';
+  /** 主机图标：undefined 无；`os:ubuntu` 内置；`data:image/...;base64,` 自定义；`file:路径` 本地图 */
+  icon?: string;
   lastConnected?: string;
   authType?: 'password' | 'key' | 'certificate' | 'agent' | 'none';
   password?: string;

@@ -3,4 +3,5 @@ export type SessionEvent =
   | { kind: 'output'; data: string }
   | { kind: 'disconnected' }
   | { kind: 'error'; message: string }
-  | { kind: 'progress'; stage: string; message?: string | null };
+  | { kind: 'progress'; stage: string; message?: string | null }
+  | { kind: 'osDetected'; os: string };

@@ -13,7 +13,7 @@ import { useTerminalBackground } from '../hooks/useTerminalBackground';
 import { TerminalBackdrop } from './TerminalBackdrop';
 import { useSessionConnection, sshSessionPool } from '../hooks/useSessionConnection';
 import { acceptHostKey, sshConnect, disconnectSsh, telnetConnect, telnetDisconnect, localShellConnect, localShellDisconnect, serialConnect, serialDisconnect, moshConnect, moshDisconnect } from '../services/sessionService';
-import { touchHostLastConnected } from '../services/dataService';
+import { touchHostLastConnected, getHosts, updateHost } from '../services/dataService';
 import { useOnlineHosts } from '../store/uiState';
 import type { Config } from '../types/config';
 import {
@@ -56,7 +56,9 @@ import {
 } from './sessionLog';
 import { useBroadcastStore } from '../store/broadcast';
 import { usePanelStore } from '../store/panelStore';
+import { useTabStore } from '../store/tabStore';
 import { recordCommand, suggestCommands } from '../services/commandHistory';
+import { localPlatformOsId } from './osLogo';
 import { buildPanelTheme } from './panelTheme';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -863,6 +865,12 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
             });
           },
           onProgress: (stage: string) => {
+            // 本机（local）会话没有远端可探测：连接就绪时按本机平台直接标识系统
+            if (stage === 'ready' && localConfig) {
+              const { tabs, updateTab } = useTabStore.getState();
+              const tab = tabs.find((t) => t.sessionId === sessionId);
+              if (tab && !tab.osId) updateTab(tab.id, { osId: localPlatformOsId() });
+            }
             // 阶段进度：单调推进步骤（tcp/ssh/auth/shell/ready）
             const order = ['tcp', 'ssh', 'auth', 'shell', 'ready'];
             const idx = order.indexOf(stage);
@@ -876,6 +884,45 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
                 return { ...s, status: 'pending' };
               }),
             );
+          },
+          onOsDetected: (os: string) => {
+            // 连接成功后探测到远端 OS。图标采用「手动 > 探测」：
+            // ①若该主机已手动设置图标（host.icon 非空）→ 尊重手动设置，标签显示它，
+            //   探测结果不覆盖主机图标；
+            // ②主机未设置任何图标 → 标签显示探测 os，并回写 host.icon 供主机列表用。
+            const { tabs, updateTab } = useTabStore.getState();
+            const tab = tabs.find((t) => t.sessionId === sessionId);
+            const targetHost = sshConfig?.host ?? moshConfig?.host;
+            const targetPort = sshConfig?.port ?? moshConfig?.port;
+            if (!targetHost) return;
+            void (async () => {
+              try {
+                const hosts = await getHosts();
+                const host = hosts.find(
+                  (h) => h.host === targetHost && h.port === (targetPort ?? 22),
+                );
+                if (host?.icon) {
+                  // 手动/已设置图标：标签与之一致（os: 走 osId；图片直接透传），不触碰
+                  if (host.icon.startsWith('os:')) {
+                    const manualOs = host.icon.slice(3);
+                    if (tab && (tab.osId !== manualOs || tab.customIcon)) {
+                      updateTab(tab.id, { osId: manualOs, customIcon: undefined });
+                    }
+                  } else if (tab && tab.customIcon !== host.icon) {
+                    updateTab(tab.id, { customIcon: host.icon, osId: undefined });
+                  }
+                  return;
+                }
+                // 未设置：标签用探测 os
+                if (tab && tab.osId !== os) updateTab(tab.id, { osId: os });
+                if (host) {
+                  await updateHost(host.id, { icon: `os:${os}` });
+                  window.dispatchEvent(new Event('hosts:icons-changed'));
+                }
+              } catch {
+                // 主机回写失败不影响终端
+              }
+            })();
           },
         });
         setConnectFunction(sessionId, connectSSH);
