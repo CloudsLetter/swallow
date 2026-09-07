@@ -1,7 +1,7 @@
 import type { Host, Account, Key, Certificate } from './dataService';
 import i18n from '../i18n/i18n';
 
-export type SshAuthType = 'password' | 'key' | 'certificate' | 'none';
+export type SshAuthType = 'password' | 'key' | 'certificate' | 'agent' | 'none';
 
 export interface HostSshAuth {
   authType: SshAuthType;
@@ -60,6 +60,11 @@ export function resolveHostSshAuth(
 
   if (rawAuthType === 'password') {
     return { authType: 'password', username, password: account?.password ?? host.password };
+  }
+
+  // SSH Agent：签名由 agent 完成，本地无需密钥材料；agent 可用性在连接时检查
+  if (rawAuthType === 'agent') {
+    return { authType: 'agent', username };
   }
 
   return {

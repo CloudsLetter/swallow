@@ -66,7 +66,7 @@ type ViewMode = 'grid' | 'list';
 type AuthFilter = 'all' | 'password' | 'key' | 'certificate' | 'proxy';
 type ProxyMode = 'existing' | 'manual';
 type AuthSource = 'account' | 'manual';
-type SupportedAccount = Account & { authType: 'password' | 'key' | 'certificate' };
+type SupportedAccount = Account & { authType: 'password' | 'key' | 'certificate' | 'agent' };
 
 const sectionClass = 'flex flex-col gap-3 rounded-lg bg-muted/40 p-4';
 const noticeWarningClass =
@@ -86,15 +86,21 @@ function getAuthTypeText(authType?: Host['authType'] | Account['authType']) {
 }
 
 function isSupportedHostAccount(account: Account): account is SupportedAccount {
-  return account.authType === 'password' || account.authType === 'key' || account.authType === 'certificate';
+  return (
+    account.authType === 'password' ||
+    account.authType === 'key' ||
+    account.authType === 'certificate' ||
+    account.authType === 'agent'
+  );
 }
 
 function normalizeHostAuthType(
   authType?: Host['authType'] | Account['authType'],
-): 'password' | 'key' | 'certificate' | 'none' {
+): 'password' | 'key' | 'certificate' | 'agent' | 'none' {
   if (authType === 'password') return 'password';
   if (authType === 'key') return 'key';
   if (authType === 'certificate') return 'certificate';
+  if (authType === 'agent') return 'agent';
   return 'none';
 }
 
@@ -109,11 +115,12 @@ function findHostAccount(host: Host, accounts: SupportedAccount[]): SupportedAcc
   return accounts.find((account) => account.id === host.accountId);
 }
 
-const authBadge = (authType: 'password' | 'key' | 'certificate' | 'none') => {
+const authBadge = (authType: 'password' | 'key' | 'certificate' | 'agent' | 'none') => {
   const map = {
     password: { label: i18n.t('hosts.authTypePassword'), cls: 'bg-info/10 text-info' },
     key: { label: i18n.t('hosts.authTypeKey'), cls: 'bg-violet-500/10 text-violet-600 dark:text-violet-400' },
     certificate: { label: i18n.t('hosts.authTypeCertificate'), cls: 'bg-teal-500/10 text-teal-600 dark:text-teal-400' },
+    agent: { label: i18n.t('hosts.authTypeAgent'), cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
     none: { label: i18n.t('hosts.authNone'), cls: 'bg-muted text-muted-foreground' },
   } as const;
   const item = map[authType];
@@ -170,11 +177,12 @@ const statusCornerBadge = (status: Host['status']) => {
 };
 
 /** 认证方式小图标（卡片/列表信息补充，比徽章轻量）：密码=锁 / 密钥=钥匙 / 证书=盾牌。 */
-const authIcon = (authType: 'password' | 'key' | 'certificate' | 'none') => {
+const authIcon = (authType: 'password' | 'key' | 'certificate' | 'agent' | 'none') => {
   const map = {
     password: { Icon: IconLock, cls: 'text-info', label: i18n.t('hosts.authTypePassword') },
     key: { Icon: IconKeyRound, cls: 'text-violet-600 dark:text-violet-400', label: i18n.t('hosts.authTypeKey') },
     certificate: { Icon: IconShieldCheck, cls: 'text-teal-600 dark:text-teal-400', label: i18n.t('hosts.authTypeCertificate') },
+    agent: { Icon: IconKeyRound, cls: 'text-amber-600 dark:text-amber-400', label: i18n.t('hosts.authTypeAgent') },
     none: { Icon: IconLock, cls: 'text-muted-foreground', label: i18n.t('hosts.authNone') },
   } as const;
   const { Icon, cls, label } = map[authType];
@@ -221,7 +229,7 @@ export function Hosts() {
   const [port, setPort] = useState(22);
   const [authSource, setAuthSource] = useState<AuthSource>('account');
   const [selectedAccountId, setSelectedAccountId] = useState('');
-  const [manualAuthType, setManualAuthType] = useState<'password' | 'key' | 'certificate' | 'none'>('password');
+  const [manualAuthType, setManualAuthType] = useState<'password' | 'key' | 'certificate' | 'agent' | 'none'>('password');
   const [manualUsername, setManualUsername] = useState('');
   const [manualPassword, setManualPassword] = useState('');
   const [manualKeyId, setManualKeyId] = useState('');
@@ -1421,6 +1429,7 @@ export function Hosts() {
                         <SelectItem value="password">{t('hosts.authTypePasswordOption')}</SelectItem>
                         <SelectItem value="key">{t('hosts.authTypeKeyOption')}</SelectItem>
                         <SelectItem value="certificate">{t('hosts.authTypeCertOption')}</SelectItem>
+                        <SelectItem value="agent">{t('hosts.authTypeAgentOption')}</SelectItem>
                         <SelectItem value="none">{t('hosts.authTypeNoneDesc')}</SelectItem>
                       </SelectContent>
                     </Select>

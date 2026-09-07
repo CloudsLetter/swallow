@@ -62,6 +62,7 @@ const authBadge = (authType: Account['authType']) => {
     password: { label: i18n.t('account.authTypePassword'), cls: 'bg-info/10 text-info' },
     key: { label: i18n.t('account.authTypeKey'), cls: 'bg-violet-500/10 text-violet-600 dark:text-violet-400' },
     certificate: { label: i18n.t('account.authTypeCertificate'), cls: 'bg-teal-500/10 text-teal-600 dark:text-teal-400' },
+    agent: { label: i18n.t('account.authTypeAgent'), cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
   } as const;
   const item = map[authType];
   return <Badge variant="outline" className={cn('font-normal', item.cls)}>{item.label}</Badge>;
@@ -560,6 +561,7 @@ export function AccountPage() {
                     <SelectItem value="password">{t('account.authTypePasswordOption')}</SelectItem>
                     <SelectItem value="key">{t('account.authTypeKeyOption')}</SelectItem>
                     <SelectItem value="certificate">{t('account.authTypeCertOption')}</SelectItem>
+                    <SelectItem value="agent">{t('account.authTypeAgentOption')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

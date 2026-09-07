@@ -414,34 +414,28 @@ async fn authenticate_inner(
                 bail!("Certificate authentication requires certificate content and private key");
             }
         }
-        "agent" => authenticate_with_agent(handle, &config.username).await?,
+        "agent" => authenticate_with_agent(handle, config.username.clone()).await?,
         other => bail!("Unsupported authentication type: {other}"),
     }
     Ok(())
 }
 
 /// SSH Agent 认证：枚举 agent 中的全部身份逐一尝试（签名由 agent 完成，
-/// 私钥永不出 agent）。Windows 优先 Pageant，再试 OpenSSH Agent 服务的
-/// 命名管道；Unix 走 SSH_AUTH_SOCK。
-async fn authenticate_with_agent(handle: &mut Handle<ClientHandler>, username: &str) -> Result<()> {
+/// 私钥永不出 agent）。Windows 连 OpenSSH Agent 服务的命名管道（事实标准；
+/// Pageant 用户可迁移到 Win32-OpenSSH agent）；Unix 走 SSH_AUTH_SOCK。
+async fn authenticate_with_agent(handle: &mut Handle<ClientHandler>, username: String) -> Result<()> {
+    // 平台各用一种具体流类型（不用 .dynamic() 的 Box<dyn AgentStream>）：
+    // trait object 与 on_progress 的 &dyn Fn 同处一个 async 生成器会触发
+    // rustc "implementation of Send is not general enough" 推导 bug。
     #[cfg(windows)]
-    let mut agent = {
-        use russh::keys::agent::client::AgentClient;
-        match AgentClient::connect_pageant().await {
-            Ok(client) => client.dynamic(),
-            Err(_) => AgentClient::connect_named_pipe("\\\\.\\pipe\\openssh-ssh-agent")
-                .await
-                .context(
-                    "未找到可用的 SSH Agent（请启动 OpenSSH Authentication Agent 服务或 Pageant）",
-                )?
-                .dynamic(),
-        }
-    };
+    let mut agent =
+        russh::keys::agent::client::AgentClient::connect_named_pipe("\\\\.\\pipe\\openssh-ssh-agent")
+            .await
+            .context("未找到可用的 SSH Agent（请启动 Windows OpenSSH Authentication Agent 服务）")?;
     #[cfg(unix)]
     let mut agent = russh::keys::agent::client::AgentClient::connect_env()
         .await
-        .context("无法连接 SSH Agent（请检查 SSH_AUTH_SOCK 环境变量）")?
-        .dynamic();
+        .context("无法连接 SSH Agent（请检查 SSH_AUTH_SOCK 环境变量）")?;
 
     let identities = agent
         .request_identities()
@@ -455,7 +449,7 @@ async fn authenticate_with_agent(handle: &mut Handle<ClientHandler>, username: &
     for identity in &identities {
         let key = identity.public_key().into_owned();
         match handle
-            .authenticate_publickey_with(username, key, None, &mut agent)
+            .authenticate_publickey_with(&username, key, None, &mut agent)
             .await
         {
             Ok(russh::client::AuthResult::Success) => return Ok(()),

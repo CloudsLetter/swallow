@@ -9,13 +9,13 @@ export interface Host {
   username: string;
   status: 'connected' | 'disconnected' | 'error';
   lastConnected?: string;
-  authType?: 'password' | 'key' | 'certificate' | 'none';
+  authType?: 'password' | 'key' | 'certificate' | 'agent' | 'none';
   password?: string;
   keyId?: string;
   certificateId?: string;
   useProxy?: boolean;
   proxyHostId?: string;
-  proxyAuthType?: 'password' | 'key' | 'certificate' | 'none';
+  proxyAuthType?: 'password' | 'key' | 'certificate' | 'agent' | 'none';
   proxyKeyId?: string;
   proxyCertId?: string;
   proxyHost?: string;
@@ -28,7 +28,7 @@ export interface Account {
   id: string;
   name: string;
   username: string;
-  authType: 'password' | 'key' | 'certificate';
+  authType: 'password' | 'key' | 'certificate' | 'agent';
   password?: string;
   keyId?: string;
   certificateId?: string;
