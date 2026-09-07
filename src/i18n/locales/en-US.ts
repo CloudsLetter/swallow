@@ -88,6 +88,7 @@ export default {
 
   menu: {
     hosts: 'Hosts',
+    desktop: 'Desktops',
     account: 'Account',
     keys: 'Keys',
     certificates: 'Certificates',
@@ -1729,5 +1730,33 @@ export default {
   notify: {
     sessionDisconnected: 'Connection lost: {{name}}',
     view: 'View',
+  },
+
+  remote: {
+    add: 'New desktop connection',
+    edit: 'Edit desktop connection',
+    name: 'Name',
+    nameRequired: 'A name is required',
+    protocol: 'Protocol',
+    host: 'Host',
+    hostRequired: 'A host is required',
+    port: 'Port',
+    username: 'Username',
+    passwordOptional: 'Password (optional)',
+    passwordPlaceholder: 'Leave empty to be prompted on connect',
+    viaSsh: 'Via SSH tunnel',
+    viaSshDesc: 'Use a saved SSH host as a jump box (reuses its credentials, nothing stored here)',
+    jumpHost: 'Jump host',
+    jumpHostRequired: 'Select a jump host',
+    selectHost: 'Select a host…',
+    noHosts: 'No SSH hosts available yet',
+    jumpMissing: 'Jump host missing — save it on the Hosts page first',
+    jumpUnsupported: 'Certificate/passwordless jump hosts are not supported; use password or key auth',
+    connect: 'Connect',
+    empty: 'No saved desktop connections yet. Use “New” to store the VNC / RDP endpoints you use often.',
+    created: 'Desktop connection created',
+    updated: 'Changes saved',
+    deleted: 'Deleted',
+    deleteConfirm: 'Delete desktop connection “{{name}}”?',
   },
 };

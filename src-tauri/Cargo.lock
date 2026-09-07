@@ -6708,7 +6708,7 @@ dependencies = [
 
 [[package]]
 name = "swallow"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "aes-gcm 0.10.3",
  "anyhow",

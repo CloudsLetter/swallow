@@ -141,6 +141,18 @@ pub fn init_database() -> Result<(), String> {
             raw_line TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS remote_conns (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            protocol TEXT NOT NULL,
+            host TEXT NOT NULL,
+            port INTEGER NOT NULL,
+            username TEXT,
+            password TEXT,
+            jump_host_id TEXT,
+            created TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS port_forwardings (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,

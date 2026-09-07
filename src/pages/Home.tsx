@@ -10,6 +10,7 @@ import { useTabStore, Tab } from '../store/tabStore';
 import { useUiPage } from '../store/uiPage';
 import { Hosts } from './Hosts';
 import { AccountPage } from './Account';
+import { Remote } from './Remote';
 import { Keys } from './Keys';
 import { Certificates } from './Certificates';
 import { KnownHosts } from './KnownHosts';
@@ -36,6 +37,7 @@ const RdpView = lazy(() =>
 const HOME_PAGES: Record<string, ReactNode> = {
   hosts: <Hosts />,
   account: <AccountPage />,
+  remote: <Remote />,
   keys: <Keys />,
   certificates: <Certificates />,
   knownhosts: <KnownHosts />,

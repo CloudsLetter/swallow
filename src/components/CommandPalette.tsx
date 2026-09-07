@@ -61,6 +61,7 @@ interface PaletteItem {
 
 const PAGE_ITEMS: { id: string; labelKey: string; Icon: typeof IconDeviceDesktop }[] = [
   { id: 'hosts', labelKey: 'menu.hosts', Icon: IconDeviceDesktop },
+  { id: 'remote', labelKey: 'menu.desktop', Icon: IconScreenShare },
   { id: 'account', labelKey: 'menu.account', Icon: IconUser },
   { id: 'portforwarding', labelKey: 'menu.portForwarding', Icon: IconForward },
   { id: 'keys', labelKey: 'menu.keys', Icon: IconKey },

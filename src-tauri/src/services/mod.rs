@@ -8,6 +8,7 @@ pub mod known_hosts;
 pub mod logs;
 pub mod monitor_state;
 pub mod port_forwardings;
+pub mod remotes;
 pub mod sessions;
 pub mod session_log;
 pub mod sftp_connections;

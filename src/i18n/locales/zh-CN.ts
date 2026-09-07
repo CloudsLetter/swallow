@@ -88,6 +88,7 @@ export default {
 
   menu: {
     hosts: '主机',
+    desktop: '桌面',
     account: '账号',
     keys: '密钥',
     certificates: '证书',
@@ -1727,5 +1728,33 @@ export default {
   notify: {
     sessionDisconnected: '「{{name}}」连接已断开',
     view: '查看',
+  },
+
+  remote: {
+    add: '新建桌面连接',
+    edit: '编辑桌面连接',
+    name: '名称',
+    nameRequired: '请填写名称',
+    protocol: '协议',
+    host: '地址',
+    hostRequired: '请填写地址',
+    port: '端口',
+    username: '用户名',
+    passwordOptional: '密码（可选）',
+    passwordPlaceholder: '留空则连接时按需输入',
+    viaSsh: '经 SSH 隧道',
+    viaSshDesc: '选一台已保存的 SSH 主机作跳板（复用其凭据，不重复存储）',
+    jumpHost: '跳板主机',
+    jumpHostRequired: '请选择跳板主机',
+    selectHost: '选择主机…',
+    noHosts: '还没有可用的 SSH 主机',
+    jumpMissing: '跳板主机不存在，请先到主机页保存它',
+    jumpUnsupported: '证书/免密认证的跳板暂不支持，请用密码或密钥',
+    connect: '连接',
+    empty: '还没有保存的桌面连接。点右上角「新建」把常用的 VNC / RDP 存下来。',
+    created: '已创建桌面连接',
+    updated: '已保存修改',
+    deleted: '已删除',
+    deleteConfirm: '删除桌面连接「{{name}}」？',
   },
 };

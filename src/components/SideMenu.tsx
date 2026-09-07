@@ -12,6 +12,7 @@ import {
   Lock as IconLock,
   FileBadge as IconCert,
   Activity as IconActivity,
+  ScreenShare as IconRemote,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button';
@@ -43,6 +44,7 @@ export function SideMenu({ onItemClick, activePage }: SideMenuProps) {
 
   const menuItems: MenuItem[] = [
     { id: 'hosts', label: t('menu.hosts'), icon: <IconDeviceDesktop size={16} strokeWidth={2} /> },
+    { id: 'remote', label: t('menu.desktop'), icon: <IconRemote size={16} strokeWidth={2} /> },
     { id: 'account', label: t('menu.account'), icon: <IconUser size={16} strokeWidth={2} /> },
     { id: 'portforwarding', label: t('menu.portForwarding'), icon: <IconForward size={16} strokeWidth={2} /> },
     { id: 'keys', label: t('menu.keys'), icon: <IconKey size={16} strokeWidth={2} /> },
