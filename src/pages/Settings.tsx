@@ -10,13 +10,14 @@ import {
   TerminalSettings,
   ShortcutsSettings,
   CloudSettings,
+  AiSettings,
   AdvancedSettings,
 } from './settingsComponents';
 import { useConfigStore } from '../store/config';
 import { Button } from '../components/ui/button';
 import { cn } from '@/lib/utils';
 
-type configTab = 'appearance' | 'terminal' | 'shortcuts' | 'cloud' | 'advanced';
+type configTab = 'appearance' | 'terminal' | 'shortcuts' | 'cloud' | 'ai' | 'advanced';
 
 export function SettingsPage() {
   const { t } = useTranslation();
@@ -29,6 +30,7 @@ export function SettingsPage() {
     { id: 'terminal', label: t('settings.terminal') },
     { id: 'shortcuts', label: t('settings.shortcuts') },
     { id: 'cloud', label: t('settings.cloud') },
+    { id: 'ai', label: t('settings.ai') },
     { id: 'advanced', label: t('settings.advanced') },
   ];
 
@@ -42,6 +44,8 @@ export function SettingsPage() {
         return <ShortcutsSettings />;
       case 'cloud':
         return <CloudSettings />;
+      case 'ai':
+        return <AiSettings />;
       case 'advanced':
         return <AdvancedSettings />;
       default:

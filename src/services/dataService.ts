@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, Channel } from '@tauri-apps/api/core';
 
 export interface Host {
   id: string;
@@ -499,4 +499,26 @@ export async function saveOpenSessions(data: string): Promise<void> {
 /** 读取上次保存的标签会话（JSON 字符串）。 */
 export async function loadOpenSessions(): Promise<string> {
   return invoke<string>('load_open_sessions');
+}
+
+/** AI 助手：流式对话。onDelta 逐段接收增量文本，返回 Promise 在完成/失败时 resolve/reject */
+export async function aiChat(
+  messages: { role: string; content: string }[],
+  onDelta: (delta: string) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const channel = new Channel<string>();
+    let done = false;
+    channel.onmessage = (msg) => {
+      if (msg === '\u{1}DONE') {
+        done = true;
+        resolve();
+        return;
+      }
+      onDelta(msg);
+    };
+    invoke('ai_chat', { messages, channel }).catch((error) => {
+      if (!done) reject(String(error));
+    });
+  });
 }

@@ -8,6 +8,7 @@ export interface Config {
   security: Security;
   advanced: Advanced;
   file_version: FileVersion;
+  ai: Ai;
 }
 
 export interface Application {
@@ -291,4 +292,12 @@ export interface Advanced {
   debug_mode: boolean;
   check_updates: boolean;
   send_analytics: boolean;
+}
+
+/** AI 助手设置：OpenAI 兼容端点（base_url 填到 /v1 为止） */
+export interface Ai {
+  base_url: string;
+  api_key: string;
+  model: string;
+  context_max_chars: number;
 }

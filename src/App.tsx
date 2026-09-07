@@ -1,6 +1,8 @@
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { useEffect, useRef, useState } from 'react';
+import { Bot as IconBot } from 'lucide-react';
+import { Button } from './components/ui/button';
 import { I18nextProvider } from 'react-i18next';
 import { listen } from '@tauri-apps/api/event';
 
@@ -10,6 +12,7 @@ import { Toaster } from './components/ui/sonner';
 import { OnboardingDialog } from './components/OnboardingDialog';
 import { DebugConsole } from './components/DebugConsole';
 import { CommandPalette } from './components/CommandPalette';
+import { AiAssistant } from './components/AiAssistant';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import './App.css';
 import { useConfigStore } from './store/config';
@@ -20,6 +23,7 @@ import { checkForAppUpdates } from './services/updaterService';
 import i18next from './i18n/i18n';
 
 function App() {
+  const [aiOpen, setAiOpen] = useState(false);
   const loadConfig = useConfigStore((state) => state.loadConfig);
   const config = useConfigStore((state) => state.config);
   const updateConfig = useConfigStore((state) => state.updateConfig);
@@ -231,6 +235,16 @@ function App() {
           onOpenChange={setShowOnboarding}
           onFinish={finishOnboarding}
         />
+        <AiAssistant open={aiOpen} onOpenChange={setAiOpen} />
+        <Button
+          size="icon"
+          variant="outline"
+          className="fixed bottom-5 right-5 z-40 rounded-full shadow-lg"
+          title="AI"
+          onClick={() => setAiOpen(true)}
+        >
+          <IconBot size={18} className="text-primary" />
+        </Button>
         {config?.advanced?.debug_mode && (
           <ErrorBoundary>
             <DebugConsole />

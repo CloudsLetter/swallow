@@ -12,6 +12,7 @@ pub struct Config {
 	pub security: Security,
 	pub advanced: Advanced,
 	pub file_version: FileVersion,
+	pub ai: Ai,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -459,6 +460,7 @@ impl Default for Config {
 			security: Security::default(),
 			advanced: Advanced::default(),
 			file_version: FileVersion::default(),
+			ai: Ai::default(),
 		}
 	}
 }
@@ -1204,6 +1206,29 @@ impl Default for ThemeColors {
 			// 面板
 			panel_bg: "#1b1b1f".into(),
 			panel_border: "#2e2e34".into(),
+		}
+	}
+}
+
+/// AI 助手设置：OpenAI 兼容端点（base_url 填到 /v1 为止，如
+/// https://api.deepseek.com/v1）。api_key 保存在本地 config.toml。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Ai {
+	pub base_url: String,
+	pub api_key: String,
+	pub model: String,
+	/// 注入提示词的终端上下文上限（字符数），防止 token 爆炸
+	pub context_max_chars: u32,
+}
+
+impl Default for Ai {
+	fn default() -> Self {
+		Self {
+			base_url: "".into(),
+			api_key: "".into(),
+			model: "".into(),
+			context_max_chars: 12000,
 		}
 	}
 }

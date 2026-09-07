@@ -117,6 +117,7 @@ export default {
     terminal: 'Terminal',
     shortcuts: 'Shortcuts',
     cloud: 'Cloud Sync',
+    ai: 'AI Assistant',
     settings: 'Settings',
     advanced: 'Advanced',
     // Toolbar buttons
@@ -1591,5 +1592,22 @@ export default {
     passwordPlaceholder: 'Enter RDP password',
     passwordSubmit: 'Connect',
     missingConfig: 'Missing RDP connection config',
+  },
+
+  ai: {
+    settingsTitle: 'AI 助手',
+    settingsDesc: '配置 OpenAI 兼容端点后即可在右侧 AI 面板中对话。数据仅保存在本机。',
+    baseUrl: 'API 地址',
+    baseUrlHint: 'OpenAI 兼容端点，填到 /v1 为止，例如 https://api.deepseek.com/v1',
+    model: '模型',
+    apiKey: 'API Key',
+    apiKeyHint: '仅保存在本机 config.toml，不落库、不进日志。',
+    panelTitle: 'AI 助手',
+    clearHistory: '清空会话',
+    emptyHint: '有什么可以帮你？\n可点击下方按钮附加当前终端输出作为上下文。',
+    inputPlaceholder: '输入问题，Enter 发送，Shift+Enter 换行',
+    contextAttached: '已附加终端上下文（{{chars}} 字符）',
+    attachContext: '附加终端输出',
+    send: '发送',
   },
 };

@@ -1,6 +1,7 @@
 //! Tauri 命令层：按协议/域拆分的 `#[tauri::command]` 实现（自 lib.rs 拆分）。
 //! `lib.rs` 只保留 `run()`、`AppState` 与 `generate_handler!` 注册。
 
+pub mod ai;
 pub mod local;
 pub mod misc;
 pub mod monitor;

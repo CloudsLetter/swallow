@@ -94,6 +94,7 @@ pub fn run() {
             }
         }))
         .invoke_handler(tauri::generate_handler![
+            commands::ai::ai_chat,
             commands::misc::greet,
             commands::misc::close_splashscreen,
             commands::ssh::ssh_connect,
