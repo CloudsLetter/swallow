@@ -838,9 +838,17 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
         }}
       />
 
-      {/* 浮动操作栏：复制全部 + 查找 + 广播 + 快捷指令（连接中隐藏） */}
+      {/* 浮动操作栏：默认完全隐藏，悬停右上角触发条（角落 24×40 热区）浮现，
+          不常驻挡终端输出；广播开启时常驻显示。查找/复制均有快捷键兜底 */}
       {!showProgress && (
-        <div className="absolute right-2 top-2 z-20 flex items-center gap-1">
+        <div className="group/termbar absolute right-0 top-0 z-20 h-10 w-6">
+          <div
+            className={`absolute right-0.5 top-1 flex items-center gap-1 transition-opacity duration-200 ${
+              broadcastEnabled
+                ? 'pointer-events-auto opacity-100'
+                : 'pointer-events-none opacity-0 group-hover/termbar:pointer-events-auto group-hover/termbar:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100'
+            }`}
+          >
           <Button
             variant="ghost"
             size="icon-xs"
@@ -881,6 +889,7 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
           >
             <IconSnippet size={14} strokeWidth={2} />
           </Button>
+          </div>
         </div>
       )}
 

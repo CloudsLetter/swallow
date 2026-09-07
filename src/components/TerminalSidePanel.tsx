@@ -1140,16 +1140,18 @@ export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTermin
       <div className="relative h-full min-w-0 flex-1">
         {renderTerminal(resizeSignal)}
         {!prefs.open && (
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="absolute left-2 top-2 z-20 h-7 w-7 rounded-md bg-background/80"
-            onClick={() => updatePrefs({ open: true })}
-            title={t('terminalPanel.expand')}
-            aria-label={t('terminalPanel.expand')}
-          >
-            <IconPanelOpen size={14} strokeWidth={2} />
-          </Button>
+          <div className="group/panel-open absolute left-0 top-0 z-20 h-10 w-6">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="absolute left-0.5 top-1 h-7 w-7 rounded-md bg-background/80 opacity-0 transition-opacity duration-200 pointer-events-none focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/panel-open:pointer-events-auto group-hover/panel-open:opacity-100"
+              onClick={() => updatePrefs({ open: true })}
+              title={t('terminalPanel.expand')}
+              aria-label={t('terminalPanel.expand')}
+            >
+              <IconPanelOpen size={14} strokeWidth={2} />
+            </Button>
+          </div>
         )}
       </div>
     </div>

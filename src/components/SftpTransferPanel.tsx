@@ -90,11 +90,24 @@ export function SftpTransferPanel({
     return () => clearInterval(timer);
   }, [hasTasks]);
 
+  const activeCount = tasks.filter((t) => t.status === 'active').length;
+  const errorCount = tasks.filter((t) => t.status === 'error').length;
+
+  // 全部结束且无失败：6s 后自动清理任务，面板随之消失不常驻挡视线；
+  // 有失败任务则保留，等用户查看或手动清除
+  useEffect(() => {
+    if (tasks.length === 0 || activeCount > 0 || errorCount > 0) return;
+    const timer = setTimeout(() => {
+      tasks.forEach((t) => dismissTransfer(t.id));
+    }, 6000);
+    return () => clearTimeout(timer);
+    // tasks 为 selector 每次渲染生成的新数组，改以计数签名作依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks.length, activeCount, errorCount, dismissTransfer]);
+
   if (tasks.length === 0) return null;
 
-  const activeCount = tasks.filter((t) => t.status === 'active').length;
   const doneCount = tasks.filter((t) => t.status === 'done').length;
-  const errorCount = tasks.filter((t) => t.status === 'error').length;
   const isGlobal = variant === 'global';
   const groups = isGlobal ? groupTransfersBySession(tasks) : null;
 
