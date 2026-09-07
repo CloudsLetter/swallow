@@ -17,6 +17,7 @@ import { Input } from './ui/input';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useOnlineHosts } from '../store/uiState';
+import { useConfigStore } from '../store/config';
 import type { SshTabConfig } from '../store/tabStore';
 import {
   acceptHostKey,
@@ -33,6 +34,7 @@ import {
   type MonitorSnapshot,
 } from '../services/monitorService';
 import { disposeSftpSession, type FileItem } from './sftpPool';
+import { useTerminalBackground } from '../hooks/useTerminalBackground';
 
 // ==================== 偏好持久化 ====================
 
@@ -129,24 +131,73 @@ function parentOf(path: string): string | null {
   return trimmed.slice(0, idx) || '/';
 }
 
-/** 指标条颜色：≥90 危险红、≥75 警告橙、其余主题色（与监控页告警色一致）。 */
-function metricColor(value: number): string {
+/** 解析 hex / rgb / rgba 颜色为 rgb 分量；'transparent'、'var(...)' 等返回 null。 */
+function parseRgb(color: string): { r: number; g: number; b: number } | null {
+  const s = color.trim();
+  if (s.startsWith('#')) {
+    let hex = s.slice(1);
+    if (hex.length === 3) hex = hex.split('').map((c) => c + c).join('');
+    if (hex.length === 8) hex = hex.slice(0, 6);
+    if (!/^[0-9a-f]{6}$/i.test(hex)) return null;
+    const int = parseInt(hex, 16);
+    return { r: (int >> 16) & 255, g: (int >> 8) & 255, b: int & 255 };
+  }
+  const m = /rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i.exec(s);
+  return m ? { r: +m[1], g: +m[2], b: +m[3] } : null;
+}
+
+/**
+ * 面板跟随终端主题：以终端背景色为底，按亮度覆盖局部 CSS 变量（--sidebar* /
+ * --muted* / --foreground / --primary），让面板内所有 shadcn 配色自动适配明暗。
+ * 仅「背景图 + 延伸顶栏」时半透明 + 毛玻璃透出全窗背景层；纯色场景直接用同色不透明。
+ */
+function buildPanelTheme(terminalBackground: string, hasImage: boolean, extend: boolean) {
+  const rgb = parseRgb(terminalBackground);
+  // 主题色未知（var() 兜底 / 透明终端）：保持应用默认 sidebar 外观
+  if (!rgb) return { style: {} as React.CSSProperties, translucent: false };
+  const dark = 0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b < 150;
+  // 只有「背景图 + 延伸顶栏」时下层才有全窗背景层可透（fixed 层含图片）
+  const translucent = hasImage && extend;
+  const vars: Record<string, string> = {
+    '--sidebar': `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${translucent ? 0.6 : 1})`,
+  };
+  if (dark) {
+    vars['--sidebar-foreground'] = 'rgba(255,255,255,0.92)';
+    vars['--foreground'] = 'rgba(255,255,255,0.92)';
+    vars['--sidebar-border'] = 'rgba(255,255,255,0.1)';
+    vars['--sidebar-accent'] = 'rgba(255,255,255,0.08)';
+    vars['--muted'] = 'rgba(255,255,255,0.09)';
+    vars['--muted-foreground'] = 'rgba(255,255,255,0.6)';
+    vars['--primary'] = '#818cf8';
+  }
+  const style = {
+    ...vars,
+    ...(translucent ? { backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)' } : {}),
+  } as React.CSSProperties;
+  return { style, translucent };
+}
+
+/** 指标条颜色：≥90 危险红、≥75 警告橙、否则用指标专属色（与监控页告警色一致）。 */
+function metricColor(value: number, color?: string): string {
   if (value >= 90) return 'var(--destructive)';
   if (value >= 75) return 'var(--warning)';
-  return 'var(--primary)';
+  return color ?? 'var(--primary)';
 }
 
 // ==================== 状态分区 ====================
 
-/** 指标条：标签 + 数值 + 比例条。 */
+/** 指标条：标签 + 数值 + 比例条（4px 细条；color 为指标专属色，告警阈值时变橙红）。 */
 function MetricBar({
   label,
   value,
   detail,
+  color,
 }: {
   label: string;
   value: number;
   detail: string;
+  /** 正常状态的专属色（如 CPU 蓝 / 内存紫 / 磁盘绿）；超阈值自动切警告色 */
+  color?: string;
 }) {
   return (
     <div className="space-y-1">
@@ -154,10 +205,10 @@ function MetricBar({
         <span className="shrink-0 text-muted-foreground">{label}</span>
         <span className="truncate text-right tabular-nums">{detail}</span>
       </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+      <div className="h-1 overflow-hidden rounded-full bg-muted">
         <div
           className="h-full rounded-full transition-[width] duration-500"
-          style={{ width: `${Math.min(100, Math.max(0, value))}%`, backgroundColor: metricColor(value) }}
+          style={{ width: `${Math.min(100, Math.max(0, value))}%`, backgroundColor: metricColor(value, color) }}
         />
       </div>
     </div>
@@ -212,6 +263,12 @@ const AUTH_LABEL_KEY: Record<string, string> = {
   agent: 'hosts.authTypeAgent',
   none: 'hosts.authTypeNone',
 };
+
+/** 指标专属色：CPU 蓝 / 内存紫 / Swap 橙 / 磁盘按挂载点轮换绿-青-蓝。 */
+const CPU_COLOR = '#3b82f6';
+const MEM_COLOR = '#a855f7';
+const SWAP_COLOR = '#f59e0b';
+const DISK_COLORS = ['#10b981', '#14b8a6', '#06b6d4', '#0ea5e9'];
 
 interface StatusSectionProps {
   sshConfig?: SshTabConfig;
@@ -419,6 +476,7 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
                   label={t('terminalPanel.cpu')}
                   value={snapshot.cpuUsage}
                   detail={`${snapshot.cpuUsage.toFixed(1)}% · ${snapshot.cpuCores}C`}
+                  color={CPU_COLOR}
                 />
                 <div className="text-[10px] tabular-nums text-muted-foreground/70">
                   us {snapshot.cpuUser.toFixed(1)} · sy {snapshot.cpuSystem.toFixed(1)} · wa {snapshot.cpuIowait.toFixed(1)}
@@ -436,6 +494,7 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
                   label={t('terminalPanel.memory')}
                   value={(snapshot.memUsed / Math.max(1, snapshot.memTotal)) * 100}
                   detail={`${formatBytes(snapshot.memUsed)} / ${formatBytes(snapshot.memTotal)}`}
+                  color={MEM_COLOR}
                 />
                 <div className="text-[10px] tabular-nums text-muted-foreground/70">
                   {t('terminalPanel.cache')} {formatBytes(snapshot.memBuffCache)} · {t('terminalPanel.available')} {formatBytes(snapshot.memAvailable)}
@@ -447,6 +506,7 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
                   label={t('terminalPanel.swap')}
                   value={(snapshot.swapUsed / Math.max(1, snapshot.swapTotal)) * 100}
                   detail={`${formatBytes(snapshot.swapUsed)} / ${formatBytes(snapshot.swapTotal)}`}
+                  color={SWAP_COLOR}
                 />
               )}
 
@@ -464,12 +524,13 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
                 <div className="space-y-2 border-t border-sidebar-border pt-2">
                   <SectionTitle>{t('terminalPanel.disk')}</SectionTitle>
                   <div className="space-y-2">
-                    {snapshot.disks.slice(0, 4).map((d) => (
+                    {snapshot.disks.slice(0, 4).map((d, i) => (
                       <MetricBar
                         key={`${d.filesystem}-${d.mount}`}
                         label={d.mount}
                         value={d.percent}
                         detail={`${formatBytes(d.used)} / ${formatBytes(d.total)}`}
+                        color={DISK_COLORS[i % DISK_COLORS.length]}
                       />
                     ))}
                   </div>
@@ -878,6 +939,11 @@ export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTermin
   const [prefs, setPrefs] = useState<PanelPrefs>(loadPanelPrefs);
   const [dragging, setDragging] = useState(false);
   const [resizeSignal, setResizeSignal] = useState(0);
+  const config = useConfigStore((s) => s.config);
+  // 面板背景跟随终端主题：与 TerminalView 同源计算终端背景，按亮度覆盖局部配色变量。
+  // 用 terminalBackground（透明终端时为 'transparent' → 保持应用默认面板色，与终端一致地透出应用底色）
+  const { terminalBackground, hasBackgroundImage, extendToTopbar } = useTerminalBackground(config, isActive);
+  const panelTheme = buildPanelTheme(terminalBackground, hasBackgroundImage, extendToTopbar);
   const bump = useCallback(() => setResizeSignal((s) => s + 1), []);
 
   const updatePrefs = useCallback((updates: Partial<PanelPrefs>) => {
@@ -930,7 +996,7 @@ export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTermin
             'flex h-full flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground',
             !prefs.open && 'invisible',
           )}
-          style={{ width: prefs.width }}
+          style={{ width: prefs.width, ...panelTheme.style }}
         >
           {/* 头部：分区切换 + 收起按钮 */}
           <div className="flex h-11 shrink-0 items-center justify-between gap-1 border-b border-sidebar-border pl-1.5 pr-1">
