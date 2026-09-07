@@ -202,16 +202,9 @@ function buildPanelTheme(
   return { style, translucent };
 }
 
-/** 指标条压力红绿灯：≥90 危险红、≥75 警告黄、正常绿（阈值与监控页告警一致）。 */
-function metricColor(value: number): string {
-  if (value >= 90) return 'var(--destructive)';
-  if (value >= 75) return '#eab308';
-  return '#22c55e';
-}
-
 // ==================== 状态分区 ====================
 
-/** 指标条：标签 + 数值 + 比例条（4px 细条，压力红绿灯：正常绿 / ≥75 黄 / ≥90 红）。 */
+/** 指标条：标签 + 数值 + 比例条（4px 细条，填充与文字同用终端前景色）。 */
 function MetricBar({
   label,
   value,
@@ -230,7 +223,7 @@ function MetricBar({
       <div className="h-1 overflow-hidden rounded-full bg-muted">
         <div
           className="h-full rounded-full transition-[width] duration-500"
-          style={{ width: `${Math.min(100, Math.max(0, value))}%`, backgroundColor: metricColor(value) }}
+          style={{ width: `${Math.min(100, Math.max(0, value))}%`, backgroundColor: 'var(--foreground)' }}
         />
       </div>
     </div>
@@ -937,7 +930,7 @@ function FilesSection({ sessionId, sshConfig, active }: FilesSectionProps) {
                 >
                   <span className="flex size-4 shrink-0 items-center justify-center">
                     {item.type === 'directory' ? (
-                      <IconFolder size={14} strokeWidth={2} className="text-primary/80" />
+                      <IconFolder size={14} strokeWidth={2} className="text-foreground" />
                     ) : item.type === 'symlink' ? (
                       <IconLink size={14} strokeWidth={2} className="text-muted-foreground" />
                     ) : (
