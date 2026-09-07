@@ -215,42 +215,50 @@ function MetricBar({
   );
 }
 
+/** 键值行：Label 固定宽度、Value 紧跟其后（视线不跳跃）；长值截断。 */
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-2">
-      <span className="shrink-0 text-muted-foreground">{label}</span>
-      <span className="truncate text-right tabular-nums">{value}</span>
+    <div className="flex items-baseline gap-2">
+      <span className="w-16 shrink-0 truncate text-muted-foreground" title={label}>
+        {label}
+      </span>
+      <span className="min-w-0 flex-1 truncate tabular-nums" title={value}>
+        {value}
+      </span>
     </div>
   );
 }
 
-/** 指标小节标题：紧凑大写小字。 */
+/** 指标小节标题：紧凑大写小字，下留呼吸间距，配合分隔线强化层级。 */
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
       {children}
     </div>
   );
 }
 
-/** 双值小卡（TCP 连接等计数）：数字为主、标签为辅。 */
-function MiniStat({ label, value }: { label: string; value: number | string }) {
+/** TCP 连接计数徽章：标签灰、数值亮，行内平铺自动换行。 */
+function TcpBadge({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-md bg-muted/40 px-2 py-1.5">
-      <div className="text-sm font-medium leading-none tabular-nums">{value}</div>
-      <div className="mt-1 truncate text-[10px] text-muted-foreground">{label}</div>
-    </div>
+    <span className="rounded bg-muted/50 px-1.5 py-0.5 text-[10px] leading-none">
+      <span className="text-muted-foreground">{label}</span>{' '}
+      <span className="font-medium tabular-nums">{value}</span>
+    </span>
   );
 }
 
-/** Top 进程行：进程名 + pid，右侧百分比。 */
+/** Top 进程行：微型三列表格（进程名 | PID | 占用率），PID 低不透明度区分层级。 */
 function ProcessRow({ name, pid, value }: { name: string; pid: number; value: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-2">
-      <span className="min-w-0 truncate" title={`${name} (pid ${pid})`}>
-        {name} <span className="text-muted-foreground/50">{pid}</span>
+    <div className="flex items-baseline gap-2">
+      <span className="min-w-0 flex-1 truncate" title={`${name} (pid ${pid})`}>
+        {name}
       </span>
-      <span className="shrink-0 tabular-nums text-muted-foreground">{value}</span>
+      <span className="w-10 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground/60">
+        {pid}
+      </span>
+      <span className="w-11 shrink-0 text-right tabular-nums">{value}</span>
     </div>
   );
 }
@@ -511,7 +519,7 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
               )}
 
               {/* 系统：主机名 / 内核 / 架构 / 开机时长 */}
-              <div className="space-y-1 border-t border-sidebar-border pt-2">
+              <div className="space-y-1 border-t border-sidebar-border pt-2.5">
                 <SectionTitle>{t('terminalPanel.system')}</SectionTitle>
                 <InfoRow label="Hostname" value={snapshot.hostname !== 'unknown' ? snapshot.hostname : '—'} />
                 <InfoRow label="Kernel" value={snapshot.kernel !== 'unknown' ? snapshot.kernel : '—'} />
@@ -521,7 +529,7 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
 
               {/* 磁盘：各挂载点用量 + I/O 速率 */}
               {snapshot.disks.length > 0 && (
-                <div className="space-y-2 border-t border-sidebar-border pt-2">
+                <div className="space-y-2 border-t border-sidebar-border pt-2.5">
                   <SectionTitle>{t('terminalPanel.disk')}</SectionTitle>
                   <div className="space-y-2">
                     {snapshot.disks.slice(0, 4).map((d, i) => (
@@ -537,14 +545,14 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
                   {snapshot.disksIo.length > 0 && (
                     <InfoRow
                       label={t('terminalPanel.diskIo')}
-                      value={`${t('terminalPanel.read')} ↓${formatRate(snapshot.disksIo.reduce((a, d) => a + d.rxBytesPerSec, 0))} · ${t('terminalPanel.write')} ↑${formatRate(snapshot.disksIo.reduce((a, d) => a + d.wxBytesPerSec, 0))}`}
+                      value={`${t('terminalPanel.read')} ↓ ${formatRate(snapshot.disksIo.reduce((a, d) => a + d.rxBytesPerSec, 0))} · ${t('terminalPanel.write')} ↑ ${formatRate(snapshot.disksIo.reduce((a, d) => a + d.wxBytesPerSec, 0))}`}
                     />
                   )}
                 </div>
               )}
 
               {/* 网络：汇总速率 + 最忙网卡 */}
-              <div className="space-y-1 border-t border-sidebar-border pt-2">
+              <div className="space-y-1 border-t border-sidebar-border pt-2.5">
                 <SectionTitle>{t('terminalPanel.network')}</SectionTitle>
                 <InfoRow
                   label="↓ / ↑"
@@ -553,25 +561,25 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
                 {busiestNic && (
                   <InfoRow
                     label={t('terminalPanel.busiestNic')}
-                    value={`${busiestNic.interface} ↓${formatRate(busiestNic.rxBytesPerSec)} ↑${formatRate(busiestNic.txBytesPerSec)}`}
+                    value={`${busiestNic.interface} ↓ ${formatRate(busiestNic.rxBytesPerSec)} · ↑ ${formatRate(busiestNic.txBytesPerSec)}`}
                   />
                 )}
               </div>
 
-              {/* TCP 连接计数 */}
-              <div className="space-y-1 border-t border-sidebar-border pt-2">
+              {/* TCP 连接计数：单行平铺徽章，省纵向空间 */}
+              <div className="border-t border-sidebar-border pt-2.5">
                 <SectionTitle>{t('terminalPanel.tcp')}</SectionTitle>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <MiniStat label="established" value={snapshot.tcp.established} />
-                  <MiniStat label="time-wait" value={snapshot.tcp.timeWait} />
-                  <MiniStat label="close-wait" value={snapshot.tcp.closeWait} />
-                  <MiniStat label="listening" value={snapshot.tcp.listening} />
+                <div className="flex flex-wrap gap-1">
+                  <TcpBadge label="ESTAB" value={snapshot.tcp.established} />
+                  <TcpBadge label="TIME-WAIT" value={snapshot.tcp.timeWait} />
+                  <TcpBadge label="CLOSE-WAIT" value={snapshot.tcp.closeWait} />
+                  <TcpBadge label="LISTEN" value={snapshot.tcp.listening} />
                 </div>
               </div>
 
               {/* 资源占用 Top 进程 */}
               {(snapshot.topCpu.length > 0 || snapshot.topMem.length > 0) && (
-                <div className="space-y-1.5 border-t border-sidebar-border pt-2">
+                <div className="space-y-1.5 border-t border-sidebar-border pt-2.5">
                   <SectionTitle>{t('terminalPanel.processes')}</SectionTitle>
                   {snapshot.topCpu.length > 0 && (
                     <div className="space-y-0.5">
