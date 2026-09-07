@@ -56,6 +56,7 @@ import {
 } from './sessionLog';
 import { useBroadcastStore } from '../store/broadcast';
 import { usePanelStore } from '../store/panelStore';
+import { recordCommand, suggestCommands } from '../services/commandHistory';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import {
@@ -65,6 +66,7 @@ import {
 } from 'lucide-react';
 import type { ISearchOptions } from '@xterm/addon-search';
 import { toast } from 'sonner';
+import { cn } from '../lib/utils';
 
 // onError 事件可能高频到达：500ms 内去重，避免 toast 刷屏
 let lastErrorToastAt = 0;
@@ -265,6 +267,28 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
   } | null>(null);
   const findInputRef = useRef<HTMLInputElement>(null);
   const findEverOpenedRef = useRef(false);
+
+  // —— 自动补全（对标 Termius：命令历史 + 静态词库候选浮层）——
+  // onData 只绑定一次，闭包只能读 ref；state 仅镜像渲染（updateSuggest 双写防 stale）
+  const [suggest, setSuggest] = useState<{ items: string[]; sel: number } | null>(null);
+  const suggestRef = useRef<{ items: string[]; sel: number } | null>(null);
+  /** 当前正在输入的命令行缓冲（可打印字符/退格维护，回车提交历史） */
+  const inputBufRef = useRef('');
+  const updateSuggest = (next: { items: string[]; sel: number } | null) => {
+    const cur = suggestRef.current;
+    if (cur === null && next === null) return;
+    if (
+      cur &&
+      next &&
+      cur.sel === next.sel &&
+      cur.items.length === next.items.length &&
+      cur.items.every((c, i) => c === next.items[i])
+    ) {
+      return;
+    }
+    suggestRef.current = next;
+    setSuggest(next);
+  };
 
   // SSH 日志由设置中的开关控制：连接前自动开始，断开时由生命周期收尾。
   const sessionLabel = sshConfig
@@ -616,11 +640,79 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
 
         // 绑定用户输入（幂等，只绑定一次）
         if (!isOnDataBound(sessionId)) {
+          // 按当前输入行重新计算候选并刷新浮层
+          const recomputeSuggest = () => {
+            const line = inputBufRef.current;
+            if (line.length < 2) {
+              updateSuggest(null);
+              return;
+            }
+            const items = suggestCommands(line);
+            updateSuggest(items.length > 0 ? { items, sel: 0 } : null);
+          };
+
           terminal.onData((data: string) => {
             // 广播开启时，把输入同时发送到所有已连接的会话（ssh/telnet 各自走对应命令）
             const targets = useBroadcastStore.getState().enabled
               ? listPool().filter((id) => isConnected(id))
               : [sessionId];
+
+            // —— 自动补全浮层打开时的键处理（吃键不转发）——
+            const suggestion = suggestRef.current;
+            if (suggestion) {
+              if (data === '\x1b[A' || data === '\x1b[B') {
+                // ↑/↓ 切换候选（循环）
+                const delta = data === '\x1b[A' ? -1 : 1;
+                const sel =
+                  (suggestion.sel + delta + suggestion.items.length) % suggestion.items.length;
+                updateSuggest({ ...suggestion, sel });
+                return;
+              }
+              if (data === '\x1b') {
+                // Esc：关闭浮层并放弃当前行缓冲（避免继续输入又弹回）
+                inputBufRef.current = '';
+                updateSuggest(null);
+                return;
+              }
+              if (data === '\r') {
+                // 回车：补全并执行 = 退格撤销已输入部分 → 候选全文 + 回车
+                const chosen = suggestion.items[suggestion.sel] ?? suggestion.items[0];
+                const backspaces = '\x7f'.repeat([...inputBufRef.current].length);
+                enqueueWriteToTargets(targets, backspaces + chosen + '\r');
+                recordCommand(chosen);
+                inputBufRef.current = '';
+                updateSuggest(null);
+                return;
+              }
+            }
+
+            // —— 输入行跟踪（命令历史 + 补全前缀）——
+            if (data === '\r') {
+              const line = inputBufRef.current;
+              if (line.trim()) recordCommand(line);
+              inputBufRef.current = '';
+              updateSuggest(null);
+              enqueueWriteToTargets(targets, data);
+              return;
+            }
+            if (data === '\x7f' || data === '\x08') {
+              // 退格：只截断尾字符；中途编辑光标位置无法追踪，前缀匹配以尾段为准
+              inputBufRef.current = inputBufRef.current.slice(0, -1);
+              recomputeSuggest();
+              enqueueWriteToTargets(targets, data);
+              return;
+            }
+            if (data.startsWith('\x1b') || /[\x00-\x1f]/.test(data)) {
+              // 控制序列（方向键/进入 vim 等全屏程序）或粘贴含换行：行语境不可追踪 → 放弃缓冲
+              inputBufRef.current = '';
+              updateSuggest(null);
+              enqueueWriteToTargets(targets, data);
+              return;
+            }
+            // 普通可打印输入
+            inputBufRef.current += data;
+            if (inputBufRef.current.length > 200) inputBufRef.current = '';
+            recomputeSuggest();
             enqueueWriteToTargets(targets, data);
           });
           markOnDataBound(sessionId, true);
@@ -822,6 +914,48 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
           position: 'relative',
         }}
       />
+
+      {/* 自动补全浮层（左下）：候选来自本地命令历史 + 内置词库。
+          ↑/↓ 选择、Enter 补全并执行、Esc 关闭、鼠标点选执行 */}
+      {suggest && !showProgress && (
+        <div className="absolute bottom-2 left-2 z-30 max-w-[70%] overflow-hidden rounded-md border border-border bg-background/95 shadow-md">
+          <div className="flex max-h-44 flex-col overflow-y-auto py-0.5">
+            {suggest.items.map((cmd, index) => (
+              <button
+                key={cmd}
+                type="button"
+                // mousedown 先行：避免点击导致 xterm 失焦/选中
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  // 点击 = 补全并执行（与 Enter 一致）
+                  const backspaces = '\x7f'.repeat([...inputBufRef.current].length);
+                  const targets = useBroadcastStore.getState().enabled
+                    ? listPool().filter((id) => isConnected(id))
+                    : [sessionId ?? ''];
+                  enqueueWriteToTargets(targets, backspaces + cmd + '\r');
+                  recordCommand(cmd);
+                  inputBufRef.current = '';
+                  updateSuggest(null);
+                }}
+                className={cn(
+                  'flex w-full items-center gap-2 px-2.5 py-1 text-left font-mono text-xs',
+                  index === suggest.sel
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-foreground hover:bg-accent/60',
+                )}
+              >
+                <span className="text-muted-foreground">{index + 1}</span>
+                <span className="truncate">{cmd}</span>
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 border-t border-border/60 px-2.5 py-1 text-[10px] text-muted-foreground">
+            <span>↑↓ 选择</span>
+            <span>Enter 执行</span>
+            <span>Esc 关闭</span>
+          </div>
+        </div>
+      )}
 
       {/* 缓冲区查找条（Ctrl+Shift+F / 面板「查找」打开；Enter 下一个、Shift+Enter 上一个、Esc 关闭） */}
       {!showProgress && findOpen && sessionId && (
