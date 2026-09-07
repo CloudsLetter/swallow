@@ -14,16 +14,16 @@ async function resolveBackgroundImageUrl(path: string): Promise<string | null> {
   }
 }
 
-/** 校验终端主题色是否为可用 hex（#rgb/#rrggbb/#rrggbbaa），通过则规范化返回，否则 null。 */
-function normalizeHexColor(color: string | null | undefined): string | null {
+/** 解析终端主题 hex 色（#rgb/#rrggbb/#rrggbbaa）为 rgb 分量，非法返回 null。 */
+function parseThemeHex(color: string | null | undefined): { r: number; g: number; b: number } | null {
   if (!color) return null;
   const s = color.trim().toLowerCase();
-  if (/^#[0-9a-f]{6}$/.test(s) || /^#[0-9a-f]{8}$/.test(s)) return s;
-  if (/^#[0-9a-f]{3}$/.test(s)) {
-    const [r, g, b] = s.slice(1).split('');
-    return `#${r}${r}${g}${g}${b}${b}`;
-  }
-  return null;
+  let hex = '';
+  if (/^#[0-9a-f]{6}$/.test(s) || /^#[0-9a-f]{8}$/.test(s)) hex = s.slice(1, 7);
+  else if (/^#[0-9a-f]{3}$/.test(s)) hex = s.slice(1).split('').map((c) => c + c).join('');
+  else return null;
+  const int = parseInt(hex, 16);
+  return { r: (int >> 16) & 255, g: (int >> 8) & 255, b: int & 255 };
 }
 
 /** 按背景色亮度挑选顶栏延伸的 hover 底色（深背景→白系微亮块，浅背景→深系微暗块）。 */
@@ -48,18 +48,17 @@ function topbarHoverBg(background: string): { dark: boolean; hoverBg: string } |
   return { dark, hoverBg: dark ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.1)' };
 }
 
-/** 顶栏延伸前景：文字（含 tab 标签、非激活态）不分层级，直接用终端主题前景色；
- *  仅 hover 底色按背景亮度取白/黑。前景色不可解析时整体回退按亮度的白/黑字系。 */
+/** 顶栏延伸前景：文字用终端主题前景色——激活/hover 全亮，非激活标签与按钮暗一档
+ *  （0.65，保持同色系）；hover 底色按背景亮度取白/黑。前景不可解析时按亮度回退白/黑。 */
 function topbarExtendFg(
   background: string,
   foreground: string | null,
 ): { fg: string; fgDim: string; hoverBg: string } | null {
   const bg = topbarHoverBg(background);
   if (!bg) return null;
-  const fgColor =
-    normalizeHexColor(foreground) ??
-    (bg.dark ? 'rgba(255,255,255,0.95)' : 'rgba(15,23,42,0.92)');
-  return { fg: fgColor, fgDim: fgColor, hoverBg: bg.hoverBg };
+  const fg = parseThemeHex(foreground) ?? (bg.dark ? { r: 255, g: 255, b: 255 } : { r: 15, g: 23, b: 42 });
+  const rgb = `${fg.r}, ${fg.g}, ${fg.b}`;
+  return { fg: `rgb(${rgb})`, fgDim: `rgba(${rgb}, 0.65)`, hoverBg: bg.hoverBg };
 }
 
 /**

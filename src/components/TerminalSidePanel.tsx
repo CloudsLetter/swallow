@@ -321,7 +321,7 @@ const AUTH_LABEL_KEY: Record<string, string> = {
 
 interface StatusSectionProps {
   sshConfig?: SshTabConfig;
-  /** 面板可见且处于状态分区时才建立/轮询监控会话 */
+  /** 状态分区可见时才轮询（会话跟随终端标签生命周期，切分区/收起不断开） */
   active: boolean;
   /** 终端标签是否处于激活（非激活标签暂停轮询，会话保留） */
   tabActive: boolean;
@@ -351,6 +351,8 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
   tabActiveRef.current = tabActive;
   // 用户拒绝过主机密钥确认：停止自动重试，等手动重试
   const approvalDeclinedRef = useRef(false);
+  // 轮询句柄：分区/标签转为可见时立即触发一次，不等 3s 周期
+  const tickRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     if (online) {
@@ -370,9 +372,10 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
     return () => clearInterval(timer);
   }, [online]);
 
-  // 监控会话生命周期 + 轮询：面板隐藏时停会话，标签非激活时只暂停轮询
+  // 监控会话生命周期跟随终端标签：挂载即管理会话、卸载（关标签）才断开；
+  // 分区隐藏/面板收起/标签失活只暂停轮询，会话与快照保留 —— 切换状态/文件分区不重连
   useEffect(() => {
-    if (!active || !hostId || approvalDeclinedRef.current || gaveUp) return;
+    if (!hostId || approvalDeclinedRef.current || gaveUp) return;
     let cancelled = false;
 
     const stopSession = () => {
@@ -446,15 +449,22 @@ function StatusSection({ sshConfig, active, tabActive }: StatusSectionProps) {
       }
     };
 
+    tickRef.current = tick;
     void tick();
     const timer = setInterval(() => void tick(), 3000);
     return () => {
       cancelled = true;
       clearInterval(timer);
+      tickRef.current = () => {};
       stopSession();
       setSnapshot(null);
     };
-  }, [active, hostId, retryNonce, gaveUp, t]);
+  }, [hostId, retryNonce, gaveUp, t]);
+
+  // 分区/标签转为可见时立即轮询一次（会话仍在，秒级刷新）
+  useEffect(() => {
+    if (active) void tickRef.current();
+  }, [active, tabActive]);
 
   const manualRetry = () => {
     approvalDeclinedRef.current = false;
@@ -997,7 +1007,8 @@ export interface TerminalSidePanelProps {
  * 终端左侧可伸缩面板：
  * - 收起/展开（宽度过渡动画），展开时可拖拽右缘调整宽度（200–480px）；
  * - 「状态」分区：主机在线状态 + 连接时长；主机来自主机列表时自动建立
- *   监控会话轮询 CPU/内存/磁盘/网络（面板隐藏即停，不占后台连接）；
+ *   监控会话轮询 CPU/内存/磁盘/网络（会话跟随终端标签生命周期，
+ *   分区/收起/标签切换只暂停轮询，只有关标签才断开）；
  * - 「文件」分区：用终端同一套凭据建立独立 SFTP 连接浏览文件，
  *   支持目录导航/路径跳转/刷新/下载。
  * 偏好（开关/宽度/分区）持久化到 localStorage，跨标签、跨重启生效。
@@ -1104,13 +1115,11 @@ export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTermin
             </Button>
           </div>
 
-          {/* 分区内容：状态分区随显隐挂载（隐藏即释放监控会话），
-              文件分区保持挂载以复用 SFTP 连接，仅用 display 控制可见性 */}
+          {/* 分区内容：状态/文件都常驻挂载（display 切换可见性）——监控会话与 SFTP
+              连接跟随终端标签生命周期，分区间切换不重连，只有关标签才释放 */}
           <div className="min-h-0 flex-1 overflow-hidden">
             <div style={{ display: prefs.section === 'status' ? 'block' : 'none', height: '100%', overflowY: 'auto' }}>
-              {prefs.section === 'status' && (
-                <StatusSection sshConfig={sshConfig} active={sectionActive('status')} tabActive={isActive} />
-              )}
+              <StatusSection sshConfig={sshConfig} active={sectionActive('status')} tabActive={isActive} />
             </div>
             <div style={{ display: prefs.section === 'files' ? 'block' : 'none', height: '100%' }}>
               <FilesSection sessionId={sessionId || ''} sshConfig={sshConfig} active={sectionActive('files')} />
