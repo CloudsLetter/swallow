@@ -19,6 +19,7 @@ import {
   Usb as IconUsb,
   ScreenShare as IconScreenShare,
   Radio as IconRadio,
+  Pin as IconPin,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from './ui/context-menu';
@@ -150,6 +151,9 @@ function TabItem({ tab, isActive, extendActive, dragOverClass, onClose, onFocus,
   ) : Icon ? (
     <Icon size={14} strokeWidth={2} className="shrink-0 opacity-80" />
   ) : null}
+  {tab.pinned && (
+    <IconPin size={10} strokeWidth={2.2} className="shrink-0 rotate-45 opacity-70" aria-hidden="true" />
+  )}
   <span className={cn('flex-1 truncate text-sm', isActive && 'font-medium')}>{tab.name}</span>
       <Button
         variant="ghost"
@@ -169,7 +173,7 @@ function TabItem({ tab, isActive, extendActive, dragOverClass, onClose, onFocus,
 
 export function TabBar() {
   const { t } = useTranslation();
-  const { tabs, focusTab, closeTab, createTab, reorderTab, mergeTabIntoTab } = useTabStore();
+  const { tabs, focusTab, closeTab, createTab, updateTab, reorderTab, mergeTabIntoTab } = useTabStore();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [maxVisibleTabs, setMaxVisibleTabs] = useState(10);
   // 拖拽状态
@@ -189,6 +193,9 @@ export function TabBar() {
   // 分离 Home 标签和其他标签
   const homeTab = tabs.find((tab: Tab) => tab.type === 'home');
   const terminalTabs = tabs.filter((tab: Tab) => tab.type !== 'home');
+
+  // 固定标签置前（保持原有相对顺序）
+  const orderedTabs = [...terminalTabs.filter((t) => t.pinned), ...terminalTabs.filter((t) => !t.pinned)];
 
   // 计算可见标签数量（标签固定宽度，右侧保留拖拽区）
   useEffect(() => {
@@ -210,10 +217,10 @@ export function TabBar() {
     };
   }, []);
 
-  // 分离可见标签和隐藏标签
-  const hasOverflow = terminalTabs.length > maxVisibleTabs;
-  const visibleTabs = hasOverflow ? terminalTabs.slice(0, maxVisibleTabs) : terminalTabs;
-  const hiddenTabs = hasOverflow ? terminalTabs.slice(maxVisibleTabs) : [];
+  // 分离可见标签和隐藏标签（基于固定置前后的顺序）
+  const hasOverflow = orderedTabs.length > maxVisibleTabs;
+  const visibleTabs = hasOverflow ? orderedTabs.slice(0, maxVisibleTabs) : orderedTabs;
+  const hiddenTabs = hasOverflow ? orderedTabs.slice(maxVisibleTabs) : [];
 
   const handleNewTab = () => {
     createTab({ name: t('tabs.newTab'), type: 'quick-connect' as Tab['type'] });
@@ -221,7 +228,7 @@ export function TabBar() {
 
   const handleCloseOthers = (tabId: string) => {
     tabs.forEach((t: Tab) => {
-      if (t.id !== tabId && t.type !== 'home') {
+      if (t.id !== tabId && t.type !== 'home' && !t.pinned) {
         closeTab(t.id);
       }
     });
@@ -230,7 +237,7 @@ export function TabBar() {
   const handleCloseToRight = (tabId: string) => {
     const currentIndex = tabs.findIndex((t: Tab) => t.id === tabId);
     tabs.forEach((t: Tab, index: number) => {
-      if (index > currentIndex && t.type !== 'home') {
+      if (index > currentIndex && t.type !== 'home' && !t.pinned) {
         closeTab(t.id);
       }
     });
@@ -238,7 +245,7 @@ export function TabBar() {
 
   const handleCloseAll = () => {
     tabs.forEach((t: Tab) => {
-      if (t.type !== 'home') {
+      if (t.type !== 'home' && !t.pinned) {
         closeTab(t.id);
       }
     });
@@ -354,6 +361,12 @@ export function TabBar() {
               {tab.type !== 'home' && (
                 <ContextMenuItem onClick={() => closeTab(tab.id)}>{t('tabs.closeTab')}</ContextMenuItem>
               )}
+              {tab.type !== 'home' && (
+                <ContextMenuItem onClick={() => updateTab(tab.id, { pinned: !tab.pinned })}>
+                  {tab.pinned ? t('tabs.unpin') : t('tabs.pin')}
+                </ContextMenuItem>
+              )}
+              {tab.type !== 'home' && <ContextMenuSeparator />}
               <ContextMenuItem onClick={() => handleCloseOthers(tab.id)}>{t('tabs.closeOthers')}</ContextMenuItem>
               <ContextMenuItem onClick={() => handleCloseToRight(tab.id)}>{t('tabs.closeToRight')}</ContextMenuItem>
               <ContextMenuSeparator />

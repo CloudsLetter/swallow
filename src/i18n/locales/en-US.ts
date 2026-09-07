@@ -107,6 +107,7 @@ export default {
     pages: 'Pages',
     actions: 'Actions',
     openQuickConnect: 'Open Quick Connect',
+    openTabs: 'Open Tabs',
     empty: 'No matching results',
   },
 
@@ -451,6 +452,8 @@ export default {
     closeOthers: 'Close Others',
     closeToRight: 'Close to Right',
     closeAll: 'Close All',
+    pin: 'Pin Tab',
+    unpin: 'Unpin Tab',
     hiddenTabs: 'hidden tabs',
     closeNamed: 'Close {{name}}',
     newTabCtrlT: 'Quick Connect (Ctrl+T)',

@@ -14,6 +14,13 @@ import {
   Settings as IconSettings,
   Activity as IconActivity,
   Zap as IconZap,
+  Home as IconHome,
+  Network as IconNetwork,
+  Radio as IconRadio,
+  Usb as IconUsb,
+  ScreenShare as IconScreenShare,
+  LayoutGrid as IconLayoutGrid,
+  PlayCircle as IconPlayCircle,
 } from 'lucide-react';
 import {
   getHosts,
@@ -27,6 +34,7 @@ import {
 } from '../services/dataService';
 import { resolveHostSshAuth } from '../services/sshAuthResolver';
 import { useTabStore } from '../store/tabStore';
+import { isConnected } from './terminalPool';
 import { useUiPage } from '../store/uiPage';
 import { message } from '@tauri-apps/plugin-dialog';
 import { cn } from '@/lib/utils';
@@ -37,7 +45,7 @@ import { Kbd } from './ui/kbd';
  * 搜主机回车直连、搜页面跳转、快捷动作直达。
  */
 
-type PaletteGroup = 'hosts' | 'pages' | 'actions';
+type PaletteGroup = 'tabs' | 'hosts' | 'pages' | 'actions';
 
 interface PaletteItem {
   id: string;
@@ -65,6 +73,22 @@ const PAGE_ITEMS: { id: string; labelKey: string; Icon: typeof IconDeviceDesktop
   { id: 'settings', labelKey: 'menu.settings', Icon: IconSettings },
 ];
 
+/** 标签类型 → 图标（快速切换器显示协议识别）。 */
+const TAB_TYPE_ICON: Record<string, typeof IconTerminal> = {
+  home: IconHome,
+  terminal: IconTerminal,
+  telnet: IconNetwork,
+  local: IconZap,
+  serial: IconUsb,
+  sftp: IconFolder,
+  vnc: IconDeviceDesktop,
+  rdp: IconScreenShare,
+  mosh: IconRadio,
+  replay: IconPlayCircle,
+  split: IconLayoutGrid,
+  'quick-connect': IconZap,
+};
+
 export function CommandPalette() {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -77,6 +101,8 @@ export function CommandPalette() {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const createTab = useTabStore((s) => s.createTab);
+  const tabsList = useTabStore((s) => s.tabs);
+  const focusTab = useTabStore((s) => s.focusTab);
 
   // 全局快捷键 Ctrl/⌘+K 唤起
   useEffect(() => {
@@ -145,6 +171,36 @@ export function CommandPalette() {
   const items = useMemo<PaletteItem[]>(() => {
     const q = query.trim().toLowerCase();
 
+    // —— 打开的标签：快速切换（含当前标签，回车直达）——
+    const tabItems: PaletteItem[] = tabsList.map((tab) => {
+      const TipIcon = TAB_TYPE_ICON[tab.type] ?? IconTerminal;
+      // SSH 类会话补充远端身份，便于区分同名标签
+      const remote =
+        tab.type === 'terminal'
+          ? (tab.sshConfig && `${tab.sshConfig.username}@${tab.sshConfig.host}`)
+          : tab.type === 'mosh'
+            ? (tab.moshConfig && `${tab.moshConfig.username}@${tab.moshConfig.host}`)
+            : undefined;
+      const connected = !!tab.sessionId && isConnected(tab.sessionId);
+      return {
+        id: `tab-${tab.id}`,
+        group: 'tabs' as const,
+        icon: (
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+            <TipIcon size={13} strokeWidth={2} />
+          </span>
+        ),
+        label: tab.name,
+        subtitle: remote,
+        keywords: `${tab.name} ${remote ?? ''} ${tab.type}`,
+        statusDot: tab.id === useTabStore.getState().activeTabId ? 'bg-primary' : connected ? 'bg-emerald-500' : 'bg-muted-foreground/40',
+        run: () => {
+          focusTab(tab.id);
+          close();
+        },
+      };
+    });
+
     const hostItems: PaletteItem[] = hosts
       .filter((host) =>
         !q ||
@@ -207,9 +263,14 @@ export function CommandPalette() {
       },
     ].filter((item) => !q || item.keywords.toLowerCase().includes(q));
 
-    return [...hostItems, ...pageItems, ...actionItems];
+    return [
+      ...tabItems.filter((item) => !q || item.keywords.toLowerCase().includes(q)),
+      ...hostItems,
+      ...pageItems,
+      ...actionItems,
+    ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, hosts, accounts, keys, certs, t]);
+  }, [query, hosts, accounts, keys, certs, tabsList, t]);
 
   // 过滤后收敛选中索引
   useEffect(() => {
@@ -229,7 +290,13 @@ export function CommandPalette() {
   };
 
   const groupLabel = (group: PaletteGroup) =>
-    group === 'hosts' ? t('hosts.title') : group === 'pages' ? t('palette.pages') : t('palette.actions');
+    group === 'tabs'
+      ? t('palette.openTabs')
+      : group === 'hosts'
+        ? t('hosts.title')
+        : group === 'pages'
+          ? t('palette.pages')
+          : t('palette.actions');
 
   let lastGroup: PaletteGroup | null = null;
   let flatIndex = -1;

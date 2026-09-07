@@ -107,6 +107,7 @@ export default {
     pages: '页面',
     actions: '操作',
     openQuickConnect: '打开快速连接',
+    openTabs: '打开的标签',
     empty: '没有匹配的结果',
   },
 
@@ -449,6 +450,8 @@ export default {
     closeOthers: '关闭其他标签',
     closeToRight: '关闭右侧标签',
     closeAll: '关闭所有标签',
+    pin: '固定标签',
+    unpin: '取消固定',
     hiddenTabs: '个隐藏标签',
     closeNamed: '关闭 {{name}}',
     newTabCtrlT: '快速连接 (Ctrl+T)',

@@ -143,6 +143,8 @@ export interface Tab {
   osId?: string;
   /** 运行期标记：主机手动设置的图标（os:xxx 或 data:/file: 自定义图），优先级高于 osId（不持久化） */
   customIcon?: string;
+  /** 运行期标记：标签固定（置前、关闭其他标签时保留；不持久化，重启后由恢复流程重建） */
+  pinned?: boolean;
 }
 
 interface TabStore {
