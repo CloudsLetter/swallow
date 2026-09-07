@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { once } from '@tauri-apps/api/event';
+import { join as joinPath, tempDir } from '@tauri-apps/api/path';
+import { openPath } from '@tauri-apps/plugin-opener';
 import {
   Folder as IconFolder,
   File as IconFile,
@@ -23,6 +25,7 @@ import {
   X as IconX,
   AlertTriangle as IconAlert,
 } from 'lucide-react';
+import { ExternalLink as IconExternalLink } from 'lucide-react';
 import { ConnectionProgress } from './ConnectionProgress';
 import { useSessionConnection, sftpSessionPool } from '../hooks/useSessionConnection';
 import { touchHostLastConnected } from '../services/dataService';
@@ -247,6 +250,9 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
   const [files, setFilesLocal] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedFiles, setSelectedFilesLocal] = useState<Set<string>>(new Set());
+  // 「用本机应用打开」的远程文件跟踪：临时下载到系统临时目录后交给默认程序，
+  // 本地改动可一键回传（用户确认覆盖）
+  const [openEdits, setOpenEdits] = useState<{ id: string; remotePath: string; localPath: string; name: string }[]>([]);
   const [promptState, setPromptState] = useState<{ mode: 'mkdir' | 'rename' | 'chmod'; value: string; itemName?: string } | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('name');
@@ -988,6 +994,46 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
     }
   };
 
+  /** 打开远程文件到本机默认程序：临时下载 → 打开，并登记「编辑回传」跟踪。 */
+  const handleOpenWithLocal = async (item: FileItem) => {
+    if (item.type === 'directory' || !sessionId) return;
+    try {
+      const tmp = await tempDir();
+      // 时间戳前缀避免同名/重复打开互相覆盖
+      const localPath = await joinPath(tmp, `${Date.now()}-${item.name}`);
+      await sftpDownloadFileProgress(sessionId, joinRemotePath(item.name), localPath, 0);
+      const id = `${Date.now()}`;
+      setOpenEdits((list) => [
+        ...list,
+        { id, remotePath: joinRemotePath(item.name), localPath, name: item.name },
+      ]);
+      await openPath(localPath);
+      toast.success(t('sftp.openLocalDone', { name: item.name }));
+    } catch (e) {
+      console.error('[SftpOpenLocal] open failed:', e);
+      toast.error(t('sftp.openLocalFailed', { message: String(e) }));
+    }
+  };
+
+  /** 把「本机编辑」后的临时文件回传到远程（覆盖确认后执行）。 */
+  const handleSaveBack = async (edit: { id: string; remotePath: string; name: string }) => {
+    if (!sessionId) return;
+    const ok = await ask(t('sftp.saveBackConfirm', { name: edit.name }), {
+      title: t('sftp.downloadTitle'),
+      kind: 'warning',
+    });
+    if (!ok) return;
+    const editFull = openEdits.find((e) => e.id === edit.id);
+    if (!editFull) return;
+    try {
+      await sftpUploadLocal(sessionId, editFull.localPath, edit.remotePath, `sftp-up-${edit.id}`);
+      setOpenEdits((list) => list.filter((e) => e.id !== edit.id));
+      toast.success(t('sftp.saveBackDone', { name: edit.name }));
+    } catch (e) {
+      toast.error(t('sftp.saveBackFailed', { message: String(e) }));
+    }
+  };
+
   const handleDelete = async (item: FileItem) => {
     if (!sessionId) return;
     const isDir = item.type === 'directory';
@@ -1211,6 +1257,8 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
 
   // 选中的「文件」数（排除目录）：下载只作用于文件，避免选中目录时下载按钮/计数误报
   const selectedFileCount = files.filter((f) => f.type !== 'directory' && selectedFiles.has(f.name)).length;
+  const canOpenLocal =
+    selectedFileCount === 1 && !!files.find((f) => f.type !== 'directory' && selectedFiles.has(f.name));
 
   if (!sftpConfig) {
     return (
@@ -1318,6 +1366,19 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
               <Button
                 size="sm"
                 variant="secondary"
+                onClick={() => {
+                  const target = files.find((f) => f.type !== 'directory' && selectedFiles.has(f.name));
+                  if (target) void handleOpenWithLocal(target);
+                }}
+                disabled={!canOpenLocal}
+                title={t('sftp.openWithLocal')}
+              >
+                <IconExternalLink size={16} strokeWidth={2} />
+                {t('sftp.openWithLocal')}
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
                 onClick={handleOpenSearch}
                 title={t('sftp.search')}
               >
@@ -1336,6 +1397,40 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
             </div>
           </div>
           <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileSelected} />
+
+          {/* 本机编辑跟踪：临时下载的文件等待回传 */}
+          {openEdits.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 border-b border-border bg-card/50 px-3 py-1.5">
+              <span className="text-[11px] text-muted-foreground">{t('sftp.editedHint')}</span>
+              {openEdits.map((edit) => (
+                <span
+                  key={edit.id}
+                  className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted px-2 py-0.5 font-mono text-[11px]"
+                >
+                  <IconFile size={12} className="shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 max-w-48 truncate">{edit.name}</span>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className="text-primary hover:bg-primary/10"
+                    title={t('sftp.saveBack')}
+                    onClick={() => void handleSaveBack(edit)}
+                  >
+                    <IconUpload size={11} />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className="text-muted-foreground"
+                    title={t('sftp.discardEdit')}
+                    onClick={() => setOpenEdits((list) => list.filter((e) => e.id !== edit.id))}
+                  >
+                    <IconX size={11} />
+                  </Button>
+                </span>
+              ))}
+            </div>
+          )}
 
           {/* 文件列表（支持拖拽上传到当前目录，空白区右键快捷操作） */}
           <ContextMenu>
