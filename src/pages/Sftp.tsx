@@ -500,7 +500,7 @@ export function Sftp() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem onClick={() => void handleTest(conn)}>
+              <DropdownMenuItem onClick={() => void handleTest(conn)} disabled={testing === conn.id}>
                 <IconPlayerPlay size={15} className="mr-2" /> {t('sftp.testConnection')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => openEdit(conn)}>

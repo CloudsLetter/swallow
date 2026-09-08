@@ -135,21 +135,31 @@ pub fn delete_sftp_connection(id: String) -> Result<(), String> {
 
 
 #[tauri::command]
-pub fn test_sftp_connection(
+pub async fn test_sftp_connection(
     config_state: State<'_, GlobaConfig>,
     id: String,
 ) -> Result<bool, String> {
-    let conn = sqlite::open_connection()?;
+    // 测试连接会做完整 TCP 连接 + SSH 握手 + 认证（最长可达 connection_timeout），
+    // 属阻塞网络 I/O：async 命令内再 spawn_blocking 挪出 tokio worker，否则服务端
+    // 响应慢/无响应时命令占住执行线程、全局 UI/IPC 一起卡死。
     let timeout_secs = config_state
         .config
         .read()
         .map(|guard| guard.ssh.connection_timeout)
         .unwrap_or(DEFAULT_CONNECTION_TIMEOUT_SECS);
+    tauri::async_runtime::spawn_blocking(move || test_sftp_connection_sync(&id, timeout_secs))
+        .await
+        .map_err(|e| format!("SFTP test task failed: {e}"))?
+}
+
+/// 同步测试体：在 spawn_blocking 线程执行，保持原探测逻辑。
+fn test_sftp_connection_sync(id: &str, timeout_secs: u32) -> Result<bool, String> {
+    let conn = sqlite::open_connection()?;
     let mut record = conn
         .query_row(
             "SELECT host, port, username, protocol, auth_type, password, key_path, passphrase, key_id
              FROM sftp_connections WHERE id = ?1",
-            params![&id],
+            params![id],
             |row| {
                 Ok(SftpConnection {
                     id: String::new(),
