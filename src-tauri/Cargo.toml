@@ -1,6 +1,6 @@
 [package]
 name = "swallow"
-version = "0.2.0"
+version = "0.2.1"
 description = "ssh client software based on tauri"
 authors = ["CloudsLetter <wojiuchigua@gmail.com>"]
 edition = "2021"
