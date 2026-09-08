@@ -500,6 +500,28 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
     if (!sessionId || skipAutoConnect || isConnected(sessionId) || getShowProgress(sessionId) || firstFrameKick) {
       return;
     }
+    // 预置 pending 步骤：进度卡片首帧就有完整步骤（否则只有壳，内容随后才填充）
+    const kickMode: TerminalConnectMode = telnetConfig
+      ? 'telnet'
+      : localConfig
+        ? 'local'
+        : serialConfig
+          ? 'serial'
+          : moshConfig
+            ? 'mosh'
+            : 'ssh';
+    setConnectionStepsLocal(
+      buildConnectionSteps(
+        kickMode,
+        {
+          telnetHost: telnetConfig?.host,
+          shell: localConfig?.shell,
+          authType: sshConfig?.auth_type ?? moshConfig?.auth_type,
+          serialPort: serialConfig?.port,
+        },
+        t,
+      ),
+    );
     // 只置 overlay（不置 pool connecting——否则 50ms 定时器的「正在连接」分支会误判并跳过真正启动）
     setFirstFrameKick(true);
     setShowProgress(true);

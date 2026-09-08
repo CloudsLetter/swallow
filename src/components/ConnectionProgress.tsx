@@ -108,12 +108,14 @@ export function ConnectionProgress({ visible, steps, onClose, onRetry, onCancel 
             </div>
           )}
 
-          {/* 底部紧凑日志框 */}
-          {logs.length > 0 && (
-            <div className="rounded-md border border-border bg-muted/50 p-2">
-              <div className="mb-1 text-[10px] font-medium text-muted-foreground">{t('connection.logs')}</div>
-              <div className="flex max-h-20 flex-col gap-0.5 overflow-y-auto font-mono text-[11px] leading-relaxed">
-                {logs.map((log, index) => (
+          {/* 底部紧凑日志框：常驻（空态占位），避免连接过程中“框随日志后才出现”的跳动 */}
+          <div className="rounded-md border border-border bg-muted/50 p-2">
+            <div className="mb-1 text-[10px] font-medium text-muted-foreground">{t('connection.logs')}</div>
+            <div className="flex max-h-20 min-h-[44px] flex-col gap-0.5 overflow-y-auto font-mono text-[11px] leading-relaxed">
+              {logs.length === 0 ? (
+                <span className="text-muted-foreground/50">{t('connection.logsEmpty')}</span>
+              ) : (
+                logs.map((log, index) => (
                   <div
                     key={index}
                     className={cn(
@@ -125,10 +127,10 @@ export function ConnectionProgress({ visible, steps, onClose, onRetry, onCancel 
                   >
                     {log}
                   </div>
-                ))}
-              </div>
+                ))
+              )}
             </div>
-          )}
+          </div>
         </CardContent>
       </Card>
     </div>

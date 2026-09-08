@@ -661,6 +661,7 @@ export default {
     failed: 'Connection failed',
     connecting: 'Connecting…',
     logs: 'Logs',
+    logsEmpty: 'Waiting for connection logs…',
     stepTcp: 'Establishing TCP connection',
     stepSsh: 'SSH handshake',
     stepAuth: 'Authenticating ({{authType}})',

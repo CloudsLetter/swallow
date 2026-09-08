@@ -659,6 +659,7 @@ export default {
     failed: '连接失败',
     connecting: '正在连接…',
     logs: '日志',
+    logsEmpty: '等待连接日志…',
     stepTcp: '正在建立 TCP 连接',
     stepSsh: 'SSH 握手',
     stepAuth: '正在认证（{{authType}}）',
