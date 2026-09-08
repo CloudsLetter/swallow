@@ -39,6 +39,7 @@ import {
   Usb as IconUsb,
   X as IconX,
   Image as IconImage,
+  RotateCw as IconRotateCw,
 } from 'lucide-react';
 import { useTabStore } from '../store/tabStore';
 import { useActiveSshTargets } from '../hooks/useActiveSshTargets';
@@ -261,6 +262,8 @@ export function Hosts() {  const { t } = useTranslation();
   // 表单状态
   const [name, setName] = useState('');
   const [hostIcon, setHostIcon] = useState<string | undefined>(undefined);
+  /** 是否自动探测远端 OS 图标（✕=false 禁用；自动=true；手动 os/图片=false） */
+  const [osAuto, setOsAuto] = useState(true);
   const [host, setHost] = useState('');
   const [port, setPort] = useState(22);
   const [authSource, setAuthSource] = useState<AuthSource>('account');
@@ -542,6 +545,7 @@ export function Hosts() {  const { t } = useTranslation();
   const resetForm = () => {
     setName('');
     setHostIcon(undefined);
+    setOsAuto(true);
     setHost('');
     setPort(22);
     setSelectedAccountId('');
@@ -578,6 +582,7 @@ export function Hosts() {  const { t } = useTranslation();
 
     setName(host.name);
     setHostIcon(host.icon);
+    setOsAuto(host.osAuto ?? true);
     setHost(host.host);
     setPort(host.port);
     setEditingHost(host);
@@ -702,6 +707,7 @@ export function Hosts() {  const { t } = useTranslation();
       host: nextHost,
       port,
       icon: hostIcon || undefined,
+      osAuto,
       accountId: selectedAccount?.id,
       username: selectedAccount?.username || nextManualUsername,
       status: editingHost?.status || 'disconnected',
@@ -1343,13 +1349,34 @@ export function Hosts() {  const { t } = useTranslation();
               <div>
                 {fieldLabel(t('hosts.formIcon'))}
                 <div className="flex flex-wrap items-center gap-1.5">
+                  {/* 自动：连接后按远端系统探测并显示 OS 图标（默认） */}
                   <button
                     type="button"
-                    onClick={() => setHostIcon(undefined)}
+                    onClick={() => {
+                      setHostIcon(undefined);
+                      setOsAuto(true);
+                    }}
+                    title={t('hosts.iconAuto')}
+                    className={cn(
+                      'flex size-8 items-center justify-center rounded-lg border transition-colors',
+                      !hostIcon && osAuto
+                        ? 'border-primary text-foreground'
+                        : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground',
+                    )}
+                  >
+                    <IconRotateCw size={13} />
+                  </button>
+                  {/* 无图标：禁用自动探测（探测结果不再覆盖/回写） */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHostIcon(undefined);
+                      setOsAuto(false);
+                    }}
                     title={t('hosts.iconNone')}
                     className={cn(
                       'flex size-8 items-center justify-center rounded-lg border transition-colors',
-                      !hostIcon
+                      !hostIcon && !osAuto
                         ? 'border-primary text-foreground'
                         : 'border-border text-muted-foreground hover:bg-muted',
                     )}
@@ -1362,7 +1389,10 @@ export function Hosts() {  const { t } = useTranslation();
                       <button
                         key={osId}
                         type="button"
-                        onClick={() => setHostIcon(`os:${osId}`)}
+                        onClick={() => {
+                          setHostIcon(`os:${osId}`);
+                          setOsAuto(false);
+                        }}
                         title={osId}
                         className={cn(
                           'flex size-8 items-center justify-center rounded-lg border transition-colors',
@@ -1388,7 +1418,14 @@ export function Hosts() {  const { t } = useTranslation();
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         e.target.value = '';
-                        if (file) void compressIconFile(file).then(setHostIcon).catch(() => {});
+                        if (file) {
+                          void compressIconFile(file)
+                            .then((url) => {
+                              setHostIcon(url);
+                              setOsAuto(false);
+                            })
+                            .catch(() => {});
+                        }
                       }}
                     />
                   </label>

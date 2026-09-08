@@ -28,6 +28,8 @@ export interface Host {
   backend?: '' | 'russh' | 'ssh2';
   /** 主机级算法预设：''=后端默认 | 'legacy'=兼容旧设备 | 'hardened'=仅现代算法 */
   algoProfile?: '' | 'legacy' | 'hardened';
+  /** 自动探测远端 OS 图标（默认 true；显式「无图标」后为 false，不再自动探测回写） */
+  osAuto?: boolean;
 }
 
 export interface Account {

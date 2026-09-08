@@ -455,27 +455,44 @@ impl SshSession {
         let session = self.session.lock().unwrap();
         // —— 远端 OS 探测（必须在本 Session 打开 shell 通道之前：ssh2 的 Session 是全局锁，
         //     通道已开的阻塞读会与二次 channel_session 排队互等；此刻通道未开、无并发读）——
-        // 「有 icon 就跳过」：同主机已有缓存（首次连接已探测过）直接复用，不发探测命令；
-        // host key 变更（换机/重装）由 accept_host_key 失效缓存 → 重连会重新探测。
-        let os = match &self.probe_key {
-            Some((host, port)) => {
-                let cached = get_os_cache(host, *port);
-                if cached.is_some() {
-                    cached
-                } else {
-                    let detected = probe_remote_os(&session);
-                    if let Some(v) = &detected {
-                        if let Some(cache) = OS_CACHE.get() {
-                            if let Ok(mut guard) = cache.lock() {
-                                guard.insert((host.clone(), *port), v.clone());
+        // 探测只服务「自动模式且主机尚无图标」的主机：
+        //  - 主机已手动设图标（os:/自定义图）→ 前端手动优先渲染，探测无消费方 → 跳过
+        //  - 用户显式选了「无图标」(os_auto=false) → 跳过，不再每次连接重复探测
+        //  - 自动模式 → 探测并缓存（同主机后续连接命中缓存不再发命令）；
+        //    host key 变更（换机/重装）由 accept_host_key 失效缓存 → 重连重新探测。
+        let os = {
+            let auto = match &self.probe_key {
+                Some((host, port)) => {
+                    let (icon_set, os_auto) =
+                        crate::services::hosts::host_os_probe_policy(host, *port);
+                    !icon_set && os_auto
+                }
+                None => false,
+            };
+            if !auto {
+                None
+            } else {
+                match &self.probe_key {
+                    Some((host, port)) => {
+                        let cached = get_os_cache(host, *port);
+                        if cached.is_some() {
+                            cached
+                        } else {
+                            let detected = probe_remote_os(&session);
+                            if let Some(v) = &detected {
+                                if let Some(cache) = OS_CACHE.get() {
+                                    if let Ok(mut guard) = cache.lock() {
+                                        guard.insert((host.clone(), *port), v.clone());
+                                    }
+                                }
                             }
+                            detected
                         }
                     }
-                    detected
+                    // 无缓存键（理论不出现）：探测但不缓存
+                    None => probe_remote_os(&session),
                 }
             }
-            // 无缓存键（理论不出现）：探测但不缓存
-            None => probe_remote_os(&session),
         };
         if let Some(os) = os {
             emit_session_event(
@@ -864,7 +881,7 @@ pub fn probe_remote_os(session: &Session) -> Option<String> {
     // 老系统兜底：无 os-release（CentOS6 等），读 redhat-release 关键字
     let legacy = exec_capture(session, "cat /etc/redhat-release").unwrap_or_default();
     let t = legacy.to_ascii_lowercase();
-    let result = if t.contains("rocky") {
+    if t.contains("rocky") {
         Some("rocky".into())
     } else if t.contains("centos") {
         Some("centos".into())
@@ -874,15 +891,7 @@ pub fn probe_remote_os(session: &Session) -> Option<String> {
         Some("almalinux".into())
     } else {
         Some("linux".into())
-    };
-    // 诊断：Linux 却解析不出发行版时打印原始探测文本（dev 控制台可见），定位环境差异
-    eprintln!(
-        "[os-probe] uname={:?} os-release(前240字符)={:?} redhat-release={:?}",
-        uname.trim(),
-        release.chars().take(240).collect::<String>(),
-        legacy.chars().take(120).collect::<String>()
-    );
-    result
+    }
 }
 
 #[cfg(test)]

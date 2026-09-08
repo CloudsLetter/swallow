@@ -135,6 +135,24 @@ function buildConnectionSteps(
   ];
 }
 
+/** 主机密钥被重新信任（mismatch 换机/重装后确认）→ 该主机的 OS 占位图标
+ *  已失效：清掉「自动探测写入的 os: 占位」并让重连重新探测（后端 trust 时已
+ *  失效 OS_CACHE）。仅清自动来源（osAuto!==false）；手动选择的图标不动。 */
+async function resetAutoOsIconAfterTrust(host?: string, port?: number) {
+  if (!host) return;
+  try {
+    const hosts = await getHosts();
+    const h = hosts.find((x) => x.host === host && x.port === (port ?? 22));
+    if (!h) return;
+    if (h.icon?.startsWith('os:') && h.osAuto !== false) {
+      await updateHost(h.id, { icon: undefined });
+      window.dispatchEvent(new Event('hosts:icons-changed'));
+    }
+  } catch {
+    // 重置失败不阻断连接
+  }
+}
+
 /** SSH 建连 + 主机密钥确认循环：首次遇到未信任主机密钥时弹确认，用户 trust 后重试连接。 */
 async function connectSshWithHostKeyApproval(
   sessionId: string,
@@ -163,6 +181,8 @@ async function connectSshWithHostKeyApproval(
       throw new Error(t('connection.declinedHostKey'));
     }
     await acceptHostKey(result.hostKeyToken!, fingerprint);
+    // 换机/重装后重新信任：清自动 OS 占位，重连即重新探测新系统图标
+    await resetAutoOsIconAfterTrust(sshConfig.host, sshConfig.port);
     result = await sshConnect(sessionId, sshConfig, cols, rows);
   }
   return result;
@@ -196,6 +216,8 @@ async function connectMoshWithHostKeyApproval(
       throw new Error(t('connection.declinedHostKey'));
     }
     await acceptHostKey(result.hostKeyToken!, fingerprint);
+    // 换机/重装后重新信任：清自动 OS 占位，重连即重新探测新系统图标
+    await resetAutoOsIconAfterTrust(moshConfig.host, moshConfig.port);
     result = await moshConnect(sessionId, moshConfig, cols, rows);
   }
   return result;
@@ -1010,7 +1032,9 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
                   }
                   return;
                 }
-                // 未设置：标签用探测 os
+                // 未设置：仅「自动」主机回写探测 os（osAuto=false 表示用户显式
+                // 无图标——不再自动获取，避免手动回退默认后又重新探测出图标）
+                if (host?.osAuto === false) return;
                 if (tab && tab.osId !== os) updateTab(tab.id, { osId: os });
                 if (host) {
                   await updateHost(host.id, { icon: `os:${os}` });

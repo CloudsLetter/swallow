@@ -32,6 +32,14 @@ pub struct Host {
     /// 算法预设：""（后端默认）| "legacy"（兼容旧设备：SHA1 系 KEX/ssh-rsa）| "hardened"（仅现代算法）
     #[serde(default)]
     pub algo_profile: String,
+    /// 是否允许连接成功后自动探测远端 OS 并回写图标（默认 true；用户显式
+    /// 选「无图标」/自定义图标后置 false，探测即停——不再每次连接重复获取）
+    #[serde(default = "os_auto_default")]
+    pub os_auto: bool,
+}
+
+fn os_auto_default() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

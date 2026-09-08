@@ -6,6 +6,33 @@ use crate::services::logs::append_log_i18n;
 use crate::utils::secrets;
 use crate::utils::sqlite;
 
+/// 连接时的 OS 探测策略：取主机的 (icon 是否已设置, os_auto)。
+/// 无该主机行（快速连接/未入库）视为 (false, true)（自动探测）。
+pub fn host_os_probe_policy(host: &str, port: u16) -> (bool, bool) {
+    let default = (false, true);
+    let Ok(conn) = sqlite::open_connection() else { return default };
+    let Ok(mut stmt) = conn
+        .prepare("SELECT icon, os_auto FROM hosts WHERE host = ?1 AND port = ?2")
+    else {
+        return default;
+    };
+    let Ok(mut rows) = stmt
+        .query_map(params![host, i64::from(port)], |row| {
+            Ok((
+                row.get::<_, Option<String>>(0)?,
+                row.get::<_, i64>(1)? != 0,
+            ))
+        })
+    else {
+        return default;
+    };
+    match rows.next().transpose() {
+        Ok(Some((icon, auto))) => (icon.is_some(), auto),
+        _ => default,
+    }
+}
+
+
 #[tauri::command]
 pub fn list_hosts() -> Result<Vec<Host>, String> {
     let conn = sqlite::open_connection()?;
@@ -14,7 +41,7 @@ pub fn list_hosts() -> Result<Vec<Host>, String> {
             "SELECT id, name, host, port, account_id, username, status, last_connected, auth_type, password,
                     key_id, certificate_id, use_proxy, proxy_host_id, proxy_auth_type, proxy_key_id,
                     proxy_cert_id, proxy_host, proxy_port, proxy_username, proxy_password, icon, backend,
-                    algo_profile
+                    algo_profile, os_auto
              FROM hosts ORDER BY name COLLATE NOCASE ASC",
         )
         .map_err(|e| e.to_string())?;
@@ -46,6 +73,7 @@ pub fn list_hosts() -> Result<Vec<Host>, String> {
                 icon: row.get(21)?,
                 backend: row.get(22)?,
                 algo_profile: row.get(23)?,
+                os_auto: row.get::<_, i64>(24)? != 0,
             };
             host.password = resolve_secret(host.password.take(), &format!("hosts/{}/password", host.id));
             host.proxy_password =
@@ -80,11 +108,11 @@ pub fn save_host(mut host: Host) -> Result<Host, String> {
             id, name, host, port, account_id, username, status, last_connected, auth_type, password,
             key_id, certificate_id, use_proxy, proxy_host_id, proxy_auth_type, proxy_key_id,
             proxy_cert_id, proxy_host, proxy_port, proxy_username, proxy_password, icon, backend,
-            algo_profile
+            algo_profile, os_auto
          ) VALUES (
             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
             ?11, ?12, ?13, ?14, ?15, ?16,
-            ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24
+            ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25
          )
          ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
@@ -109,7 +137,8 @@ pub fn save_host(mut host: Host) -> Result<Host, String> {
             proxy_password = excluded.proxy_password,
             icon = excluded.icon,
             backend = excluded.backend,
-            algo_profile = excluded.algo_profile",
+            algo_profile = excluded.algo_profile,
+            os_auto = excluded.os_auto",
         params![
             host.id,
             host.name,
@@ -134,7 +163,8 @@ pub fn save_host(mut host: Host) -> Result<Host, String> {
             host.proxy_password,
             host.icon,
             host.backend,
-            host.algo_profile
+            host.algo_profile,
+            host.os_auto
         ],
     )
     .map_err(|e| e.to_string())?;

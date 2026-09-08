@@ -124,10 +124,17 @@ pub fn bootstrap(
         SshSession::establish_authenticated_session(config, timeout_secs.max(1), on_progress)?;
     let session = established.session;
 
-    // 引导通道打开前探测 OS（同 ssh2 全局锁规则：此阶段无并发读，安全）
+    // 引导通道打开前探测 OS（同 ssh2 全局锁规则：此阶段无并发读，安全）。
+    // 与交互会话一致：仅「自动模式且尚无图标」的主机才探测。
     if let Some(cb) = on_os {
-        if let Some(os) = crate::ssh::session::probe_remote_os(&session) {
-            cb(&os);
+        let (icon_set, os_auto) = crate::services::hosts::host_os_probe_policy(
+            &config.host,
+            config.port,
+        );
+        if !icon_set && os_auto {
+            if let Some(os) = crate::ssh::session::probe_remote_os(&session) {
+                cb(&os);
+            }
         }
     }
 

@@ -294,7 +294,7 @@ fn load_host(conn: &Connection, id: &str) -> Result<Option<Host>, String> {
         "SELECT id, name, host, port, account_id, username, status, last_connected, auth_type, password,
                 key_id, certificate_id, use_proxy, proxy_host_id, proxy_auth_type, proxy_key_id,
                 proxy_cert_id, proxy_host, proxy_port, proxy_username, proxy_password, icon, backend,
-                algo_profile
+                algo_profile, os_auto
          FROM hosts WHERE id = ?1",
         params![id],
         |row| {
@@ -323,6 +323,7 @@ fn load_host(conn: &Connection, id: &str) -> Result<Option<Host>, String> {
                 icon: row.get(21)?,
                 backend: row.get(22)?,
                 algo_profile: row.get(23)?,
+                os_auto: row.get::<_, i64>(24)? != 0,
             };
             host.password = resolve_secret(host.password.take(), &format!("hosts/{}/password", id));
             host.proxy_password =
