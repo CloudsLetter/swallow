@@ -408,7 +408,7 @@ export function RightPanelBar() {
 
   return (
     <aside
-      className={cn('relative h-full shrink-0 overflow-hidden transition-[width] duration-200 ease-out', dragging && 'select-none')}
+      className={cn('relative h-full shrink-0 overflow-hidden transition-[width] duration-100 ease-out', dragging && 'select-none')}
       style={{ width: open ? width : 0, zIndex: 2 }}
     >
       <div

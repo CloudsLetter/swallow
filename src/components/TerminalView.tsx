@@ -493,6 +493,18 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
     };
   }, [showProgress, isActive]);
 
+  // 连接进度卡收起后把焦点交给终端：ready 事件到达时进度卡可能仍覆盖、
+  // xterm 处于 hidden（visibility:hidden），此时 focus 无效——等 showProgress
+  // true→false 转变、终端真正可见后再聚焦。
+  const prevProgressVisible = useRef(showProgress);
+  useEffect(() => {
+    const wasVisible = prevProgressVisible.current;
+    prevProgressVisible.current = showProgress;
+    if (wasVisible && !showProgress && isActive && sessionId && isConnected(sessionId)) {
+      focusTerminal(sessionId);
+    }
+  }, [showProgress, isActive, sessionId]);
+
   // 首帧即进度屏：新会话挂载将自动连接时，先在布局阶段把 overlay 置 true——
   // connectSSH 走 50ms attach 定时器，若等它触发再显示，那 50ms 会先画出面板/终端界面（闪现根因）。
   const [firstFrameKick, setFirstFrameKick] = useState(false);

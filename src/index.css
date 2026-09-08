@@ -1144,3 +1144,15 @@ a:focus-visible,
 [data-slot='scroll-area-thumb']:hover {
   background-color: color-mix(in srgb, var(--foreground) 60%, transparent);
 }
+
+/* 终端选区半透明（恢复）：xterm DomRenderer 选中视觉有两层——
+   ① 选中字符 span 内联不透明背景（_addStyle 写入 style），盖住背景图；
+   ② .xterm-selection div 覆盖层。做法：① 置透明让选区视觉只由 ② 承担；
+   ② 元素级 opacity（默认 0.4）透出终端底色/背景图。
+   透明度由 TerminalView 注入的 --xterm-selection-opacity 驱动。 */
+.terminal-view .xterm .xterm-decoration-top {
+  background-color: transparent !important;
+}
+.terminal-view .xterm-selection div {
+  opacity: var(--xterm-selection-opacity, 0.4);
+}

@@ -6,6 +6,7 @@ import { listen } from '@tauri-apps/api/event';
 
 import { Layout } from './components/Layout';
 import { Home } from './pages/Home';
+import { focusTerminal } from './components/terminalPool';
 import { Toaster } from './components/ui/sonner';
 import { OnboardingDialog } from './components/OnboardingDialog';
 import { SessionNotifications } from './components/SessionNotifications';
@@ -30,6 +31,20 @@ function App() {
   // AI 独立抽屉（顶栏 AI 按钮开关，与右侧功能面板解耦）
   const aiOpen = usePanelStore((s) => s.aiOpen);
   const setAiOpen = usePanelStore((s) => s.setAiOpen);
+
+  // AI 抽屉收纳后把键盘焦点还给当前终端会话（与左右面板收起行为一致）
+  const prevAiOpen = useRef(aiOpen);
+  useEffect(() => {
+    const wasOpen = prevAiOpen.current;
+    prevAiOpen.current = aiOpen;
+    if (wasOpen && !aiOpen) {
+      const { tabs, activeTabId } = useTabStore.getState();
+      const tab = tabs.find((t) => t.id === activeTabId);
+      if (tab?.sessionId && ['terminal', 'telnet', 'local', 'serial', 'mosh'].includes(tab.type)) {
+        focusTerminal(tab.sessionId);
+      }
+    }
+  }, [aiOpen]);
 
   // 初次使用引导：config 未完成引导且主机列表为空（全新安装）时弹出一次
   const [showOnboarding, setShowOnboarding] = useState(false);

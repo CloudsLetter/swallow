@@ -1063,7 +1063,7 @@ export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTermin
 
   // 收展动画结束后重新 fit 终端（宽度过渡 200ms）
   useEffect(() => {
-    const timer = setTimeout(bump, 230);
+    const timer = setTimeout(bump, 130);
     return () => clearTimeout(timer);
   }, [prefs.open, bump]);
 
@@ -1099,7 +1099,7 @@ export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTermin
         className={cn(
           'relative h-full shrink-0 overflow-hidden',
           // 外部强制收起（连接中）：瞬时完成，避免第一帧闪现未收起的面板
-          collapseOverride ? '' : 'transition-[width] duration-200 ease-out',
+          collapseOverride ? '' : 'transition-[width] duration-100 ease-out',
         )}
         style={{ width: prefs.open && !collapseOverride ? prefs.width : 0, zIndex: 2 }}
       >
