@@ -200,25 +200,28 @@ impl MonitorSession {
         let kernel = first_line(&raw, "KERNEL").unwrap_or_else(|| "unknown".to_string());
         // 架构读不到（uname 缺失）时为空串而非 unknown，前端直接不显示
         let arch = first_line(&raw, "ARCH").unwrap_or_default();
-        let uptime_secs = section(&raw, "UPTIME")
+        // 一次遍历切分出全部 section，各解析复用切片（替代逐指标重复 find 整段文本）
+        let sec = collect_sections(&raw);
+        let s = |name: &str| sec.get(name).copied().unwrap_or("");
+        let uptime_secs = s("UPTIME")
             .split_whitespace()
             .next()
             .and_then(|s| s.parse::<f64>().ok())
             .map(|v| v as u64)
             .unwrap_or(0);
-        let (load_1, load_5, load_15) = parse_load(&section(&raw, "LOAD"));
-        let cpu_cores = section(&raw, "CORES").trim().parse::<u32>().unwrap_or(0);
-        let mem = parse_mem(&section(&raw, "MEM"));
-        let disks = parse_disks(&section(&raw, "DISK"));
-        let net_now = parse_net(&section(&raw, "NET"));
-        let disk_now = parse_diskstats(&section(&raw, "DISKIO"));
-        let top_cpu = parse_top_processes(&section(&raw, "TOPCPU"));
-        let top_mem = parse_top_processes(&section(&raw, "TOPMEM"));
-        let tcp = parse_tcp(&section(&raw, "TCP"));
+        let (load_1, load_5, load_15) = parse_load(s("LOAD"));
+        let cpu_cores = s("CORES").trim().parse::<u32>().unwrap_or(0);
+        let mem = parse_mem(s("MEM"));
+        let disks = parse_disks(s("DISK"));
+        let net_now = parse_net(s("NET"));
+        let disk_now = parse_diskstats(s("DISKIO"));
+        let top_cpu = parse_top_processes(s("TOPCPU"));
+        let top_mem = parse_top_processes(s("TOPMEM"));
+        let tcp = parse_tcp(s("TCP"));
 
         // CPU：两次采样 jiffies 差值。usage = 100 - idle%（iowait/steal 计入占用），
         // user/system/iowait/steal 各自占比，四项之和 ≈ usage（guest 等忽略）
-        let cpu_sample = parse_cpu(&section(&raw, "CPU"));
+        let cpu_sample = parse_cpu(s("CPU"));
         let cpu = match (self.prev_cpu, cpu_sample) {
             (Some(p), Some(c)) => {
                 let dt = c.total.saturating_sub(p.total);
@@ -376,6 +379,42 @@ impl Default for MonitorManager {
 
 /// 取出 `==NAME==` 标记之后、下一个 `==` 标记之前的内容。
 /// ⚠️ 返回内容总以换行开头（`echo '==NAME=='` 自带换行）——逐行解析须跳过空行。
+/// 一次遍历把 raw 中所有 `==NAME==` 标记切分成 section（name → 内容切片）。
+/// 与 `section()` 语义一致（内容以换行开头、不含下一标记前导换行），供 collect
+/// 复用，避免每指标重复 find 整段文本。
+fn collect_sections<'a>(raw: &'a str) -> HashMap<&'a str, &'a str> {
+    let mut map = HashMap::new();
+    let mut cursor = 0usize;
+    while cursor < raw.len() {
+        // 定位下一个标记起点：优先光标处直接是 "=="（首个 marker 无前导换行），
+        // 否则找 "\n=="（注意 find 可能命中后续标记，故光标定位依赖前一次 end）
+        let marker_start = if raw[cursor..].starts_with("==") {
+            cursor
+        } else {
+            match raw[cursor..].find("\n==") {
+                Some(rel) => cursor + rel + 1,
+                None => break,
+            }
+        };
+        // 提取 NAME（到第二个 '==' 为止）
+        let name_start = marker_start + 2;
+        let Some(close_rel) = raw[name_start..].find("==") else {
+            break;
+        };
+        let name_end = name_start + close_rel;
+        let name = &raw[name_start..name_end];
+        // 内容：标记之后（含其前导换行），到下一个 "\n==" 或文本结束
+        let content_start = name_end + 2;
+        let end = raw[content_start..]
+            .find("\n==")
+            .map(|r| content_start + r)
+            .unwrap_or(raw.len());
+        map.insert(name, &raw[content_start..end]);
+        cursor = end;
+    }
+    map
+}
+
 fn section<'a>(raw: &'a str, name: &str) -> &'a str {
     let marker = format!("=={}==", name);
     let Some(start) = raw.find(&marker) else {
@@ -579,6 +618,25 @@ fn parse_tcp(section: &str) -> TcpStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// collect_sections 的切片必须与逐个 section() 完全一致（语义等价的单次遍历优化）。
+    #[test]
+    fn collect_sections_matches_section() {
+        let raw = "==HOST==\nweb01\n==LOAD==\n0.5 0.2 0.1\n==MEM==\nk 10\n";
+        let sec = collect_sections(raw);
+        for name in ["HOST", "LOAD", "MEM"] {
+            assert_eq!(
+                sec.get(name).copied().unwrap_or(""),
+                section(raw, name),
+                "section {name} mismatch"
+            );
+        }
+        // 首个标记无前导换行也要兼容（边界：文本直接以 == 开头）
+        let raw2 = "==A==\nv1\n==B==\nv2";
+        let sec2 = collect_sections(raw2);
+        assert_eq!(sec2.get("A").copied().unwrap_or(""), section(raw2, "A"));
+        assert_eq!(sec2.get("B").copied().unwrap_or(""), section(raw2, "B"));
+    }
 
     /// 模拟 COLLECT_CMD 的真实输出结构：`==NAME==` 标记后紧跟换行（echo 自带）。
     /// 这正是 parse_cpu 曾踩的坑：section 以 `\n` 开头，lines().next() 是空行。

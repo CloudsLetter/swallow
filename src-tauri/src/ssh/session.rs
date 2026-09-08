@@ -514,6 +514,9 @@ impl SshSession {
             // 这里把「尚未完整」的尾部字节暂存，待下次 read 补齐后再解码发出。
             let mut pending: Vec<u8> = Vec::with_capacity(8192 + 4);
             let mut last_keepalive = std::time::Instant::now();
+            // 空闲退避：连续 WouldBlock 时指数增长（10ms→…→100ms），
+            // 一读到数据立即复位——空闲会话少耗 CPU，输入回显几乎无感知延迟
+            let mut backoff_ms: u64 = 10;
             loop {
                 if !*is_connected.lock().unwrap() {
                     break;
@@ -527,6 +530,7 @@ impl SshSession {
                             break;
                         }
                         Ok(n) => {
+                            backoff_ms = 10;
                             pending.extend_from_slice(&buffer[..n]);
                             // 只把「已完整」的前缀转成字符串发出，把不完整的尾部
                             // 字节留给下一次 read；非法字节按 lossy 语义替换为 U+FFFD。
@@ -613,7 +617,8 @@ impl SshSession {
                                 last_keepalive = std::time::Instant::now();
                             }
                             drop(channel_guard);
-                            thread::sleep(std::time::Duration::from_millis(10));
+                            thread::sleep(std::time::Duration::from_millis(backoff_ms));
+                            backoff_ms = (backoff_ms * 2).min(100);
                             continue;
                         }
                         Err(e) => {

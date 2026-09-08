@@ -9,18 +9,6 @@ import { QuickConnect } from './QuickConnect';
 import { useTabStore, Tab } from '../store/tabStore';
 import { useAppConnecting } from '../store/appConnecting';
 import { useUiPage } from '../store/uiPage';
-import { Hosts } from './Hosts';
-import { AccountPage } from './Account';
-import { Remote } from './Remote';
-import { Keys } from './Keys';
-import { Certificates } from './Certificates';
-import { KnownHosts } from './KnownHosts';
-import { Sftp } from './Sftp';
-import { Snippets } from './Snippets';
-import { Logs } from './Logs';
-import { PortForwarding } from './PortForwarding';
-import { SettingsPage } from './Settings';
-import { Monitor } from './Monitor';
 import { ReplayView } from '../components/ReplayView';
 
 // VNC 按需加载：noVNC 是重依赖，静态 import 会拖慢首屏；且其加载失败不应拖垮
@@ -34,21 +22,89 @@ const RdpView = lazy(() =>
   import('../components/RdpView').then((m) => ({ default: m.RdpView })),
 );
 
-// home 侧边栏页面（全部常驻挂载，按 currentPage 显隐，保留各页面内部状态）
+// 侧边栏管理页全部按需加载：home 首标签只带 hosts chunk，其余菜单首次访问才拉取
+// （配合下方 mountedPages 过滤：挂载即触发 import，未访问的页面不进首包）。
+const LazyHosts = lazy(() => import('./Hosts').then((m) => ({ default: m.Hosts })));
+const LazyAccount = lazy(() => import('./Account').then((m) => ({ default: m.AccountPage })));
+const LazyRemote = lazy(() => import('./Remote').then((m) => ({ default: m.Remote })));
+const LazyKeys = lazy(() => import('./Keys').then((m) => ({ default: m.Keys })));
+const LazyCertificates = lazy(() => import('./Certificates').then((m) => ({ default: m.Certificates })));
+const LazyKnownHosts = lazy(() => import('./KnownHosts').then((m) => ({ default: m.KnownHosts })));
+const LazyPortForwarding = lazy(() => import('./PortForwarding').then((m) => ({ default: m.PortForwarding })));
+const LazySftp = lazy(() => import('./Sftp').then((m) => ({ default: m.Sftp })));
+const LazySnippets = lazy(() => import('./Snippets').then((m) => ({ default: m.Snippets })));
+const LazyLogs = lazy(() => import('./Logs').then((m) => ({ default: m.Logs })));
+const LazyMonitor = lazy(() => import('./Monitor').then((m) => ({ default: m.Monitor })));
+const LazySettings = lazy(() => import('./Settings').then((m) => ({ default: m.SettingsPage })));
+
+// home 侧边栏页面（首次访问才挂载，按 currentPage 显隐，保留各页面内部状态）
 const HOME_PAGES: Record<string, ReactNode> = {
-  hosts: <Hosts />,
-  account: <AccountPage />,
-  remote: <Remote />,
-  keys: <Keys />,
-  certificates: <Certificates />,
-  knownhosts: <KnownHosts />,
-  portforwarding: <PortForwarding />,
-  sftp: <Sftp />,
-  snippets: <Snippets />,
-  logs: <Logs />,
-  monitor: <Monitor />,
-  settings: <SettingsPage />,
+  hosts: (
+    <Suspense fallback={<PageLoading />}>
+      <LazyHosts />
+    </Suspense>
+  ),
+  account: (
+    <Suspense fallback={<PageLoading />}>
+      <LazyAccount />
+    </Suspense>
+  ),
+  remote: (
+    <Suspense fallback={<PageLoading />}>
+      <LazyRemote />
+    </Suspense>
+  ),
+  keys: (
+    <Suspense fallback={<PageLoading />}>
+      <LazyKeys />
+    </Suspense>
+  ),
+  certificates: (
+    <Suspense fallback={<PageLoading />}>
+      <LazyCertificates />
+    </Suspense>
+  ),
+  knownhosts: (
+    <Suspense fallback={<PageLoading />}>
+      <LazyKnownHosts />
+    </Suspense>
+  ),
+  portforwarding: (
+    <Suspense fallback={<PageLoading />}>
+      <LazyPortForwarding />
+    </Suspense>
+  ),
+  sftp: (
+    <Suspense fallback={<PageLoading />}>
+      <LazySftp />
+    </Suspense>
+  ),
+  snippets: (
+    <Suspense fallback={<PageLoading />}>
+      <LazySnippets />
+    </Suspense>
+  ),
+  logs: (
+    <Suspense fallback={<PageLoading />}>
+      <LazyLogs />
+    </Suspense>
+  ),
+  monitor: (
+    <Suspense fallback={<PageLoading />}>
+      <LazyMonitor />
+    </Suspense>
+  ),
+  settings: (
+    <Suspense fallback={<PageLoading />}>
+      <LazySettings />
+    </Suspense>
+  ),
 };
+
+/** 页面 chunk 加载中的占位。 */
+function PageLoading() {
+  return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">…</div>;
+}
 
 export function Home() {
   const { activeTabId, tabs } = useTabStore();

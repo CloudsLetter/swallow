@@ -52,6 +52,7 @@ import {
   createSessionLogPath,
   forceStopSessionLog,
   appendReplaySnapshot,
+  shouldAppendReplaySnapshot,
   startSessionLog,
 } from './sessionLog';
 import { useBroadcastStore } from '../store/broadcast';
@@ -843,6 +844,8 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
               // xterm.write 自带增量渲染；不要额外全屏 refresh——
               // 高频输出（motd/日志）时全量刷新会阻塞主线程导致终端「无响应」
               terminal.write(data, () => {
+                // 节流判断前移到序列化之前：高频输出时绝大多数回调无需 serialize 整屏
+                if (!shouldAppendReplaySnapshot(sessionId)) return;
                 appendReplaySnapshot(sessionId, serializeTerminalBuffer(sessionId) ?? '');
               });
             } catch (error) {

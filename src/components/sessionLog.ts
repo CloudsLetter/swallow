@@ -97,6 +97,13 @@ function appendReplayEvent(log: SessionLog, direction: 'input' | 'output', data:
   })}\n`;
 }
 
+/** 是否已到回放快照节流间隔（调用方在**序列化前**判定，避免高频输出下全量 serialize）。 */
+export function shouldAppendReplaySnapshot(sessionId: string): boolean {
+  const log = getLog(sessionId);
+  if (!log || log.format !== 'replay') return false;
+  return Date.now() - log.lastSnapshotAtMs >= REPLAY_SNAPSHOT_INTERVAL_MS;
+}
+
 /** 写入由 xterm + SerializeAddon 生成的终端状态快照，用于时间轴快速定位。 */
 export function appendReplaySnapshot(sessionId: string, serialized: string) {
   const log = getLog(sessionId);

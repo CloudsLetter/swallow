@@ -487,43 +487,55 @@ export function Monitor() {
     void bootstrap();
   }, []);
 
-  // 统一采集循环：每 2 秒遍历所有 monitoring 状态的监控项各采一次
+  // 统一采集循环：每 2 秒并发（窗口 3）采集所有 monitoring 项，
+  // 一轮结束后**单次** setItems 合并全部结果（避免逐主机 setItems 造成 O(n²) 状态更新）。
   useEffect(() => {
     if (items.length === 0) return;
     let stopped = false;
     const tick = async () => {
-      for (const item of itemsRef.current) {
-        if (item.status !== 'monitoring') continue;
-        try {
-          const snap = await monitorCollect(item.sessionId);
-          if (stopped) return;
-          setItems((prev) =>
-            prev.map((i) =>
-              i.sessionId === item.sessionId
-                ? {
-                    ...i,
-                    snapshot: snap,
-                    status: 'monitoring',
-                    failCount: 0,
-                    history: pushHistory(i.history, snap),
-                  }
-                : i,
-            ),
-          );
-        } catch (e) {
-          if (stopped) return;
-          setItems((prev) =>
-            prev.map((i) => {
-              if (i.sessionId !== item.sessionId) return i;
-              const failCount = (i.failCount ?? 0) + 1;
-              if (failCount >= 3) {
-                return { ...i, status: 'error', error: String(e), failCount };
-              }
-              return { ...i, failCount };
-            }),
-          );
+      const targets = itemsRef.current.filter((i) => i.status === 'monitoring');
+      if (targets.length === 0) return;
+
+      // 收集每台主机的本轮结果（成功快照 / 失败原因），并行的同时保持并发上限
+      const outcomes: { sessionId: string; ok: boolean; snap?: MonitorSnapshot; err?: string }[] = [];
+      let cursor = 0;
+      const limit = Math.min(3, targets.length);
+      const worker = async () => {
+        while (cursor < targets.length) {
+          const item = targets[cursor++];
+          try {
+            const snap = await monitorCollect(item.sessionId);
+            outcomes.push({ sessionId: item.sessionId, ok: true, snap });
+          } catch (e) {
+            outcomes.push({ sessionId: item.sessionId, ok: false, err: String(e) });
+          }
         }
-      }
+      };
+      await Promise.all(Array.from({ length: limit }, () => worker()));
+      if (stopped) return;
+
+      // 单次合并：outcome Map 命中 O(1)，整体一轮仍是 O(n) 而非逐主机 O(n²)
+      const outcomeMap = new Map(outcomes.map((o) => [o.sessionId, o]));
+      setItems((prev) =>
+        prev.map((i) => {
+          const out = outcomeMap.get(i.sessionId);
+          if (!out) return i;
+          if (out.ok && out.snap) {
+            return {
+              ...i,
+              snapshot: out.snap,
+              status: 'monitoring',
+              failCount: 0,
+              history: pushHistory(i.history, out.snap),
+            };
+          }
+          const failCount = (i.failCount ?? 0) + 1;
+          if (failCount >= 3) {
+            return { ...i, status: 'error', error: out.err ?? 'unknown', failCount };
+          }
+          return { ...i, failCount };
+        }),
+      );
     };
     void tick();
     const timer = setInterval(() => void tick(), 2000);

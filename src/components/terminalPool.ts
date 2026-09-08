@@ -347,6 +347,39 @@ function playBellSound() {
   }
 }
 
+// 输入微批：把连续 onData 合并成少量 IPC（15ms 窗口；长按/粘贴/广播从每秒上百次降到几十次以下）。
+// 顺序保持（append 序=发送序）；会话日志按原始输入逐次记录不受影响；serial 保持即时（硬件时序敏感）。
+const WRITE_BATCH_MS = 15;
+const WRITE_BATCH_MAX = 256 * 1024;
+const writeBatches = new Map<string, string>();
+const writeBatchTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** 按会话类型分流的单次写（微批 flush 与旧路径共用）。 */
+function sendToSession(id: string, payload: string) {
+  const st = getSessionType(id);
+  if (st === 'telnet') return telnetWrite(id, payload);
+  if (st === 'local') return localShellWrite(id, payload);
+  if (st === 'serial') return serialWrite(id, payload);
+  if (st === 'mosh') return moshWrite(id, payload);
+  return sshWrite(id, payload);
+}
+
+function flushWriteBatch(id: string) {
+  const timer = writeBatchTimers.get(id);
+  if (timer) {
+    clearTimeout(timer);
+    writeBatchTimers.delete(id);
+  }
+  const payload = writeBatches.get(id);
+  writeBatches.delete(id);
+  if (!payload) return;
+  enqueueWrite(id, () =>
+    sendToSession(id, payload).catch((error: unknown) => {
+      console.error(`Failed to write to terminal (${id}):`, error);
+    }),
+  );
+}
+
 /**
  * 向目标会话写入数据（广播/单会话通用）：按各会话协议类型分流 ssh/telnet/local 命令，
  * 经会话级写队列串行化（高频输入不压垮后端 IPC）。替代各处手写 targets+分流+enqueue 重复块。
@@ -356,19 +389,29 @@ export function enqueueWriteToTargets(targets: string[], data: string) {
     // 会话日志记录：输入按目标会话记录（广播时每个接收会话都记，语义准确）；
     // 录制未开启时 appendInput 内部直接返回。
     appendInput(id, data);
-    const write = () => {
-      const st = getSessionType(id);
-      if (st === 'telnet') return telnetWrite(id, data);
-      if (st === 'local') return localShellWrite(id, data);
-      if (st === 'serial') return serialWrite(id, data);
-      if (st === 'mosh') return moshWrite(id, data);
-      return sshWrite(id, data);
-    };
-    enqueueWrite(id, () =>
-      write().catch((error: unknown) => {
-        console.error(`Failed to write to terminal (${id}):`, error);
-      }),
-    );
+    // serial（以及其它即时敏感协议在需要时）直接发送，不做微批
+    if (getSessionType(id) === 'serial') {
+      enqueueWrite(id, () =>
+        sendToSession(id, data).catch((error: unknown) => {
+          console.error(`Failed to write to terminal (${id}):`, error);
+        }),
+      );
+      continue;
+    }
+    const prev = writeBatches.get(id) ?? '';
+    const next = prev + data;
+    writeBatches.set(id, next);
+    // 大批量（长粘贴/上传）超过上限立即 flush，避免缓冲无限增长
+    if (next.length >= WRITE_BATCH_MAX) {
+      flushWriteBatch(id);
+      continue;
+    }
+    if (!writeBatchTimers.has(id)) {
+      writeBatchTimers.set(
+        id,
+        setTimeout(() => flushWriteBatch(id), WRITE_BATCH_MS),
+      );
+    }
   }
 }
 
@@ -725,6 +768,13 @@ export function disposeTerminal(sessionId: string) {
   
   // 销毁终端实例
   try { item.terminal.dispose(); } catch (e) {}
+  // 清输入微批残留（未发送的缓冲直接丢弃）
+  const batchTimer = writeBatchTimers.get(sessionId);
+  if (batchTimer) {
+    clearTimeout(batchTimer);
+    writeBatchTimers.delete(sessionId);
+  }
+  writeBatches.delete(sessionId);
   delete pool[sessionId];
   delete writeQueues[sessionId];
   delete sessionTypes[sessionId];
