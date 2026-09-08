@@ -5,6 +5,7 @@ pub mod common;
 pub mod hosts;
 pub mod keys;
 pub mod known_hosts;
+pub mod local_fs;
 pub mod logs;
 pub mod monitor_state;
 pub mod port_forwardings;

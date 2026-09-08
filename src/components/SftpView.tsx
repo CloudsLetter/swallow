@@ -27,9 +27,13 @@ import {
 } from 'lucide-react';
 import { ExternalLink as IconExternalLink } from 'lucide-react';
 import { ConnectionProgress } from './ConnectionProgress';
+import { LocalBrowser, type LeftRemoteInfo } from './LocalBrowser';
+import { MIME_LOCAL, MIME_LEFT_REMOTE, MIME_REMOTE } from '../services/localFs';
 import { useSessionConnection, sftpSessionPool } from '../hooks/useSessionConnection';
-import { touchHostLastConnected } from '../services/dataService';
+import { touchHostLastConnected, getHosts, getAccounts, getKeys, getCertificates } from '../services/dataService';
+import { resolveHostSshAuth } from '../services/sshAuthResolver';
 import { useOnlineHosts } from '../store/uiState';
+import { cn } from '@/lib/utils';
 import {
   acceptHostKey,
   sftpConnect,
@@ -39,12 +43,12 @@ import {
   sftpRemoveDirRecursive,
   sftpDownloadFileProgress,
   sftpListDir,
-  sftpRename,
-  sftpChmod,
+  sftpRename,  sftpChmod,
   sftpSearchFiles,
   sftpUploadChunk,
   sftpUploadFile,
   sftpUploadLocal,
+  sftpStreamCopy,
   localFileSize,
 } from '../services/sessionService';
 import {
@@ -253,8 +257,14 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
   // 「用本机应用打开」的远程文件跟踪：临时下载到系统临时目录后交给默认程序，
   // 本地改动可一键回传（用户确认覆盖）
   const [openEdits, setOpenEdits] = useState<{ id: string; remotePath: string; localPath: string; name: string }[]>([]);
+  // 左栏远程源：另一台主机的 SFTP 会话（双主机 ⇄ 流式中转）
+  const [leftRemote, setLeftRemote] = useState<LeftRemoteInfo | null>(null);
+  const [leftBusy, setLeftBusy] = useState(false);
+  const [hostOptions, setHostOptions] = useState<{ id: string; name: string }[]>([]);
   const [promptState, setPromptState] = useState<{ mode: 'mkdir' | 'rename' | 'chmod'; value: string; itemName?: string } | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  // 双栏：右栏是否正被「本机文件拖入上传」
+  const [dragLocalOver, setDragLocalOver] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortAsc, setSortAsc] = useState(true);
   // 文件搜索状态
@@ -1034,6 +1044,178 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
     }
   };
 
+  /** 双栏：把本机文件批量上传到当前远程目录（顺序执行，任一失败不中断）。 */
+  const uploadLocalToRemote = async (localPaths: string[]) => {
+    if (!sessionId) return;
+    let ok = 0;
+    const fail: string[] = [];
+    for (const localPath of localPaths) {
+      const name = localPath.split(/[\\/]/).pop() || localPath;
+      try {
+        await sftpUploadLocal(sessionId, localPath, joinRemotePath(name), `sftp-dup-${Date.now()}-${ok}`);
+        ok += 1;
+      } catch {
+        fail.push(name);
+      }
+    }
+    if (ok > 0) {
+      toast.success(t('sftp.localUploadDone', { count: ok }));
+      void loadFiles(currentPath);
+    }
+    if (fail.length > 0) {
+      toast.error(t('sftp.localUploadFailedN', { count: fail.length, names: fail.slice(0, 3).join('、') }));
+    }
+  };
+
+  /** 双栏：把远程文件下载到本机栏当前目录（已有部分文件时询问续传）。 */
+  const downloadRemoteToLocal = async (remoteName: string, localDir: string) => {
+    if (!sessionId) return;
+    const item = files.find((f) => f.name === remoteName);
+    if (!item) throw new Error(`remote file not found: ${remoteName}`);
+    const target = await joinPath(localDir, remoteName);
+    let offset = 0;
+    if (item.size > 0) {
+      const localSize = await localFileSize(target).catch(() => 0);
+      if (localSize > 0 && localSize < item.size) {
+        const resume = await ask(t('sftp.resumeDownloadPrompt', { name: item.name, done: localSize, total: item.size }), {
+          title: t('sftp.downloadTitle'),
+          kind: 'info',
+          okLabel: t('sftp.resume'),
+          cancelLabel: t('sftp.overwrite'),
+        });
+        if (resume) offset = localSize;
+      }
+    }
+    await sftpDownloadFileProgress(sessionId, joinRemotePath(remoteName), target, offset);
+    toast.success(t('sftp.downloadedToLocal', { name: remoteName }));
+  };
+
+  const leftRemoteRef = useRef<LeftRemoteInfo | null>(null);
+
+  // 左栏主机选择器选项（已保存主机）
+  useEffect(() => {
+    void getHosts()
+      .then((hs) => setHostOptions(hs.map((h) => ({ id: h.id, name: h.name }))))
+      .catch(() => setHostOptions([]));
+  }, []);
+
+  // 组件卸载时断开左栏远程会话
+  useEffect(
+    () => () => {
+      const cur = leftRemoteRef.current;
+      if (cur) void sftpDisconnect(cur.sessionId).catch(() => {});
+    },
+    [],
+  );
+  useEffect(() => {
+    leftRemoteRef.current = leftRemote;
+  }, [leftRemote]);
+
+  /** 左栏连接另一台已保存主机（复用主机认证链路，含主机密钥确认）。 */
+  const attachLeftRemote = async (hostId: string) => {
+    if (!sessionId || leftBusy) return;
+    const host = (await getHosts()).find((h) => h.id === hostId);
+    if (!host) return;
+    if (leftRemote?.sessionId && leftRemote.hostName === host.name) return;
+    setLeftBusy(true);
+    const leftSid = `sftp-left-${Date.now()}`;
+    try {
+      if (leftRemote) {
+        try {
+          await sftpDisconnect(leftRemote.sessionId);
+        } catch {
+          /* 忽略旧会话清理失败 */
+        }
+        setLeftRemote(null);
+      }
+      const [accounts, keys, certs] = await Promise.all([
+        getAccounts().catch(() => []),
+        getKeys().catch(() => []),
+        getCertificates().catch(() => []),
+      ]);
+      const auth = resolveHostSshAuth(host, accounts, keys, certs);
+      if (auth.error) {
+        toast.warning(auth.error);
+        return;
+      }
+      if (auth.authType === 'certificate' || auth.authType === 'none') {
+        toast.warning(t('sftp.leftUnsupported'));
+        return;
+      }
+      const cfg = {
+        host: host.host,
+        port: host.port,
+        username: auth.username,
+        protocol: 'sftp',
+        auth_type: auth.authType === 'key' ? 'publickey' : 'password',
+        password: auth.password,
+        key_path: undefined,
+        key_id: auth.authType === 'key' ? auth.keyId : undefined,
+        passphrase: undefined,
+      };
+      let res = await sftpConnect(leftSid, cfg);
+      while (res.status === 'needsHostKeyApproval') {
+        const fingerprint = res.fingerprint ?? '';
+        const accepted = await dedupeHostKeyConfirm(
+          `${res.host}:${res.port}:${fingerprint}`,
+          () =>
+            ask(
+              t('connection.hostKeyBody', { host: res.host, port: res.port, fingerprint }),
+              {
+                title: t('connection.hostKeyTitle'),
+                okLabel: t('connection.trustAndConnect'),
+                cancelLabel: t('connection.decline'),
+                kind: 'warning',
+              },
+            ),
+        );
+        if (!accepted) throw new Error(t('connection.declinedHostKey'));
+        await acceptHostKey(res.hostKeyToken!, fingerprint);
+        res = await sftpConnect(leftSid, cfg);
+      }
+      if (res.status !== 'connected') {
+        throw new Error(t('connection.connectionFailedStatus', { status: res.status }));
+      }
+      setLeftRemote({ sessionId: leftSid, hostName: host.name });
+      toast.success(t('sftp.leftConnected', { host: host.name }));
+    } catch (e) {
+      console.error('Left remote connect failed:', e);
+      toast.error(String(e));
+      try {
+        await sftpDisconnect(leftSid);
+      } catch {
+        /* ignore */
+      }
+    } finally {
+      setLeftBusy(false);
+    }
+  };
+
+  /** 断开左栏远程源，回到本机目录。 */
+  const releaseLeftRemote = async () => {
+    const cur = leftRemote;
+    setLeftRemote(null);
+    if (cur) {
+      try {
+        await sftpDisconnect(cur.sessionId);
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+
+  /** 右栏文件进入左栏：左栏为远程 → 流式复制；左栏为本机 → 下载到本机目录。 */
+  const handleFileFromRight = async (name: string, dir: string) => {
+    if (!sessionId) return;
+    if (leftRemote) {
+      const dst = dir === '/' || dir === '' ? `/${name}` : `${dir}/${name}`;
+      await sftpStreamCopy(sessionId, joinRemotePath(name), leftRemote.sessionId, dst);
+      toast.success(t('sftp.streamCopied', { name }));
+    } else {
+      await downloadRemoteToLocal(name, dir);
+    }
+  };
+
   const handleDelete = async (item: FileItem) => {
     if (!sessionId) return;
     const isDir = item.type === 'directory';
@@ -1283,7 +1465,56 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
           onCancel={isConnectingState ? handleCancelConnection : undefined}
         />
       ) : (
-        <div className="flex h-full flex-col">
+        <div className="flex h-full min-h-0">
+          {/* 左栏：本机目录（双栏 SFTP：本机 ⇄ 远程同屏） */}
+          <LocalBrowser
+            leftRemote={leftRemote}
+            leftBusy={leftBusy}
+            hostOptions={hostOptions}
+            onPickHost={(hostId) => void attachLeftRemote(hostId)}
+            onReleaseRemote={() => void releaseLeftRemote()}
+            onUploadFiles={uploadLocalToRemote}
+            onFileFromRight={handleFileFromRight}
+          />
+          {/* 右栏：远程文件（既有工具栏/列表逻辑）；接收本机/左栏远程拖入 */}
+          <div
+            className={cn(
+              'flex h-full min-w-0 flex-1 flex-col border-l border-border',
+              dragLocalOver && 'bg-primary/5',
+            )}
+            onDragOver={(e) => {
+              if (e.dataTransfer.types.includes(MIME_LOCAL) || e.dataTransfer.types.includes(MIME_LEFT_REMOTE)) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                setDragLocalOver(true);
+              }
+            }}
+            onDragLeave={() => setDragLocalOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragLocalOver(false);
+              // 本机文件 → 直接上传到右栏当前目录
+              const rawLocal = e.dataTransfer.getData(MIME_LOCAL);
+              if (rawLocal) {
+                void uploadLocalToRemote(rawLocal.split('\n').filter(Boolean));
+                return;
+              }
+              // 左栏为另一台主机 → 流式复制到右栏当前目录（不落本地磁盘）
+              const rawLeftRemote = e.dataTransfer.getData(MIME_LEFT_REMOTE);
+              if (rawLeftRemote && leftRemote && sessionId) {
+                void (async () => {
+                  try {
+                    const name = rawLeftRemote.split('/').filter(Boolean).pop() ?? 'file';
+                    await sftpStreamCopy(leftRemote.sessionId, rawLeftRemote, sessionId, joinRemotePath(name));
+                    toast.success(t('sftp.streamCopied', { name }));
+                    void loadFiles(currentPath);
+                  } catch (err) {
+                    toast.error(String(err));
+                  }
+                })();
+              }
+            }}
+          >
           {/* 工具栏 */}
           <div className="flex items-center gap-2 border-b border-border bg-muted p-3">
             <div className="flex items-center gap-1">
@@ -1513,6 +1744,13 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
                           <ContextMenu key={file.name}>
                             <ContextMenuTrigger asChild>
                               <TableRow
+                                draggable={file.type !== 'directory'}
+                                onDragStart={(e) => {
+                                  if (file.type === 'directory') return;
+                                  e.dataTransfer.setData(MIME_REMOTE, file.name);
+                                  e.dataTransfer.setData('text/plain', file.name);
+                                  e.dataTransfer.effectAllowed = 'copy';
+                                }}
                                 className={selectedFiles.has(file.name) ? 'bg-primary/10 hover:bg-primary/10' : ''}
                                 onDoubleClick={(e) => {
                                   // 双击落在交互元素（复选框/操作按钮）上时不触发行级双击，避免与单击冲突
@@ -1657,6 +1895,7 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
             </ContextMenuContent>
           </ContextMenu>
         </div>
+      </div>
       )}
 
       {/* 新建目录 / 重命名 / 修改权限 输入对话框 */}

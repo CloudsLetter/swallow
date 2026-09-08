@@ -220,6 +220,16 @@ export function sftpCancelTransfer(cancelToken: string): Promise<void> {
   return invoke<void>('sftp_cancel_transfer', { cancelToken });
 }
 
+/** 应用内流式中转：把 src 会话的远端文件直接流式复制到 dst 会话的远端路径（不落本地磁盘）。 */
+export function sftpStreamCopy(
+  srcSessionId: string,
+  srcPath: string,
+  dstSessionId: string,
+  dstPath: string,
+): Promise<number> {
+  return invoke<number>('sftp_stream_copy', { srcSessionId, srcPath, dstSessionId, dstPath });
+}
+
 /** 删除 SFTP 远端文件。 */
 export function sftpDeleteFile(sessionId: string, remotePath: string): Promise<void> {
   return invoke<void>('sftp_delete_file', { sessionId, remotePath });

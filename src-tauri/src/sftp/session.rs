@@ -947,11 +947,48 @@ impl SftpSession {
         }
     }
 
+    /// 应用内流式中转（双栏双主机直接互传，不落本地磁盘）：
+    /// 从本会话读 src 远端文件流，写入另一个会话的 dst 远端路径。
+    /// 仅支持 SFTP ⇄ SFTP；任一侧为 FTP 时报错。
+    pub fn stream_copy_to(
+        &self,
+        src_path: &str,
+        dst: &Self,
+        dst_path: &str,
+    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+        use ssh2::{OpenFlags, OpenType};
+        use std::io::Read;
+
+        match (&self.session_type, &dst.session_type) {
+            (SessionType::Sftp { sftp: src_sftp, .. }, SessionType::Sftp { sftp: dst_sftp, .. }) => {
+                let mut src_file = src_sftp.open(Path::new(src_path))?;
+                let mut dst_file = dst_sftp.open_mode(
+                    Path::new(dst_path),
+                    OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::TRUNCATE,
+                    0o644,
+                    OpenType::File,
+                )?;
+                let mut buf = vec![0u8; 256 * 1024];
+                let mut total: u64 = 0;
+                loop {
+                    let n = src_file.read(&mut buf)?;
+                    if n == 0 {
+                        break;
+                    }
+                    dst_file.write_all(&buf[..n])?;
+                    total += n as u64;
+                }
+                dst_file.close()?;
+                Ok(total)
+            }
+            _ => Err("流式中转仅支持 SFTP ⇄ SFTP（含 FTP 的会话暂不支持）".into()),
+        }
+    }
+
     /// 分块上传：`truncate=true` 时覆盖创建（首块），否则追加到文件末尾。
     /// 前端按 1MB 分块调用，实现非阻塞传输与进度展示。
     pub fn upload_chunk(
-        &self,
-        remote_path: &str,
+        &self,        remote_path: &str,
         data: &[u8],
         truncate: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

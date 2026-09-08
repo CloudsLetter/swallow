@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { ask } from '@tauri-apps/plugin-dialog';
@@ -57,6 +57,7 @@ import {
 import { useBroadcastStore } from '../store/broadcast';
 import { usePanelStore } from '../store/panelStore';
 import { useTabStore } from '../store/tabStore';
+import { useAppConnecting } from '../store/appConnecting';
 import { recordCommand, suggestCommands } from '../services/commandHistory';
 import { localPlatformOsId } from './osLogo';
 import { buildPanelTheme } from './panelTheme';
@@ -481,6 +482,27 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
     handleCloseProgress,
     handleRetryConnection,
   } = useSessionConnection(sessionId, sshSessionPool);
+
+  // 激活终端连接中 → 通知布局让出左右面板（连接动画全宽不被遮挡）。
+  // useLayoutEffect：在浏览器画第一帧前同步，避免首帧闪现未收起的面板。
+  useLayoutEffect(() => {
+    useAppConnecting.getState().setActive(!!showProgress && !!isActive);
+    return () => {
+      if (isActive) useAppConnecting.getState().setActive(false);
+    };
+  }, [showProgress, isActive]);
+
+  // 首帧即进度屏：新会话挂载将自动连接时，先在布局阶段把 overlay 置 true——
+  // connectSSH 走 50ms attach 定时器，若等它触发再显示，那 50ms 会先画出面板/终端界面（闪现根因）。
+  const [firstFrameKick, setFirstFrameKick] = useState(false);
+  useLayoutEffect(() => {
+    if (!sessionId || skipAutoConnect || isConnected(sessionId) || getShowProgress(sessionId) || firstFrameKick) {
+      return;
+    }
+    // 只置 overlay（不置 pool connecting——否则 50ms 定时器的「正在连接」分支会误判并跳过真正启动）
+    setFirstFrameKick(true);
+    setShowProgress(true);
+  }, [sessionId, skipAutoConnect, firstFrameKick]);
 
   // 终端外观派生（背景色/背景图/透明/顶栏延伸）+ URL 解析 + 顶栏对比前景注入（见 useTerminalBackground）
   const { terminalBackground, backgroundImageUrl, extendToTopbar } = useTerminalBackground(config, isActive);
@@ -1167,9 +1189,9 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
 
       {/* 快捷指令已并入右侧功能面板（openRightSection('commands')），此处不再有弹窗 */}
 
-      {/* 进度窗口覆盖在终端上方 */}
+      {/* 进度窗口覆盖在终端上方：连接期间 Home 已把左右面板让出（全宽），此处普通遮罩即可 */}
       {showProgress && (
-        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}>
+        <div className="absolute inset-0 z-10 bg-background">
           <ConnectionProgress
             visible={showProgress}
             steps={connectionSteps}

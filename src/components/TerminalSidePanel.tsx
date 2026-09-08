@@ -996,6 +996,8 @@ export interface TerminalSidePanelProps {
   isActive: boolean;
   /** 渲染终端内容（接收 resizeSignal，供拖拽调宽/收展后重新 fit） */
   renderTerminal: (resizeSignal: number) => React.ReactNode;
+  /** 外部强制收起（激活终端连接中）：让终端全宽承载连接动画，连接完成自动恢复 */
+  collapseOverride?: boolean;
 }
 
 /**
@@ -1009,7 +1011,7 @@ export interface TerminalSidePanelProps {
  * 偏好（宽度/分区）持久化到 localStorage，跨标签、跨重启生效；
  * 开关状态由 usePanelStore 共享（Topbar 右上角可切换），持久化同样落在该 localStorage key。
  */
-export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTerminal }: TerminalSidePanelProps) {
+export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTerminal, collapseOverride = false }: TerminalSidePanelProps) {
   const { t } = useTranslation();
   const [prefs, setPrefs] = useState<PanelPrefs>(loadPanelPrefs);
   const [dragging, setDragging] = useState(false);
@@ -1082,8 +1084,12 @@ export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTermin
     <div className={cn('flex h-full w-full', dragging && 'select-none')}>
       {/* 面板：收起时宽度归 0（overflow hidden），内容固定宽度避免过渡期回流 */}
       <aside
-        className="relative h-full shrink-0 overflow-hidden transition-[width] duration-200 ease-out"
-        style={{ width: prefs.open ? prefs.width : 0, zIndex: 2 }}
+        className={cn(
+          'relative h-full shrink-0 overflow-hidden',
+          // 外部强制收起（连接中）：瞬时完成，避免第一帧闪现未收起的面板
+          collapseOverride ? '' : 'transition-[width] duration-200 ease-out',
+        )}
+        style={{ width: prefs.open && !collapseOverride ? prefs.width : 0, zIndex: 2 }}
       >
         <div
           className={cn(

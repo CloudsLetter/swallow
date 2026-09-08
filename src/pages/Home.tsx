@@ -7,6 +7,7 @@ import { SftpView } from '../components/SftpView';
 import { SplitView } from '../components/SplitView';
 import { QuickConnect } from './QuickConnect';
 import { useTabStore, Tab } from '../store/tabStore';
+import { useAppConnecting } from '../store/appConnecting';
 import { useUiPage } from '../store/uiPage';
 import { Hosts } from './Hosts';
 import { AccountPage } from './Account';
@@ -61,6 +62,9 @@ export function Home() {
   const activeSessionTab = tabs.find((t: Tab) => t.id === activeTabId);
   const isSidePanelTab =
     activeSessionTab?.type === 'terminal' || activeSessionTab?.type === 'mosh';
+
+  // 激活终端连接中：让出两侧面板（连接动画全宽不被遮挡）
+  const connecting = useAppConnecting((s) => s.active);
 
   // 向 keep-alive 页面广播「当前可见页面」（切到会话标签时置 null）
   useEffect(() => {
@@ -135,6 +139,7 @@ export function Home() {
                   sessionId={tab.sessionId || undefined}
                   sshConfig={tab.sshConfig}
                   isActive={isActive}
+                  collapseOverride={connecting && isActive}
                   renderTerminal={(resizeSignal) => (
                     <TerminalView
                       sessionId={tab.sessionId || undefined}
@@ -151,6 +156,7 @@ export function Home() {
                   sessionId={tab.sessionId || undefined}
                   sshConfig={tab.moshConfig}
                   isActive={isActive}
+                  collapseOverride={connecting && isActive}
                   renderTerminal={(resizeSignal) => (
                     <TerminalView
                       sessionId={tab.sessionId || undefined}
@@ -224,7 +230,7 @@ export function Home() {
       {/* 右侧功能面板（指令/终端/设置）：内嵌占位，展开时挤压内容区，配色跟随终端主题。
           与左侧 TerminalSidePanel 同显隐：仅终端/MOSH 标签激活时渲染（面板开关状态
           保留在 panelStore，切回终端类标签后自动恢复原样） */}
-      {isSidePanelTab && <RightPanelBar />}
+      {isSidePanelTab && !connecting && <RightPanelBar />}
     </div>
   );
 }

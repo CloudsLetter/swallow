@@ -29,6 +29,7 @@ export function useTerminalFit(opts: {
     try {
       const poolItem = createOrGetTerminal(id);
       if (!poolItem?.fit || !poolItem.terminal) return;
+      ensureObserver(poolItem.terminal);
       fitTerminal(id);
     } catch (e) {
       console.warn('Refit terminal failed:', e);
@@ -36,6 +37,36 @@ export function useTerminalFit(opts: {
   };
   const refitRef = useRef(refit);
   refitRef.current = refit;
+
+  // ResizeObserver：捕捉非窗口级尺寸变化（右面板收起/展开、侧栏、布局兄弟变化）。
+  // window resize 监听覆盖不到这些（webview 本身没变），此前右面板收起不会 auto-fit。
+  const roRef = useRef<ResizeObserver | null>(null);
+  const observedEl = useRef<Element | null>(null);
+  const ensureObserver = (term: { element?: HTMLElement | null }) => {
+    const el = term.element;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    if (observedEl.current === el && roRef.current) return;
+    roRef.current?.disconnect();
+    let raf = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        if (activeRef.current) refitRef.current();
+      });
+    });
+    ro.observe(el);
+    roRef.current = ro;
+    observedEl.current = el;
+  };
+  // 卸载时断开（sessionId 固定即一次）
+  useEffect(
+    () => () => {
+      roRef.current?.disconnect();
+      roRef.current = null;
+      observedEl.current = null;
+    },
+    [sessionId],
+  );
 
   // 窗口尺寸变化（保持与激活状态同步判断，同原 isActiveRef 语义）
   useEffect(() => {

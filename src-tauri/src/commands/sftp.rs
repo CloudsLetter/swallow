@@ -186,6 +186,36 @@ pub async fn sftp_upload_file(
 }
 
 #[tauri::command]
+pub async fn sftp_stream_copy(
+    state: State<'_, AppState>,
+    src_session_id: String,
+    src_path: String,
+    dst_session_id: String,
+    dst_path: String,
+) -> Result<u64, String> {
+    let src = {
+        let manager = state.sftp.lock().map_err(|e| e.to_string())?;
+        manager
+            .get_session(&src_session_id)
+            .ok_or_else(|| format!("SFTP session {} not found", src_session_id))?
+    };
+    let dst = {
+        let manager = state.sftp.lock().map_err(|e| e.to_string())?;
+        manager
+            .get_session(&dst_session_id)
+            .ok_or_else(|| format!("SFTP session {} not found", dst_session_id))?
+    };
+    // 两个会话句柄已取出，放阻塞线程池流式读写（不占 tokio worker；两锁交替不嵌套）
+    let copied = tauri::async_runtime::spawn_blocking(move || {
+        src.stream_copy_to(&src_path, &dst, &dst_path)
+    })
+    .await
+    .map_err(|e| format!("Stream copy task failed: {e}"))?
+    .map_err(|e| format!("Failed to stream copy: {}", e))?;
+    Ok(copied)
+}
+
+#[tauri::command]
 pub async fn sftp_delete_file(state: State<'_, AppState>, session_id: String, remote_path: String) -> Result<(), String> {
     let session = {
         let manager = state.sftp.lock().map_err(|e| e.to_string())?;
