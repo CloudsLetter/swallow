@@ -1,5 +1,7 @@
 export default {
   common: {
+    showPassword: '显示密码',
+    hidePassword: '隐藏密码',
     save: '保存',
     cancel: '取消',
     delete: '删除',

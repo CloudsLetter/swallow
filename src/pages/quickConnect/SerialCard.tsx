@@ -162,10 +162,10 @@ export function SerialCard({ onOpenSession, highlight }: QuickConnectCardProps) 
               type="button"
               onClick={() => setPort(p)}
               className={
-                'h-6 rounded-md border px-2 font-mono text-xs transition-colors ' +
+                'h-6 rounded-full px-2 font-mono text-xs transition-colors ' +
                 (port === p
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-border text-muted-foreground hover:bg-accent')
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground hover:bg-accent')
               }
             >
               {p}

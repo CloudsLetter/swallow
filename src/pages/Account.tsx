@@ -6,6 +6,7 @@ import { getAccounts, addAccount, removeAccount, updateAccount, getKeys, getCert
 import { AuthTypeIcon } from '../components/AuthTypeIcon';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
+import { PasswordInput } from '../components/ui/passwordInput';
 import { Textarea } from '../components/ui/textarea';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
@@ -569,10 +570,9 @@ export function AccountPage() {
               {authType === 'password' && (
                 <div>
                   {fieldLabel(t('common.password'))}
-                  <Input
-                    type="password"
+                  <PasswordInput
                     value={form.password}
-                    onChange={(e) => setForm({ ...form, password: e.target.value })}
+                    onChange={(v) => setForm({ ...form, password: v })}
                     placeholder="••••••••"
                   />
                   {fieldHint(t('account.passwordHint'))}

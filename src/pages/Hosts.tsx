@@ -45,6 +45,7 @@ import { useTabStore } from '../store/tabStore';
 import { useActiveSshTargets } from '../hooks/useActiveSshTargets';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
+import { PasswordInput } from '../components/ui/passwordInput';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import { Switch } from '../components/ui/switch';
@@ -98,6 +99,7 @@ function isSupportedHostAccount(account: Account): account is SupportedAccount {
     account.authType === 'agent'
   );
 }
+
 
 function normalizeHostAuthType(
   authType?: Host['authType'] | Account['authType'],
@@ -1235,7 +1237,7 @@ export function Hosts() {  const { t } = useTranslation();
           <Button variant="ghost" size="icon" onClick={refresh} aria-label={t('common.refresh')} title={t('common.refresh')}>
             <IconRefresh size={16} />
           </Button>
-          <Button variant="outline" onClick={handleSerialQuickConnect} title={t('hosts.serialTerminal')}>
+          <Button variant="ghost" onClick={handleSerialQuickConnect} title={t('hosts.serialTerminal')}>
             <IconUsb size={15} strokeWidth={2} />
             {t('hosts.serialTerminal')}
           </Button>
@@ -1584,10 +1586,10 @@ export function Hosts() {  const { t } = useTranslation();
                   {manualAuthType === 'password' && (
                     <div>
                       {fieldLabel(t('hosts.authTypePassword'))}
-                      <Input
-                        type="password"
+                      <PasswordInput
+                        key={`pwd-${editingHost?.id ?? 'new'}`}
                         value={manualPassword}
-                        onChange={(e) => setManualPassword(e.target.value)}
+                        onChange={setManualPassword}
                         placeholder="••••••••"
                       />
                     </div>
@@ -1829,10 +1831,10 @@ export function Hosts() {  const { t } = useTranslation();
                       {proxyAuthType === 'password' && (
                         <div>
                           {fieldLabel(t('hosts.jumpPassword'))}
-                          <Input
-                            type="password"
+                          <PasswordInput
+                            key={`proxy-${editingHost?.id ?? 'new'}`}
                             value={proxyPassword}
-                            onChange={(e) => setProxyPassword(e.target.value)}
+                            onChange={setProxyPassword}
                             placeholder="••••••••"
                           />
                           {fieldHint(t('hosts.jumpPasswordHint'))}
@@ -1935,12 +1937,11 @@ export function Hosts() {  const { t } = useTranslation();
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="vnc-password">{t('hosts.vncPassword')}</Label>
-                  <Input
+                  <PasswordInput
                     id="vnc-password"
-                    type="password"
                     value={vncDialogPassword}
                     placeholder={t('hosts.vncPasswordPlaceholder')}
-                    onChange={(e) => setVncDialogPassword(e.target.value)}
+                    onChange={setVncDialogPassword}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') handleVncConnect();
                     }}

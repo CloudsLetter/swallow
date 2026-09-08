@@ -34,6 +34,7 @@ import {
 import { useTabStore } from '../store/tabStore';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
+import { PasswordInput } from '../components/ui/passwordInput';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
@@ -911,10 +912,9 @@ export function Sftp() {
               {authType === 'password' && (
                 <div>
                   {fieldLabel(t('common.password'))}
-                  <Input
-                    type="password"
+                  <PasswordInput
                     value={form.password}
-                    onChange={(e) => setForm({ ...form, password: e.target.value })}
+                    onChange={(v) => setForm({ ...form, password: v })}
                     placeholder={t('sftp.passwordPlaceholder')}
                   />
                 </div>
@@ -949,10 +949,9 @@ export function Sftp() {
                   </div>
                   <div>
                     {fieldLabel(t('sftp.keyPassphrase'))}
-                    <Input
-                      type="password"
+                    <PasswordInput
                       value={form.passphrase}
-                      onChange={(e) => setForm({ ...form, passphrase: e.target.value })}
+                      onChange={(v) => setForm({ ...form, passphrase: v })}
                       placeholder={t('sftp.keyPassphrasePlaceholder')}
                     />
                   </div>

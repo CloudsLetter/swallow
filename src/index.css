@@ -57,15 +57,17 @@
   --color-sidebar-ring: var(--sidebar-ring);
 
   /* -------------------- Radius --------------------
-     统一节奏：控件 6px（md）、卡片 8px（lg）、浮层 10–12px（xl/2xl） */
+     单源：全部档位由 --radius 派生，统一节奏——
+     xs 6px（微控件）、md 8px（表单控件）、lg 10px（卡片/面板）、
+     xl 12px / 2xl 16px（浮层）。改一处即整体联动。 */
 
-  --radius-xs: 0.25rem;
-  --radius-sm: 0.25rem;
-  --radius-md: 0.375rem;
-  --radius-lg: 0.5rem;
-  --radius-xl: 0.625rem;
-  --radius-2xl: 0.75rem;
-  --radius: 0.375rem;
+  --radius: 0.5rem; /* = 8px，md 基准 */
+  --radius-xs: calc(var(--radius) - 2px); /* 6px */
+  --radius-sm: calc(var(--radius) - 2px); /* 6px */
+  --radius-md: var(--radius); /* 8px */
+  --radius-lg: calc(var(--radius) + 2px); /* 10px */
+  --radius-xl: calc(var(--radius) + 4px); /* 12px */
+  --radius-2xl: calc(var(--radius) + 8px); /* 16px */
 
   /* -------------------- Fonts -------------------- */
 

@@ -108,7 +108,7 @@ export function buildShadcnThemeVariables(colors: ThemeColors) {
     'chart-3': pickColor(colors.success, '#059669'),
     'chart-4': pickColor(colors.warning, '#d97706'),
     'chart-5': pickColor(colors.error, '#dc2626'),
-    radius: '0.5rem',
+    // radius 由 index.css :root 单源派生（--radius 档位），此处不再覆盖
     sidebar: pickColor(colors.sidemenu_bg, colors.surface, '#f8fafc'),
     'sidebar-foreground': pickColor(colors.sidemenu_text, colors.text_secondary, '#334155'),
     'sidebar-primary': pickColor(colors.primary, colors.btn_primary_bg, '#2563eb'),
