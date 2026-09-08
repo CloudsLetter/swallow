@@ -505,6 +505,17 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
     }
   }, [showProgress, isActive, sessionId]);
 
+  // 进度卡关闭淡出：showProgress false 后先保持挂载做 100ms opacity 过渡，再卸载
+  const [progressCardAlive, setProgressCardAlive] = useState(true);
+  useEffect(() => {
+    if (showProgress) {
+      setProgressCardAlive(true);
+      return;
+    }
+    const timer = setTimeout(() => setProgressCardAlive(false), 130);
+    return () => clearTimeout(timer);
+  }, [showProgress]);
+
   // 首帧即进度屏：新会话挂载将自动连接时，先在布局阶段把 overlay 置 true——
   // connectSSH 走 50ms attach 定时器，若等它触发再显示，那 50ms 会先画出面板/终端界面（闪现根因）。
   const [firstFrameKick, setFirstFrameKick] = useState(false);
@@ -1235,11 +1246,16 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
 
       {/* 快捷指令已并入右侧功能面板（openRightSection('commands')），此处不再有弹窗 */}
 
-      {/* 进度窗口覆盖在终端上方：连接期间 Home 已把左右面板让出（全宽），此处普通遮罩即可 */}
-      {showProgress && (
-        <div className="absolute inset-0 z-10 bg-background">
+      {/* 进度窗口覆盖在终端上方：连接期间 Home 已把左右面板让出（全宽），此处普通遮罩即可。
+          关闭时 100ms 淡出再卸载（progressCardAlive 延迟控制） */}
+      {progressCardAlive && (
+        <div
+          className={`absolute inset-0 z-10 bg-background transition-opacity duration-100 ease-out ${
+            showProgress ? 'opacity-100' : 'pointer-events-none opacity-0'
+          }`}
+        >
           <ConnectionProgress
-            visible={showProgress}
+            visible={showProgress || progressCardAlive}
             steps={connectionSteps}
             onClose={handleCloseProgress}
             onRetry={handleRetryConnection}
