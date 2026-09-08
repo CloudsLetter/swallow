@@ -100,7 +100,9 @@ export function SessionReplayPlayer({ open, path, replay }: SessionReplayPlayerP
       theme: {
         background: '#0f172a',
         foreground: '#e2e8f0',
-        cursor: '#818cf8',
+        // 光标跟随前景色（与主终端一致），亮底配黑字保证 block 光标可读
+        cursor: '#e2e8f0',
+        cursorAccent: '#000000',
       },
     });
     const fit = new FitAddon();

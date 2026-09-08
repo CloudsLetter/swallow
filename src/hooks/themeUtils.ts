@@ -162,12 +162,28 @@ export function applyScrollbarConfig(appearance?: {
   root.classList.toggle('no-overlay-scrollbar', appearance?.scrollbar_overlay === false);
 }
 
+/** "#rrggbb" → 感知亮度（sRGB 加权，0~1）。非法输入返回 0（按深色处理）。 */
+function hexLuminance(hex: string): number {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return 0;
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+}
+
+/** 光标统一使用终端前景色；光标内字符按其亮度反色（亮前景→黑字，暗前景→白字），保证 block 光标可读。 */
+function applyCursorFromForeground(theme: Record<string, string>, fg?: string) {
+  if (!fg) return;
+  theme.cursor = fg;
+  theme.cursorAccent = hexLuminance(fg) > 0.6 ? '#000000' : '#ffffff';
+}
+
 export function buildTerminalTheme(colors: TerminalThemeColors) {
   const map: Record<string, string> = {
     foreground: colors.foreground,
     background: colors.background,
-    cursor: colors.cursor,
-    cursorAccent: colors.cursor_accent,
     // 选区背景保持实色：xterm DomRenderer 内部会 blend(背景, 选区色) 生成不透明色，
     // 真正的「半透明」由 .xterm-selection div 的 CSS opacity 实现（见 index.css，CSS 变量 --xterm-selection-opacity）
     selectionBackground: colors.selection,
@@ -195,6 +211,10 @@ export function buildTerminalTheme(colors: TerminalThemeColors) {
   Object.entries(map).forEach(([key, value]) => {
     if (value) theme[key] = value;
   });
+
+  // 光标不取 colors.cursor：内置主题把 cursor 配成品牌/强调色（如默认主题的
+  // indigo），与终端内容割裂。光标颜色统一=前景色，字符按亮度反色。
+  applyCursorFromForeground(theme, colors.foreground);
 
   return theme;
 }

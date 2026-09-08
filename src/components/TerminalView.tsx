@@ -505,6 +505,22 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
     }
   }, [showProgress, isActive, sessionId]);
 
+  // 标签切换激活 → 焦点交给终端：后台标签 display:none 刚恢复时直接 focus 无效，
+  // 等两帧（布局/显示稳定）再聚焦。连接中（进度卡覆盖）跳过——由上面的
+  // showProgress→false effect 负责。
+  const prevTabActive = useRef(isActive);
+  useEffect(() => {
+    const wasActive = prevTabActive.current;
+    prevTabActive.current = isActive;
+    if (wasActive || !isActive || !sessionId) return;
+    if (showProgress || isConnectingState) return;
+    const raf = requestAnimationFrame(() =>
+      requestAnimationFrame(() => focusTerminal(sessionId)),
+    );
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在切到激活那次触发
+  }, [isActive, sessionId]);
+
   // 进度卡关闭淡出：showProgress false 后先保持挂载做 100ms opacity 过渡，再卸载
   const [progressCardAlive, setProgressCardAlive] = useState(true);
   useEffect(() => {
