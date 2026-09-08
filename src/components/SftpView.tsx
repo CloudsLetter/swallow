@@ -32,7 +32,6 @@ import { MIME_LOCAL, MIME_LEFT_REMOTE, MIME_REMOTE } from '../services/localFs';
 import { useSessionConnection, sftpSessionPool } from '../hooks/useSessionConnection';
 import { touchHostLastConnected, getHosts, getAccounts, getKeys, getCertificates } from '../services/dataService';
 import { resolveHostSshAuth } from '../services/sshAuthResolver';
-import { useOnlineHosts } from '../store/uiState';
 import { cn } from '@/lib/utils';
 import {
   acceptHostKey,
@@ -391,10 +390,6 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
     setCurrentPathLocal(sftpConfig?.remotePath || '/');
     setCurrentPathInPool(sessionId, sftpConfig?.remotePath || '/');
     markConnected(false);
-    // 主机离线：内存状态移除
-    if (sftpConfig?.host) {
-      useOnlineHosts.getState().disconnect(sftpConfig.host, sftpConfig.port);
-    }
     const connectFn = getConnectFunction(sessionId);
     if (connectFn) {
       void connectFn();
@@ -478,9 +473,8 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
 
         markConnected(true);
         setIsConnectingState(false);
-        // 在线状态走内存 + 最近连接时间落库（SFTP/FTP 会话）
+        // 最近连接时间落库（SFTP/FTP 会话）
         if (sftpConfig?.host) {
-          useOnlineHosts.getState().connect(sftpConfig.host, sftpConfig.port);
           touchHostLastConnected(sftpConfig.host, sftpConfig.port).catch(() => {});
         }
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import i18n from '../i18n/i18n';
 import {
@@ -41,6 +41,7 @@ import {
   Image as IconImage,
 } from 'lucide-react';
 import { useTabStore } from '../store/tabStore';
+import { useActiveSshTargets } from '../hooks/useActiveSshTargets';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -245,8 +246,6 @@ export function Hosts() {  const { t } = useTranslation();
   const [keys, setKeys] = useState<Key[]>([]);
   const [certs, setCerts] = useState<Certificate[]>([]);
   const { createTab } = useTabStore();
-  // 订阅活跃标签：实时派生主机连接状态（有该主机的 terminal/sftp 会话即视为已连接）
-  const tabs = useTabStore((s) => s.tabs);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -787,27 +786,8 @@ export function Hosts() {  const { t } = useTranslation();
   };
 
   // ============ 派生数据 ============
-  // 活跃 SSH 会话键：**只收集 terminal（SSH）标签**——主机「已连接」由 SSH 会话驱动，
-  // SFTP 文件浏览会话不算（连接类型隔离）；hostId 精准匹配，无来源标签回退 host:port
-  const activeSshKeys = useMemo(() => {
-    const byHostId = new Set<string>();
-    const byAddr = new Set<string>();
-    const collect = (config?: { host?: string; port?: number; hostId?: string }) => {
-      if (!config?.host) return;
-      if (config.hostId) byHostId.add(config.hostId);
-      byAddr.add(`${config.host}:${config.port ?? 22}`);
-    };
-    for (const tab of tabs) {
-      if (tab.type === 'split') {
-        for (const pane of tab.panes || []) {
-          if (pane.type === 'terminal') collect(pane.sshConfig);
-        }
-      } else if (tab.type === 'terminal') {
-        collect(tab.sshConfig);
-      }
-    }
-    return { byHostId, byAddr };
-  }, [tabs]);
+  // 活跃 SSH 会话键从标签树派生（共享 hook，快速链接页/右侧状态栏同源）
+  const activeSshKeys = useActiveSshTargets();
 
   // 实时主机状态：优先按主机条目 id 精准匹配；无 hostId 来源的会话按地址兜底
   const liveHostStatus = (host: Host): 'connected' | 'disconnected' | 'error' => {

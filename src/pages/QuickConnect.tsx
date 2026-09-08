@@ -24,7 +24,7 @@ import {
 import { resolveHostSshAuth } from '../services/sshAuthResolver';
 import { consumeQuickConnectIntent } from '../services/quickConnectIntent';
 import { useTabStore, type TabType } from '../store/tabStore';
-import { useOnlineHosts } from '../store/uiState';
+import { useActiveSshTargets } from '../hooks/useActiveSshTargets';
 import { cn } from '@/lib/utils';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
@@ -122,8 +122,9 @@ export function QuickConnect() {
     });
   };
 
-  // 过滤 + 按最近连接时间排序（最近连接来自 DB last_connected；在线状态纯内存实时合并）
-  const online = useOnlineHosts((s) => s.online);
+  // 过滤 + 按最近连接时间排序（最近连接来自 DB last_connected）
+  // 在线状态与主机页同源：直接从标签树派生（有活动 SSH 标签即在线，关标签即回落）
+  const { byHostId, byAddr } = useActiveSshTargets();
   const filteredHosts = hosts
     .filter(
       (host) =>
@@ -133,7 +134,8 @@ export function QuickConnect() {
     )
     .map(
       (host): Host =>
-        online.has(`${host.host}:${host.port}`) && host.status !== 'connected'
+        (byHostId.has(host.id) || byAddr.has(`${host.host}:${host.port}`)) &&
+        host.status !== 'connected'
           ? { ...host, status: 'connected' }
           : host,
     );

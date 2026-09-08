@@ -21,7 +21,7 @@ import { Input } from './ui/input';
 import { Switch } from './ui/switch';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { useOnlineHosts } from '../store/uiState';
+import { useActiveSshTargets } from '../hooks/useActiveSshTargets';
 import { useConfigStore } from '../store/config';
 import type { SshTabConfig } from '../store/tabStore';
 import {
@@ -271,7 +271,13 @@ function StatusSection({ sshConfig, active, tabActive, autoConnect }: StatusSect
   const { t } = useTranslation();
   const hostId = sshConfig?.hostId;
   const hostKey = sshConfig ? `${sshConfig.host}:${sshConfig.port}` : '';
-  const online = useOnlineHosts((s) => (hostKey ? s.online.has(hostKey) : false));
+  // 与主机页同源：有活动 SSH 标签即在线（标签关闭即回落，无残留）
+  const { byHostId, byAddr } = useActiveSshTargets();
+  const online = hostId
+    ? byHostId.has(hostId)
+    : hostKey
+      ? byAddr.has(hostKey)
+      : false;
 
   const [snapshot, setSnapshot] = useState<MonitorSnapshot | null>(null);
   const [starting, setStarting] = useState(false);

@@ -14,7 +14,6 @@ import { TerminalBackdrop } from './TerminalBackdrop';
 import { useSessionConnection, sshSessionPool } from '../hooks/useSessionConnection';
 import { acceptHostKey, sshConnect, disconnectSsh, telnetConnect, telnetDisconnect, localShellConnect, localShellDisconnect, serialConnect, serialDisconnect, moshConnect, moshDisconnect } from '../services/sessionService';
 import { touchHostLastConnected, getHosts, updateHost } from '../services/dataService';
-import { useOnlineHosts } from '../store/uiState';
 import type { Config } from '../types/config';
 import {
   createOrGetTerminal,
@@ -742,14 +741,12 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
             markConnected(true);
             setIsConnectingState(false);
             resetReconnectAttempts(sessionId);
-            // 在线状态走内存 + 最近连接时间落库（SSH 会话）
+            // 最近连接时间落库（SSH 会话）；在线状态由标签树派生（useActiveSshTargets）
             if (sshConfig?.host) {
-              useOnlineHosts.getState().connect(sshConfig.host, sshConfig.port);
               if (!silentReconnect) {
                 touchHostLastConnected(sshConfig.host, sshConfig.port).catch(() => {});
               }
             } else if (moshConfig?.host) {
-              useOnlineHosts.getState().connect(moshConfig.host, moshConfig.port);
               if (!silentReconnect) {
                 touchHostLastConnected(moshConfig.host, moshConfig.port).catch(() => {});
               }
@@ -921,10 +918,6 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
               duration: 4000,
             });
             markConnected(false);
-            // 主机离线：内存状态移除（列表/快速链接页状态点实时回灰）
-            if (sshConfig?.host) {
-              useOnlineHosts.getState().disconnect(sshConfig.host, sshConfig.port);
-            }
             const cfg = useConfigStore.getState().config;
             const maxAttempts = cfg?.ssh?.max_reconnect_attempts ?? 0;
             if (
