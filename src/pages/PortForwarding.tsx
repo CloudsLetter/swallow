@@ -493,6 +493,7 @@ export function PortForwarding() {
 
   const groups: { key: PortForwarding['status']; label: string; items: PortForwarding[] }[] = (
     [
+      { key: 'connecting', label: t('portForwarding.statusConnecting'), items: [] },
       { key: 'connected', label: t('portForwarding.statusConnected'), items: [] },
       { key: 'disconnected', label: t('portForwarding.statusDisconnected'), items: [] },
       { key: 'error', label: t('portForwarding.statusError'), items: [] },

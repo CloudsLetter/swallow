@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { ask } from '@tauri-apps/plugin-dialog';
@@ -264,7 +264,7 @@ interface TerminalViewProps {
   skipAutoConnect?: boolean;
 }
 
-export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, serialConfig, moshConfig, isActive = true, resizeSignal, skipAutoConnect }: TerminalViewProps) {
+function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, serialConfig, moshConfig, isActive = true, resizeSignal, skipAutoConnect }: TerminalViewProps) {
   const { t } = useTranslation();
   const config = useConfigStore((state) => state.config);
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -1238,3 +1238,7 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
     </div>
   );
 }
+
+// 隔离无关重渲染（Home 每次 connecting/全局 store 变化会重渲整棵 tab 树；
+// memo 后仅 props（sshConfig 引用/sessionId/resizeSignal/isActive）变化才重跑 TerminalView）
+export const TerminalView = memo(TerminalViewImpl);
