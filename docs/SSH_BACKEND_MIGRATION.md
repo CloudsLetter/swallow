@@ -5,26 +5,21 @@
 
 ---
 
-> ## ⚠️ 状态更新（2026-09-07 实测）：russh 依赖冲突，本方案**暂被阻塞**
+> ## ✅ 状态更新（2026-09-08）：依赖已解锁，隧道已迁 russh
 >
-> 当天实际动手加依赖，把 russh **0.56 ~ 0.63 全部版本线**逐个 `cargo check` 试过，
-> 全部与本仓库现有依赖冲突或编译失败。冲突矩阵见下方 §1.4。结论：
-> **当前时间点 russh 加不进这个项目**（这是上游 pre-release 生态互相撞车，
-> 不是改业务代码能绕的）。SSH 连接层既然动不了，隧道换 russh 的前提不成立。
->
-> 解决前置条件（满足其一即可解锁，届时本方案 §4~§6 直接可用，API 按 0.60 写）：
-> 1. ironrdp 升级，其 picky 依赖脱离 RustCrypto pre-release 精确锁；或
-> 2. russh 升级到全 stable 依赖线且与 ring/rustls 兼容；或
-> 3. 上游发布曲线稳定（curve25519-dalek 5、aes-gcm 0.11、rand 0.10 全 stable 后重试）。
->
-> 短期缓解已实施（不换库）：`lib.rs` 隧道建连后 `session.set_timeout(0)`，消除
-> 30s 空闲自断（含 remote 转发 accept 停摆）；并发串行是 ssh2 架构限制，缓解不了，见 §3.3。
->
-> 下方正文保留完整评估与实现骨架，作为解锁后的开工依据。所有 russh 代码骨架
-> 按 0.60 API 编写（`client::connect` 直接返回 `Handle`、`channel.into_stream()`、
-> `russh::keys::known_hosts`、`authenticate_openssh_cert`），0.60 是"事件循环内部
-> spawn + 官方 ssh-key 形态"最早稳定线；若解锁后落到 0.56，需先核对 Handle API
-> （0.56 已用 ssh-key 0.6 但 fork 版本为 `0.6.16+upstream-0.6.7`）。
+> 顶部旧「阻塞」声明已过期。实际进展：
+> 1. **依赖打通（09-07 晚，commit b862a54）**：russh `=0.60.1` + 仅 vendor russh 一 crate
+>    （`src-tauri/vendor/russh`，样板同 swallow-mobile）；pkcs5 stable 0.8.0 API 改名在 vendor
+>    内适配（`generate_pbkdf2_sha256_aes256cbc`）。cargo check 全绿。
+> 2. **隧道已迁移 russh（commit 55c7b89）**：`ssh/russh_backend.rs`（连接/认证/主机密钥
+>    DB 校验/跳板递归/Handler 回调：check_server_key 拒绝未知指纹→上层转待确认 token，
+>    disconnected 事件驱动感知）+ `ssh/russh_tunnel.rs`（local/remote/dynamic SOCKS5，
+>    事件驱动 accept + 每连接 1 task，`copy_bidirectional` 替代双 OS 线程桥）。
+>    `lib.rs start_port_forward` 已走 russh；TunnelManager 值类型 = RunningTunnel 枚举
+>    （Ssh2 路径保留可回退）。**前端 IPC 零改动**。
+> 3. 隧道 P0 双缺陷（30s 自断 / 单 Session 大锁并发串行）已随隧道 russh 化根治。
+> 4. **尚未迁移**：终端交互会话（ssh/session.rs start_shell 读线程路径）。见 §9。
+> 5. 明确边界不变：SFTP / monitor / VNC / MOSH 保持 ssh2；不引入 russh-sftp。
 
 ---
 
@@ -662,3 +657,76 @@ impl client::Handler for ClientHandler {
 | 6 | 错误文案统一映射 | 半天 | 终端页与转发页同一失败显示一致 |
 
 前端**全程零改动**（IPC 契约不变）。
+
+---
+
+## 9. 下一阶段：终端交互会话 russh 迁移（2026-09-08 设计，API 已对 vendor 0.60.1 实证）
+
+### 9.1 为什么做 / 边界
+
+- 动机：SSH 主路径（终端）仍走 ssh2 阻塞读线程（`session.rs` 10ms WouldBlock 轮询 +
+  大锁）。虽然终端单 channel 不踩「并发串行」，但统一到 russh 后可删 ssh2 阻塞线程模型、
+  错误文案统一，并为后续移除 ssh2 依赖铺路。
+- **保持不变**：前端 IPC 零改动（事件仍走 `session-{id}` Output/Disconnected/Error/Progress）；
+  known_hosts 决策 / PENDING_HOST_KEYS / accept_host_key token 流程两端共用（host_keys.rs）；
+  认证完全复用 `russh_backend::connect()`（已含 password/key/key文件/cert/agent + 跳板递归 +
+  指纹校验，无需在 shell 模块重写）。
+
+### 9.2 russh 0.60 客户端交互通道 API（vendor 实证）
+
+- 打开会话通道：`handle.channel_open_session().await?` → `client::Channel<Msg>`（handle 来自
+  `russh_backend::connect()` 返回的 `RusshConnection.handle`）。
+- 请求 PTY：`channel.request_pty(true, "xterm-256color", cols, rows, 0, 0, &[]).await?`
+  （签名见 vendor channels/mod.rs:452，客户端那份在 452 起的 impl 块；方法实为 `request_pty`）。
+- 起 shell：**`channel.request_shell(want_reply=true).await?`**（不是 start_shell；见 :476）。
+- **读**（服务器→客户端）：不进 Handler 回调，改 `channel.wait().await -> Option<ChannelMsg>`
+  （client impl :584）；`ChannelMsg::Data { data, .. }` 即远端输出，逐块 emit Output。
+  Close / ExitStatus 对应断线语义。`wait()` 借 `&mut channel`。
+- **写**：`channel.make_writer()` 返回 `impl AsyncWrite + 'static`（:618，内部克隆发送端，
+  不借 channel 生命周期）→ 写 task/命令分支 `writer.write_all(bytes).await` 后 flush。
+- **resize**：`channel.window_change(cols, rows, 0, 0).await?`（:537，也借 &self/channel）。
+- 并发约束：`wait()` 需 `&mut channel`，写 writer 虽 'static 但共享同一 channel 时不可在
+  另一 task 同时 `wait`（同一 Channel 只能被一个 await 者轮询）。→ **单 task select 模型**：
+  channel 独占于一个 task，`tokio::select! { msg = channel.wait() => … , cmd = rx.recv() => … }`，
+  cmd 分支处理 Write(写 writer) / Resize(window_change)；所有 IPC 写/重设尺寸经 mpsc 汇入该 task。
+
+### 9.3 迁移落点（建议顺序，均可独立提交回滚）
+
+1. `ssh/russh_shell.rs`：`ShellSession`（值持有 russh task JoinHandle + 写 mpsc + alive
+   AtomicBool/oneshot）。`spawn(config: SshConfig, session_id, timeout, cols, rows, app_handle)`
+   → connect() → open session → pty → shell → select 循环 emit（复用现有
+   `emit_session_event(app_handle, &session_id, …)`，输出/断开/错误语义与 ssh2 读线程一致）。
+2. 会话登记：shell 会话 id 沿用前端传入的 sessionId；lib.rs 侧用 `Mutex<HashMap<String, ShellSession>>`
+   与 ssh2 manager 并列，由 session id 前缀或内部 backend 标记路由（建议「russh:` 前缀 ID，
+   ssh2 逻辑只认原 ID，互不干扰；断开/重连路径按标记分派）。
+3. 写命令 `ssh_write` / 重设尺寸 `ssh_resize`：先查 russh map，命中走 mpsc，未命中落 ssh2 原路。
+4. 开关：`config.ssh.russh_shell`（default false）→ lib.rs 建连/重连入口读开关分流；
+   隧道已是 russh 不受影响。真机回归通过后可翻默认。
+5. 断开/取消/重连语义对齐 ssh2：断开 → 关 channel + drop handle（事件循环自停）→ emit
+   Disconnected；重连 = disconnect 后按开关重建（与现有「先 disconnect 再 connect」流程同）。
+
+### 9.4 风险与验收
+
+- **已连接会话 keep-alive**：connect() 的 client::Config 已含 keepalive（隧道同款），
+  `inactivity_timeout: None` 必须保留（否则空闲自断 bug 回归）。
+- **PTY resize 时序**：resize 走 select 的 cmd 分支，连读高频输出时不丢包（select 公平轮询）。
+- 验收：开关开启后四类认证连一次；滚屏/编译输出流畅（对比 ssh2）；断开感知 ≤1s；
+  重连三次稳定；监控/SFTP/VNC 不受影响（未走该路径）。
+- 失败回退：开关默认 false，russh 路径出问题不影响现有 ssh2 主路径发布。
+
+
+---
+
+## 10. SFTP russh-sftp A/B 实测与决策（2026-09-08，ssh_ab example）
+
+环境：Windows→WSL sshd 直连 172.22.x.x，1024MiB 真实文件 ×3 中位（块 1MiB）：
+
+| 方向 | ssh2 | russh-sftp | 结论 |
+|---|---|---|---|
+| 上传 | 150.8 MiB/s | 254.4 MiB/s | russh 1.69×（并发写流水） |
+| 下载 | 158.1 MiB/s | 117.1 MiB/s | ssh2 1.35× |
+
+- 两库各有擅场且稳定（±4%），**无净胜**。
+- 生产 `upload_local_file` 已用 `TRANSFER_CHUNK_BYTES=1MiB` 大块（对应 bench 150 档），剩余差距只能靠 russh-sftp 整库迁移获得（含并发写流水）；成本（重写命令层/FTP 双态保留/断点进度全量回归）大于 ~1.7× 上传收益 → **SFTP 维持 ssh2，不迁 russh-sftp**。
+- 备忘：ssh2 写块 256KB→1MiB 单文件上传 14→150（10×），凡是新增写远端路径一律 ≥1MiB 块（libssh2 逐小块同步等 ack 会退化到 ~14MiB/s）。
+- 环境坑：**WSL2 localhost 转发方向不对称**——下载被桥卡在 ~20MiB/s（上传不受影响，210+），bench/验收须连 WSL 的 eth0 IP 直连（hostname -I）或真网卡，否则得到假象。

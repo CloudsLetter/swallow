@@ -99,3 +99,6 @@ keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 # 替换机器/CI 需保证 vendor/russh 随仓库提交。
 [patch.crates-io]
 russh = { path = "vendor/russh" }
+
+[dev-dependencies]
+russh-sftp = "2.4.0"
