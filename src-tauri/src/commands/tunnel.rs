@@ -258,7 +258,7 @@ pub async fn list_active_port_forwards(state: State<'_, AppState>) -> Result<Vec
 /// 判断 russh 连接错误是否属于「兼容回退」范畴：纯 DSA 主机（无共同主机密钥/KEX
 /// 算法）、DSA 或传统 PEM 客户端私钥（russh 无法解析/签名）。主机密钥变更、
 /// 待确认流程、网络类错误不回退（回退只会得到同样的失败）。
-fn is_ssh2_fallback_eligible(e: &anyhow::Error) -> bool {
+pub(crate) fn is_ssh2_fallback_eligible(e: &anyhow::Error) -> bool {
     let msg = format!("{e:#}");
     msg.contains("没有共同支持的 SSH 算法")
         || msg.contains("协商了未知的 SSH 算法")

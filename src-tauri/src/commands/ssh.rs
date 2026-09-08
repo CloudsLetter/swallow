@@ -3,6 +3,7 @@
 use tauri::{Emitter, State};
 
 use crate::commands::read_connection_timeout;
+use crate::commands::tunnel::is_ssh2_fallback_eligible;
 use crate::commands::ConnectResult;
 use crate::AppState;
 
@@ -68,6 +69,13 @@ pub async fn ssh_connect(
         .map(|guard| guard.ssh.keep_alive_interval)
         .unwrap_or(60);
 
+    // SSH 后端优先级：ssh.ssh_backend ∈ {"auto"|"russh"|"ssh2"}（空串按 auto）
+    let ssh_backend = config_state
+        .config
+        .read()
+        .map(|guard| guard.ssh.backend.clone())
+        .unwrap_or_default();
+
     // 如果会话已存在则复用（避免在切换标签或重挂载时重复建立连接）——短暂持锁
     {
         let manager = state.ssh.lock().map_err(|e| e.to_string())?;
@@ -76,8 +84,85 @@ pub async fn ssh_connect(
         }
     }
 
+    // russh 后端会话复用同理
+    {
+        let map = state.russh_shells.lock().map_err(|e| e.to_string())?;
+        if map.contains_key(&session_id) {
+            return Ok(ConnectResult::connected(config.host, config.port));
+        }
+    }
+
     // 密钥/证书认证：根据 key_id/cert_id 从数据库读取内容用于内存认证（不落盘）
     let config = prepare_ssh_auth_material(config)?;
+
+    // russh 主后端：连接+PTY+shell 同步完成（纯 async，不占阻塞线程）。
+    // - HostKeyApprovalRequired → 转前端待确认流程（同隧道）；
+    // - DSA/传统 PEM 等算法/解析类失败（russh 不支持）→ 落入下方 ssh2 回退路径；
+    // - 其余失败直接报错（不误回退，安全类 Mismatch/KeyChanged 亦然）。
+    // 模式：auto（默认）走下方逻辑；ssh2 直接跳过 russh；russh 禁回退。
+    if ssh_backend != "ssh2" {
+        let spawn_result = crate::ssh::russh_shell::spawn(
+            app_handle.clone(),
+            &config,
+            session_id.clone(),
+            timeout_secs,
+            cols,
+            rows,
+        )
+        .await;
+        match spawn_result {
+            Ok(shell) => {
+                {
+                    let mut map = state.russh_shells.lock().map_err(|e| e.to_string())?;
+                    if map.contains_key(&session_id) {
+                        return Ok(ConnectResult::connected(config.host, config.port));
+                    }
+                    map.insert(session_id.clone(), std::sync::Arc::new(shell));
+                }
+                let _ = write_log(
+                    "info",
+                    &format!(
+                        "SSH connected (russh) to {}@{}:{}",
+                        config.username, config.host, config.port
+                    ),
+                    Some("ssh"),
+                );
+                return Ok(ConnectResult::connected(config.host, config.port));
+            }
+            Err(e) => {
+                if let Some(approval) =
+                    e.downcast_ref::<crate::ssh::host_keys::HostKeyApprovalRequired>()
+                {
+                    return Ok(ConnectResult::needs_host_key_approval(
+                        approval.host.clone(),
+                        approval.port,
+                        approval.fingerprint.clone(),
+                        approval.token.clone(),
+                    ));
+                }
+                if is_ssh2_fallback_eligible(&e) && ssh_backend != "russh" {
+                    let _ = write_log(
+                        "info",
+                        &format!(
+                            "Falling back to ssh2 shell backend for {}@{}:{} (russh: {})",
+                            config.username, config.host, config.port, e
+                        ),
+                        Some("ssh"),
+                    );
+                } else {
+                    let _ = write_log(
+                        "error",
+                        &format!(
+                            "SSH connection failed (russh) to {}@{}:{}: {}",
+                            config.username, config.host, config.port, e
+                        ),
+                        Some("ssh"),
+                    );
+                    return Err(format!("SSH connection failed: {}", e));
+                }
+            }
+        }
+    }
 
     // 建连挪到阻塞线程池：不持全局锁、不占 tokio 异步 worker（慢连接不再拖慢其他命令）
     let connect_config = config.clone();
@@ -169,6 +254,17 @@ pub async fn ssh_connect(
 
 #[tauri::command]
 pub async fn ssh_write(state: State<'_, AppState>, session_id: String, data: String) -> Result<(), String> {
+    // russh 会话：克隆句柄出锁后再 await（MutexGuard 不能跨 await）
+    let russh = {
+        let map = state.russh_shells.lock().map_err(|e| e.to_string())?;
+        map.get(&session_id).cloned()
+    };
+    if let Some(shell) = russh {
+        return shell
+            .write(data.into_bytes())
+            .await
+            .map_err(|e| format!("Failed to write data: {}", e));
+    }
     let session = {
         let manager = state.ssh.lock().map_err(|e| e.to_string())?;
         manager
@@ -185,6 +281,17 @@ pub async fn ssh_write(state: State<'_, AppState>, session_id: String, data: Str
 
 #[tauri::command]
 pub async fn ssh_resize(state: State<'_, AppState>, session_id: String, cols: u32, rows: u32) -> Result<(), String> {
+    // russh 会话：克隆句柄出锁后再 await
+    let russh = {
+        let map = state.russh_shells.lock().map_err(|e| e.to_string())?;
+        map.get(&session_id).cloned()
+    };
+    if let Some(shell) = russh {
+        return shell
+            .resize(cols, rows)
+            .await
+            .map_err(|e| format!("Failed to resize PTY: {}", e));
+    }
     let session = {
         let manager = state.ssh.lock().map_err(|e| e.to_string())?;
         manager
@@ -199,6 +306,19 @@ pub async fn ssh_resize(state: State<'_, AppState>, session_id: String, cols: u3
 
 #[tauri::command]
 pub async fn ssh_disconnect(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
+    // russh 会话：移除表项 + 请求 select task 停止断开
+    {
+        let mut map = state.russh_shells.lock().map_err(|e| e.to_string())?;
+        if let Some(shell) = map.remove(&session_id) {
+            shell.stop();
+            let _ = write_log(
+                "info",
+                &format!("Disconnected russh SSH session {}", session_id),
+                Some("ssh"),
+            );
+            return Ok(());
+        }
+    }
     // 移除会话在锁内（快），断开握手（网络 I/O）在 manager 内部锁外执行
     let result = {
         let manager = state.ssh.lock().map_err(|e| e.to_string())?;
@@ -220,8 +340,19 @@ pub async fn ssh_disconnect(state: State<'_, AppState>, session_id: String) -> R
 
 #[tauri::command]
 pub async fn ssh_list_sessions(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let manager = state.ssh.lock().map_err(|e| e.to_string())?;
-    Ok(manager.list_sessions())
+    let mut ids = {
+        let manager = state.ssh.lock().map_err(|e| e.to_string())?;
+        manager.list_sessions()
+    };
+    {
+        let map = state.russh_shells.lock().map_err(|e| e.to_string())?;
+        for k in map.keys() {
+            if !ids.contains(k) {
+                ids.push(k.clone());
+            }
+        }
+    }
+    Ok(ids)
 }
 
 #[tauri::command]

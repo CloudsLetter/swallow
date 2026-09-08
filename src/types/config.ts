@@ -264,6 +264,8 @@ export interface SshSettings {
   max_reconnect_attempts: number;
   default_port: number;
   compression: boolean;
+  /** 交互终端后端：auto(russh+回退) / russh / ssh2 */
+  backend?: string;
 }
 
 export interface ShortcutBinding {

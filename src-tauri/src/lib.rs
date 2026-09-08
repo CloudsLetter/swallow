@@ -16,6 +16,7 @@ mod mosh;
 mod os_drop_paths;
 
 use ssh::{SshManager, TunnelManager};
+use ssh::russh_shell::ShellSession;
 use sftp::SftpManager;
 use telnet::TelnetManager;
 use local::LocalShellManager;
@@ -44,6 +45,8 @@ pub struct AppState {
     vnc: Mutex<VncManager>,
     rdp: Mutex<RdpManager>,
     mosh: Mutex<MoshManager>,
+    /// russh 交互终端会话表（新主后端；ssh2 作 DSA/老设备回退留在 `ssh` manager）
+    russh_shells: Mutex<HashMap<String, std::sync::Arc<ShellSession>>>,
     /// 传输取消标志表：cancel_token -> AtomicBool（下载中断用）
     transfer_cancels: Mutex<HashMap<String, Arc<AtomicBool>>>,
 }
@@ -61,6 +64,7 @@ impl AppState {
             vnc: Mutex::new(VncManager::new()),
             rdp: Mutex::new(RdpManager::new()),
             mosh: Mutex::new(MoshManager::new()),
+            russh_shells: Mutex::new(HashMap::new()),
             transfer_cancels: Mutex::new(HashMap::new()),
         }
     }
@@ -292,6 +296,12 @@ pub fn run() {
                 let ssh_guard = state.ssh.lock();
                 if let Ok(manager) = ssh_guard {
                     manager.disconnect_all();
+                }
+                let russh_guard = state.russh_shells.lock();
+                if let Ok(map) = russh_guard {
+                    for shell in map.values() {
+                        shell.stop();
+                    }
                 }
                 let sftp_guard = state.sftp.lock();
                 if let Ok(mut manager) = sftp_guard {

@@ -644,6 +644,24 @@ export function TerminalSettings() {
             onCheckedChange={(v) => updateSSHConfig({ compression: v })}
             notEffective
           />
+
+          <div>
+            <Label className="mb-2 block text-sm font-medium">{t('settings.sshBackend')}</Label>
+            <Select
+              value={config.ssh.backend || 'auto'}
+              onValueChange={(v) => updateSSHConfig({ backend: v })}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">{t('settings.sshBackendAuto')}</SelectItem>
+                <SelectItem value="russh">{t('settings.sshBackendRussh')}</SelectItem>
+                <SelectItem value="ssh2">{t('settings.sshBackendSsh2')}</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="mt-1.5 text-xs text-muted-foreground">{t('settings.sshBackendDesc')}</p>
+          </div>
         </div>
       </div>
 

@@ -298,6 +298,11 @@ export default {
     maxReconnectAttempts: '最大重连次数',
     compression: '启用压缩',
     compressionDesc: '在慢速网络下可以提高性能',
+    sshBackend: 'SSH 交互后端',
+    sshBackendAuto: '自动（russh 优先，DSA 回退 ssh2）',
+    sshBackendRussh: '仅 russh（不回退）',
+    sshBackendSsh2: '仅 ssh2（兼容 DSA 老设备）',
+    sshBackendDesc: '新连接生效：自动=russh 主 + 算法/DSA 失败自动回退 ssh2；russh=纯异步主路径；ssh2=保留旧后端。',
     notEffective: '未生效',
 
     // SSH 会话日志

@@ -300,6 +300,11 @@ export default {
     maxReconnectAttempts: 'Max Reconnect Attempts',
     compression: 'Enable Compression',
     compressionDesc: 'Can improve performance on slow networks',
+    sshBackend: 'SSH interactive backend',
+    sshBackendAuto: 'Auto (russh first, DSA falls back to ssh2)',
+    sshBackendRussh: 'russh only (no fallback)',
+    sshBackendSsh2: 'ssh2 only (legacy DSA devices)',
+    sshBackendDesc: 'Applies to new connections: Auto = russh primary with ssh2 fallback on algorithm/DSA failure; russh = pure async path; ssh2 = legacy backend.',
     notEffective: 'Not effective yet',
 
     // SSH session logs

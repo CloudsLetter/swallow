@@ -357,6 +357,10 @@ pub struct SshSettings {
 	pub max_reconnect_attempts: u32,
 	pub default_port: u16,
 	pub compression: bool,
+	/// SSH 交互终端后端优先级：空/"auto"=russh 优先+ssh2 回退（DSA 等）；
+	/// "russh"=仅 russh（不回退）；"ssh2"=仅 ssh2（兼容 DSA 老设备）。
+	#[serde(default)]
+	pub backend: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1079,6 +1083,7 @@ impl Default for SshSettings {
 			max_reconnect_attempts: 3,
 			default_port: 22,
 			compression: true,
+			backend: "auto".to_string(),
 		}
 	}
 }
