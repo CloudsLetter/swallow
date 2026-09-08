@@ -58,6 +58,9 @@ function App() {
     initTransferProgressListener();
   }, []);
 
+  // 自动隐藏滚动条：两侧栏 .panel-scroll 用纯 CSS :hover 驱动
+  // （进入面板淡入、移出淡出，行为对齐 xterm 自绘滑块，见 index.css），无需 JS。
+
   // 全局阻止 WebView2 对文件拖放的默认行为（dragDropEnabled:false 后不拦截，
   // 若不 preventDefault，拖文件到非 SFTP 区域会导致 webview 导航到本地文件/白屏）。
   // 具体上传逻辑由各视图（SftpView）自行处理。

@@ -927,6 +927,15 @@ export function TerminalView({ sessionId, sshConfig, telnetConfig, localConfig, 
               const tab = tabs.find((t) => t.sessionId === sessionId);
               if (tab && !tab.osId) updateTab(tab.id, { osId: localPlatformOsId() });
             }
+            // 连接就绪：若本会话是当前激活标签，把键盘焦点交给 xterm（可直接输入）。
+            // 多会话恢复/后台连接时不抢焦。
+            if (stage === 'ready') {
+              const { tabs, activeTabId } = useTabStore.getState();
+              const activeTab = tabs.find((t) => t.id === activeTabId);
+              if (activeTab?.sessionId === sessionId) {
+                requestAnimationFrame(() => focusTerminal(sessionId));
+              }
+            }
             // 阶段进度：单调推进步骤（tcp/ssh/auth/shell/ready）
             const order = ['tcp', 'ssh', 'auth', 'shell', 'ready'];
             const idx = order.indexOf(stage);

@@ -1110,22 +1110,6 @@ a:focus-visible,
   }
 }
 
-/* 终端选区半透明：xterm DomRenderer 有【两层】选区视觉——
-   ① 选中字符 span 被内联 background-color（blend 后的不透明色，_addStyle 直接写到 style 属性）；
-   ② .xterm-selection div 覆盖层（z-index:1，JS 注入 background-color）。
-   仅给 ② 加 opacity 不够——① 的不透明背景会盖住背景图。所以：
-   - 禁用 ①（xterm-decoration-top 是 DomRenderer 给选中 cell 打的标记类，项目未用 registerDecoration，
-     可安全覆盖）：背景置透明，让选区视觉只由 ② 承担；
-   - ② 做元素级 opacity，透出下层（纯色背景透出终端底色、背景图模式透出背景图）。
-   透明度由 TerminalView 的 --xterm-selection-opacity 变量驱动（配置 terminal.selection_opacity，默认 0.4）。 */
-.terminal-view .xterm .xterm-decoration-top {
-  background-color: transparent !important;
-}
-
-.terminal-view .xterm-selection div {
-  opacity: var(--xterm-selection-opacity, 0.4);
-}
-
 /* 传输任务「总量未知」时的不确定进度动画（FTP 单数据连接无中间进度时使用） */
 @keyframes transferIndeterminate {
   0% {
@@ -1137,4 +1121,26 @@ a:focus-visible,
 }
 .transfer-indeterminate {
   animation: transferIndeterminate 1.2s ease-in-out infinite;
+}
+
+/* 两侧栏 shadcn ScrollArea（radix-ui）滚动条主题化：
+   - thumb = 终端前景色（两侧面板根由 panelTheme 内联注入 var(--foreground)）
+   - 宽度跟随应用主题设置 --scrollbar-width（设置页可调，与全局/xterm 一致）
+   - 显隐交给 Radix 原生：ScrollArea 组件 type="scroll"（滚动即现、
+     静止 scrollHideDelay 后自动隐藏，行为对齐 xterm 自绘滑块）
+   radix 渲染结构：[data-slot="scroll-area"] > … > [data-slot="scroll-area-scrollbar"]
+   内含 [data-slot="scroll-area-thumb"]。仅命中 data-slot 子树，不影响全局滚动条。
+   ============================================================ */
+[data-slot='scroll-area-scrollbar'] {
+  width: var(--scrollbar-width, 10px) !important;
+}
+[data-slot='scroll-area-scrollbar'][data-orientation='horizontal'] {
+  height: var(--scrollbar-width, 10px) !important;
+}
+[data-slot='scroll-area-scrollbar'] [data-slot='scroll-area-thumb'] {
+  background-color: color-mix(in srgb, var(--foreground) 40%, transparent);
+}
+[data-slot='scroll-area-scrollbar']:hover [data-slot='scroll-area-thumb'],
+[data-slot='scroll-area-thumb']:hover {
+  background-color: color-mix(in srgb, var(--foreground) 60%, transparent);
 }

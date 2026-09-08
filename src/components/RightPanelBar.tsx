@@ -9,6 +9,7 @@ import {
   SquareTerminal as IconTerminal,
   Zap as IconSnippet,
 } from 'lucide-react';
+import { ScrollArea } from './ui/scroll-area';
 import { toast } from 'sonner';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -31,6 +32,7 @@ import {
 import {
   copyTerminalBufferToClipboard,
   enqueueWriteToTargets,
+  focusTerminal,
   isConnected,
   listPool,
 } from './terminalPool';
@@ -193,7 +195,7 @@ function CommandsSection({ active }: { active: boolean }) {
       </div>
 
       {/* 分组列表 */}
-      <div className="panel-scroll overlay-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+      <ScrollArea className="min-h-0 flex-1 px-2 pb-2">
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 text-center text-xs text-muted-foreground">
             <IconTerminal size={20} className="mb-2 opacity-50" />
@@ -226,7 +228,7 @@ function CommandsSection({ active }: { active: boolean }) {
             ))}
           </div>
         )}
-      </div>
+      </ScrollArea>
     </div>
   );
 }
@@ -365,6 +367,17 @@ export function RightPanelBar() {
   const setRightPanelSection = usePanelStore((s) => s.setRightPanelSection);
   const setRightPanelWidth = usePanelStore((s) => s.setRightPanelWidth);
   const config = useConfigStore((s) => s.config);
+
+  // 折叠右面板时把键盘焦点归还给当前激活的终端会话
+  const activeSessionId = useActiveTerminalSession();
+  const prevRightOpenRef = useRef(open);
+  useEffect(() => {
+    const wasOpen = prevRightOpenRef.current;
+    prevRightOpenRef.current = open;
+    if (wasOpen && !open && activeSessionId) {
+      focusTerminal(activeSessionId);
+    }
+  }, [open, activeSessionId]);
   // 面板配色跟随终端主题（与左侧面板同源）；isActive=false 不参与顶栏延伸变量注入
   const { terminalBackground, terminalForeground, hasBackgroundImage, extendToTopbar } = useTerminalBackground(
     config,
@@ -449,12 +462,12 @@ export function RightPanelBar() {
           <div style={{ display: section === 'commands' ? 'block' : 'none', height: '100%' }}>
             <CommandsSection active={sectionActive('commands')} />
           </div>
-          <div className="panel-scroll" style={{ display: section === 'terminal' ? 'block' : 'none', height: '100%', overflowY: 'auto' }}>
+          <ScrollArea className="h-full" style={{ display: section === 'terminal' ? 'block' : 'none' }}>
             <TerminalSection />
-          </div>
-          <div className="panel-scroll" style={{ display: section === 'settings' ? 'block' : 'none', height: '100%', overflowY: 'auto' }}>
+          </ScrollArea>
+          <ScrollArea className="h-full" style={{ display: section === 'settings' ? 'block' : 'none' }}>
             <SettingsSection />
-          </div>
+          </ScrollArea>
         </div>
 
         {/* 拖拽手柄：左缘 8px 热区 */}

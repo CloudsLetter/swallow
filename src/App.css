@@ -48,123 +48,28 @@
   box-shadow: 0 10px 30px -28px color-mix(in srgb, black 65%, transparent);
 }
 
-.terminal-view {
-  overflow: hidden !important;
-}
-
-.terminal-view .xterm {
-  height: 100% !important;
-  width: 100% !important;
-}
-
+/* 终端隐藏浏览器原生滚动条（webkit 双保险），滚动 UI 完全交给
+   xterm 6.0 自绘滚动条（出厂默认，不再出现白色系统条） */
 .terminal-view .xterm-viewport {
-  /* 只控制垂直滚动。水平方向保持 xterm 默认 visible（不设 overflow-x）：
-     设 overflow-x: auto/overlay 会让「最后一列因字体测量亚像素偏差而横向溢出」的
-     文字被裁成半个字符（用户「文字被剪裁而不是换行」），且水平滚动条会占掉底部高度。
-     overflow-y: scroll 而非 auto/overlay——xterm 5.5 FitAddon 的
-     `scrollBarWidth = viewport.offsetWidth - scrollArea.offsetWidth || 15`：
-     auto/overlay + 内容少时差为 0 → fallback 15 → 永远预留 15px 宽度（右侧留白 15px）。
-     scroll 模式滚动条始终占位（透明轨道视觉不可见），offsetWidth 差 = 实际滚动条宽
-     （由 --scrollbar-width 驱动，4px），fit 准确预留 4px，右侧留白收敛到极小。 */
-  overflow-y: scroll !important;
-  /* WebView 的覆盖式 scrollbar 不一定参与 clientWidth，强制为终端内容预留槽位，
-     避免最后一列文字绘制到滚动条下面。 */
-  scrollbar-gutter: stable;
-  scrollbar-width: thin; /* Firefox：细滚动条 */
-  scrollbar-color: var(--color-scrollbar-thumb, rgba(128, 128, 128, 0.4)) transparent;
+  scrollbar-width: none;
 }
-
-/* 终端滚动条：滚动条占位稳定（overflow-y: scroll 常驻，FitAddon 依赖该占位宽度做精确 fit）。
-   - 轨道全透明，避免内容未超出时出现空白竖条；
-   - thumb 半透明胶囊 + 透明 border 制造槽位留白，内容不与其交叠。 */
 .terminal-view .xterm-viewport::-webkit-scrollbar {
-  width: var(--scrollbar-width, 10px);
-  height: var(--scrollbar-width, 10px);
+  display: none;
+  width: 0;
+  height: 0;
 }
-
-.terminal-view .xterm-viewport::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.terminal-view .xterm-viewport::-webkit-scrollbar-thumb {
-  /* 与主题一致：直接用主题色板滑块色（去掉淡化层），细胶囊形态保留 */
-  background-color: var(--color-scrollbar-thumb, rgba(128, 128, 128, 0.45));
-  background-clip: padding-box;
-  border: 3px solid transparent;
-  border-radius: 999px;
-  min-height: 24px;
-  min-width: 24px;
-}
-
-.terminal-view .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background-color: var(--color-scrollbar-thumb-hover, rgba(128, 128, 128, 0.7));
-  background-clip: padding-box;
-  border: 2px solid transparent;
-}
-
-.terminal-view .xterm-viewport::-webkit-scrollbar-thumb:active {
-  background-color: var(--color-scrollbar-thumb-hover, rgba(128, 128, 128, 0.9));
-  border: 2px solid transparent;
-}
-
-.terminal-view .xterm-viewport::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
-/* xterm 6.0（#5096）滚动结构：滚动容器是 .xterm-scrollable-element，
-   xterm.css 默认给它与 .xterm-viewport 涂黑底（background-color:#000）。
-   fit 按字体测量计算后，底部「不足一整行」的空隙与滚动槽会露出该黑底 →
-   置透明，让主题背景/背景层接管（黑条即消失）。 */
+/* 图片/透明背景修正：xterm.css 默认给 viewport/scrollable 涂黑底 #000，
+   canvas 透明区域（空隙/滚动槽）会露黑 → 置透明露出主题背景层 */
 .terminal-view .xterm-viewport,
 .terminal-view .xterm-scrollable-element {
   background-color: transparent !important;
 }
-
-/* xterm 6.0 DOM 滚动条（VS Code ScrollableElement：.scrollbar > .slider）主题化。
-   默认滑块是深色硬块，这里换成与上方原生 webkit 一致的「主题色胶囊」：
-   透明轨道 + thumb 主题色 + 透明 border 制造槽位留白，hover/拖拽加深。 */
+/* xterm 自绘滚动条：宽度跟随应用主题设置（--scrollbar-width，设置页可调），
+   颜色交给 xterm 主题自身管理，只统一胶囊形态 */
 .terminal-view .xterm-scrollable-element > .scrollbar {
-  background: transparent !important;
+  width: var(--scrollbar-width, 10px) !important;
 }
 .terminal-view .xterm-scrollable-element > .scrollbar > .slider {
-  background-color: var(--color-scrollbar-thumb, rgba(128, 128, 128, 0.45)) !important;
-  background-clip: padding-box !important;
-  border: 3px solid transparent !important;
+  width: var(--scrollbar-width, 10px) !important;
   border-radius: 999px !important;
-  min-height: 24px !important;
-}
-.terminal-view .xterm-scrollable-element > .scrollbar > .slider:hover {
-  background-color: var(--color-scrollbar-thumb-hover, rgba(128, 128, 128, 0.7)) !important;
-  background-clip: padding-box !important;
-  border: 2px solid transparent !important;
-}
-.terminal-view .xterm-scrollable-element > .scrollbar > .slider.active {
-  background-color: var(--color-scrollbar-thumb-hover, rgba(128, 128, 128, 0.9)) !important;
-  background-clip: padding-box !important;
-  border: 2px solid transparent !important;
-}
-/* 无横向内容，横向滚动条既无用处还会在底部留一条占位 → 隐藏 */
-.terminal-view .xterm-scrollable-element > .scrollbar.horizontal {
-  display: none !important;
-}
-
-/* 不要覆盖 xterm 自己给 .xterm-screen 写入的 canvas 高度。
-   xterm 会按「行数 × cell 高度」动态更新这个 inline style；强制 100% 会让
-   screen 的布局高度脱离实际行高，导致选区/光标/滚动区域与内容坐标不一致。 */
-
-/* 终端响铃（bell）视觉提示：短暂反色闪烁 */
-.xterm-bell-flash {
-  animation: xterm-bell-flash 0.3s ease-out;
-}
-
-@keyframes xterm-bell-flash {
-  0% {
-    filter: invert(0);
-  }
-  40% {
-    filter: invert(0.85);
-  }
-  100% {
-    filter: invert(0);
-  }
 }

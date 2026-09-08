@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ScrollArea } from './ui/scroll-area';
+import { focusTerminal } from './terminalPool';
 import { useTranslation } from 'react-i18next';
 import { ask, save } from '@tauri-apps/plugin-dialog';
 import { dedupeHostKeyConfirm } from '../lib/hostKeyConfirm';
@@ -890,7 +892,7 @@ function FilesSection({ sessionId, sshConfig, active, autoConnect }: FilesSectio
       </div>
 
       {/* 列表区 */}
-      <div className="panel-scroll min-h-0 flex-1 overflow-y-auto p-1">
+      <ScrollArea className="min-h-0 flex-1 p-1">
         {status === 'idle' || status === 'connecting' ? (
           !autoConnect && status === 'idle' ? (
             <div className="space-y-2 p-2">
@@ -973,7 +975,7 @@ function FilesSection({ sessionId, sshConfig, active, autoConnect }: FilesSectio
         {error && status === 'connected' && (
           <p className="break-all p-2 text-destructive/80">{error}</p>
         )}
-      </div>
+      </ScrollArea>
     </div>
   );
 }
@@ -1048,6 +1050,16 @@ export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTermin
   useEffect(() => {
     setPrefs((p) => (p.open === leftOpen ? p : { ...p, open: leftOpen }));
   }, [leftOpen]);
+
+  // 折叠面板时把键盘焦点归还给终端（仅当前激活标签的实例响应，避免抢焦/多会话互相干扰）
+  const prevLeftOpenRef = useRef(leftOpen);
+  useEffect(() => {
+    const wasOpen = prevLeftOpenRef.current;
+    prevLeftOpenRef.current = leftOpen;
+    if (wasOpen && !leftOpen && isActive && sessionId) {
+      focusTerminal(sessionId);
+    }
+  }, [leftOpen, isActive, sessionId]);
 
   // 收展动画结束后重新 fit 终端（宽度过渡 200ms）
   useEffect(() => {
@@ -1159,14 +1171,14 @@ export function TerminalSidePanel({ sessionId, sshConfig, isActive, renderTermin
           {/* 分区内容：状态/文件都常驻挂载（display 切换可见性）——监控会话与 SFTP
               连接跟随终端标签生命周期，分区间切换不重连，只有关标签才释放 */}
           <div className="min-h-0 flex-1 overflow-hidden">
-            <div className="panel-scroll" style={{ display: prefs.section === 'status' ? 'block' : 'none', height: '100%', overflowY: 'auto' }}>
+            <ScrollArea className="h-full" style={{ display: prefs.section === 'status' ? 'block' : 'none' }}>
               <StatusSection
                 sshConfig={sshConfig}
                 active={sectionActive('status')}
                 tabActive={isActive}
                 autoConnect={autoConnect}
               />
-            </div>
+            </ScrollArea>
             <div style={{ display: prefs.section === 'files' ? 'block' : 'none', height: '100%' }}>
               <FilesSection
                 sessionId={sessionId || ''}
