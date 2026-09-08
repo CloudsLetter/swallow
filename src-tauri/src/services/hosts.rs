@@ -13,7 +13,7 @@ pub fn list_hosts() -> Result<Vec<Host>, String> {
         .prepare(
             "SELECT id, name, host, port, account_id, username, status, last_connected, auth_type, password,
                     key_id, certificate_id, use_proxy, proxy_host_id, proxy_auth_type, proxy_key_id,
-                    proxy_cert_id, proxy_host, proxy_port, proxy_username, proxy_password, icon
+                    proxy_cert_id, proxy_host, proxy_port, proxy_username, proxy_password, icon, backend
              FROM hosts ORDER BY name COLLATE NOCASE ASC",
         )
         .map_err(|e| e.to_string())?;
@@ -43,6 +43,7 @@ pub fn list_hosts() -> Result<Vec<Host>, String> {
                 proxy_username: row.get(19)?,
                 proxy_password: row.get(20)?,
                 icon: row.get(21)?,
+                backend: row.get(22)?,
             };
             host.password = resolve_secret(host.password.take(), &format!("hosts/{}/password", host.id));
             host.proxy_password =
@@ -76,11 +77,11 @@ pub fn save_host(mut host: Host) -> Result<Host, String> {
         "INSERT INTO hosts (
             id, name, host, port, account_id, username, status, last_connected, auth_type, password,
             key_id, certificate_id, use_proxy, proxy_host_id, proxy_auth_type, proxy_key_id,
-            proxy_cert_id, proxy_host, proxy_port, proxy_username, proxy_password, icon
+            proxy_cert_id, proxy_host, proxy_port, proxy_username, proxy_password, icon, backend
          ) VALUES (
             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
             ?11, ?12, ?13, ?14, ?15, ?16,
-            ?17, ?18, ?19, ?20, ?21, ?22
+            ?17, ?18, ?19, ?20, ?21, ?22, ?23
          )
          ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
@@ -103,7 +104,8 @@ pub fn save_host(mut host: Host) -> Result<Host, String> {
             proxy_port = excluded.proxy_port,
             proxy_username = excluded.proxy_username,
             proxy_password = excluded.proxy_password,
-            icon = excluded.icon",
+            icon = excluded.icon,
+            backend = excluded.backend",
         params![
             host.id,
             host.name,
@@ -126,7 +128,8 @@ pub fn save_host(mut host: Host) -> Result<Host, String> {
             host.proxy_port,
             host.proxy_username,
             host.proxy_password,
-            host.icon
+            host.icon,
+            host.backend
         ],
     )
     .map_err(|e| e.to_string())?;

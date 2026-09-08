@@ -47,6 +47,9 @@ pub struct SshConfig {
     /// 跳板机（ProxyJump）配置：连接目标前先认证该跳板机，再经 direct-tcpip 连目标。
     /// 支持递归嵌套（链式跳板），由调用方保证无循环引用。
     pub proxy: Option<Box<SshConfig>>,
+    /// 主机级 SSH 后端覆盖（优先于全局 ssh.backend）："" | "russh" | "ssh2"
+    #[serde(default)]
+    pub backend: String,
 }
 
 /// 跳板机传输层：持有「跳板机会话 + 桥接线程句柄」，必须与目标会话同生命周期。

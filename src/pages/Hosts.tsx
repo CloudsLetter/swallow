@@ -281,6 +281,9 @@ export function Hosts() {  const { t } = useTranslation();
   const [proxyAuthType, setProxyAuthType] = useState<'password' | 'key' | 'certificate'>('password');
   const [proxyKeyId, setProxyKeyId] = useState('');
   const [proxyCertId, setProxyCertId] = useState('');
+  /** 主机级 SSH 后端偏好：''=跟随全局 | 'russh' | 'ssh2' */
+  // Radix SelectItem 不允许 value=""（空串不渲染文本）——"跟随全局"用哨兵值 auto，落库时映射回 ''
+  const [backendPref, setBackendPref] = useState<'auto' | 'russh' | 'ssh2'>('auto');
 
   // ============ 数据加载 ============
   useEffect(() => {
@@ -387,6 +390,7 @@ export function Hosts() {  const { t } = useTranslation();
         key_id: auth.authType === 'key' ? auth.keyId : undefined,
         cert_id: auth.authType === 'certificate' ? auth.certId : undefined,
         passphrase: undefined,
+        backend: host.backend ?? '',
         hostId: host.id,
       },
     });
@@ -554,6 +558,7 @@ export function Hosts() {  const { t } = useTranslation();
     setProxyAuthType('password');
     setProxyKeyId('');
     setProxyCertId('');
+    setBackendPref('auto');
   };
 
   const openCreate = async () => {
@@ -604,6 +609,7 @@ export function Hosts() {  const { t } = useTranslation();
     setProxyAuthType(proxyType === 'key' || proxyType === 'certificate' ? proxyType : 'password');
     setProxyKeyId(host.proxyKeyId || '');
     setProxyCertId(host.proxyCertId || '');
+    setBackendPref(host.backend || 'auto');
     setSheetOpen(true);
   };
 
@@ -760,6 +766,7 @@ export function Hosts() {  const { t } = useTranslation();
             ? proxyPassword
             : undefined
         : undefined,
+      backend: backendPref === 'auto' ? '' : backendPref,
     };
 
     if (editingHost) {
@@ -1622,6 +1629,26 @@ export function Hosts() {  const { t } = useTranslation();
                   )}
                 </>
               )}
+            </div>
+
+            {/* SSH 后端 */}
+            <div className={sectionClass}>
+              <div className="flex flex-col gap-1">
+                <div className="text-sm font-semibold text-foreground">{t('hosts.backendSection')}</div>
+                <div className="text-xs text-muted-foreground">{t('hosts.backendDesc')}</div>
+              </div>
+              <div className="flex flex-col gap-2.5">
+                <Select value={backendPref} onValueChange={(v) => setBackendPref(v as 'auto' | 'russh' | 'ssh2')}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">{t('hosts.backendAuto')}</SelectItem>
+                    <SelectItem value="russh">{t('hosts.backendRussh')}</SelectItem>
+                    <SelectItem value="ssh2">{t('hosts.backendSsh2')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             {/* 跳板机 */}

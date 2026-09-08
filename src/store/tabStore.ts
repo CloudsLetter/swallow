@@ -30,6 +30,8 @@ export interface SshTabConfig {
   passphrase?: string;
   /** 来源主机条目 id（Hosts 页连接时传入，用于连接状态精准匹配；QuickConnect 等无来源时为 undefined） */
   hostId?: string;
+  /** 主机级 SSH 后端覆盖：''=跟随全局 | 'russh' | 'ssh2' */
+  backend?: string;
 }
 
 export interface TelnetTabConfig {

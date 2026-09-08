@@ -76,6 +76,10 @@ pub async fn ssh_connect(
         .map(|guard| guard.ssh.backend.clone())
         .unwrap_or_default();
 
+    // 主机级覆盖：host.backend 非空（"russh"/"ssh2"）时优先于全局
+    let host_backend = config.backend.trim().to_string();
+    let ssh_backend_effective = if host_backend.is_empty() { ssh_backend } else { host_backend };
+
     // 如果会话已存在则复用（避免在切换标签或重挂载时重复建立连接）——短暂持锁
     {
         let manager = state.ssh.lock().map_err(|e| e.to_string())?;
@@ -100,7 +104,7 @@ pub async fn ssh_connect(
     // - DSA/传统 PEM 等算法/解析类失败（russh 不支持）→ 落入下方 ssh2 回退路径；
     // - 其余失败直接报错（不误回退，安全类 Mismatch/KeyChanged 亦然）。
     // 模式：auto（默认）走下方逻辑；ssh2 直接跳过 russh；russh 禁回退。
-    if ssh_backend != "ssh2" {
+    if ssh_backend_effective != "ssh2" {
         let spawn_result = crate::ssh::russh_shell::spawn(
             app_handle.clone(),
             &config,
@@ -140,7 +144,7 @@ pub async fn ssh_connect(
                         approval.token.clone(),
                     ));
                 }
-                if is_ssh2_fallback_eligible(&e) && ssh_backend != "russh" {
+                if is_ssh2_fallback_eligible(&e) && ssh_backend_effective != "russh" {
                     let _ = write_log(
                         "info",
                         &format!(

@@ -24,6 +24,8 @@ export interface Host {
   proxyPort?: number;
   proxyUsername?: string;
   proxyPassword?: string;
+  /** SSH 后端覆盖：''=跟随全局 | 'russh' | 'ssh2'（老设备指定） */
+  backend?: '' | 'russh' | 'ssh2';
 }
 
 export interface Account {

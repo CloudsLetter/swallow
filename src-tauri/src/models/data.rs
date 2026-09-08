@@ -26,6 +26,9 @@ pub struct Host {
     pub proxy_port: Option<u16>,
     pub proxy_username: Option<String>,
     pub proxy_password: Option<String>,
+    /// SSH 后端覆盖：""（跟随全局设置）| "russh" | "ssh2"（个别老设备指定用 ssh2）
+    #[serde(default)]
+    pub backend: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

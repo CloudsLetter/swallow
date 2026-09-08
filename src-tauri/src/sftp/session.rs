@@ -501,6 +501,7 @@ impl SftpSession {
                 // SFTP 不支持跳板机，待确认主机总是直连；构造仅含 host/port 的 SshConfig
                 // 注册待确认（accept_host_key 重建连接只做握手拿指纹，不认证）
                 let ssh_config = SshConfig {
+        backend: String::new(),
                     host: config.host.clone(),
                     port: config.port,
                     username: String::new(),
