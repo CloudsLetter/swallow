@@ -11,6 +11,7 @@
 //! accept_host_key 确认链路，且确认时用同一后端重建（两库协商的 host key
 //! 算法可能不同，跨后端重建指纹必然不一致）。
 
+use std::borrow::Cow;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -20,7 +21,8 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
 use russh::client::{self, Handle};
 use russh::keys::ssh_key::PublicKey;
-use russh::keys::{Certificate, PrivateKey, PrivateKeyWithHashAlg};
+use russh::keys::{Algorithm, Certificate, PrivateKey, PrivateKeyWithHashAlg};
+use russh::{cipher, kex, Preferred};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::ssh::host_keys::{
@@ -36,6 +38,62 @@ pub struct HandlerError(anyhow::Error);
 impl std::fmt::Display for HandlerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+/// 主机算法预设 → russh `Preferred`（仅 russh 后端生效；ssh2/libssh2 默认
+/// 即全开、天然兼容老设备，无需预设）。白名单只控制「允许哪些算法」，排序
+/// 控制「双方都支持时优先哪个」——因此默认档把老算法**追加在尾部**即可做到
+/// 全协议兼容：现代服务端仍协商最强的头部算法，只支持 SHA1/CBC 的老设备
+/// 也能在尾部找到共同项。
+/// - `""`：全兼容默认（现代优先 + SHA1 系 KEX 与 AES-CBC 兜底）
+/// - `"legacy"`：旧设备优先（SHA1 系 KEX / AES-CBC / ssh-rsa 置顶，老
+///   服务端行为异常时可显式选择）
+/// - `"hardened"`：安全收紧——仅现代算法，host key 排除 ssh-rsa
+fn preferred_for_algo_profile(profile: &str) -> Option<Preferred> {
+    match profile {
+        "" => {
+            let mut kex = Preferred::DEFAULT.kex.to_vec();
+            kex.extend([kex::DH_G14_SHA1, kex::DH_G1_SHA1, kex::DH_GEX_SHA1]);
+            let mut cipher = Preferred::DEFAULT.cipher.to_vec();
+            cipher.extend([cipher::AES_128_CBC, cipher::AES_192_CBC, cipher::AES_256_CBC]);
+            Some(Preferred {
+                kex: Cow::Owned(kex),
+                cipher: Cow::Owned(cipher),
+                ..Preferred::DEFAULT
+            })
+        }
+        "legacy" => {
+            let mut kex = vec![kex::DH_G14_SHA1, kex::DH_G1_SHA1, kex::DH_GEX_SHA1];
+            kex.extend(Preferred::DEFAULT.kex.iter().copied());
+            let mut cipher = vec![
+                cipher::AES_128_CBC,
+                cipher::AES_192_CBC,
+                cipher::AES_256_CBC,
+            ];
+            cipher.extend(Preferred::DEFAULT.cipher.iter().copied());
+            let mut key = vec![Algorithm::Rsa { hash: None }];
+            key.extend(Preferred::DEFAULT.key.iter().cloned());
+            Some(Preferred {
+                kex: Cow::Owned(kex),
+                cipher: Cow::Owned(cipher),
+                key: Cow::Owned(key),
+                ..Preferred::DEFAULT
+            })
+        }
+        "hardened" => {
+            let key = Preferred::DEFAULT
+                .key
+                .iter()
+                .filter(|a| !matches!(a, Algorithm::Rsa { hash: None }))
+                .cloned()
+                .collect::<Vec<_>>();
+            Some(Preferred {
+                key: Cow::Owned(key),
+                ..Preferred::DEFAULT
+            })
+        }
+        _ => None,
     }
 }
 
@@ -269,13 +327,18 @@ async fn connect_inner(
     // 连接期配置：nodelay 保持小包低延迟；keepalive 交给 russh 自动处理
     //（无需自建探活线程）；⚠️ inactivity_timeout 语义是「空闲 N 秒断开」，
     // 与 ssh2 那个 30s 自断 bug 同款，隧道场景必须留 None。
-    let client_config = Arc::new(client::Config {
+    let mut client_config = client::Config {
         nodelay: true,
         keepalive_interval: Some(Duration::from_secs(30)),
         keepalive_max: 3,
         inactivity_timeout: None,
         ..<_>::default()
-    });
+    };
+    // 主机级算法预设覆盖（"" = 出厂默认，不设置）
+    if let Some(p) = preferred_for_algo_profile(&config.algo_profile) {
+        client_config.preferred = p;
+    }
+    let client_config = Arc::new(client_config);
 
     let unknown_fingerprint = Arc::new(Mutex::new(None));
     let handler = ClientHandler {

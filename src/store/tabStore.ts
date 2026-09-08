@@ -32,6 +32,8 @@ export interface SshTabConfig {
   hostId?: string;
   /** 主机级 SSH 后端覆盖：''=跟随全局 | 'russh' | 'ssh2' */
   backend?: string;
+  /** 主机级算法预设：''=后端默认 | 'legacy' | 'hardened'（russh 后端生效） */
+  algo_profile?: string;
 }
 
 export interface TelnetTabConfig {

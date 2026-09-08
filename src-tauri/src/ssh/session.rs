@@ -50,6 +50,9 @@ pub struct SshConfig {
     /// 主机级 SSH 后端覆盖（优先于全局 ssh.backend）："" | "russh" | "ssh2"
     #[serde(default)]
     pub backend: String,
+    /// 算法预设（russh 后端）：""|"legacy"|"hardened"，见 hosts.algo_profile
+    #[serde(default)]
+    pub algo_profile: String,
 }
 
 /// 跳板机传输层：持有「跳板机会话 + 桥接线程句柄」，必须与目标会话同生命周期。

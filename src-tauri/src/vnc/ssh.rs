@@ -55,6 +55,7 @@ fn enrich_key(config: &mut SshConfig) -> Result<()> {
 fn to_ssh_config(t: &SshTransportConfig) -> SshConfig {
     SshConfig {
         backend: String::new(),
+        algo_profile: String::new(),
         host: t.ssh_host.clone(),
         port: t.ssh_port,
         username: t.ssh_username.clone(),

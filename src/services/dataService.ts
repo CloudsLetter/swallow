@@ -26,6 +26,8 @@ export interface Host {
   proxyPassword?: string;
   /** SSH 后端覆盖：''=跟随全局 | 'russh' | 'ssh2'（老设备指定） */
   backend?: '' | 'russh' | 'ssh2';
+  /** 主机级算法预设：''=后端默认 | 'legacy'=兼容旧设备 | 'hardened'=仅现代算法 */
+  algoProfile?: '' | 'legacy' | 'hardened';
 }
 
 export interface Account {

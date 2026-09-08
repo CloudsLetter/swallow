@@ -29,6 +29,9 @@ pub struct Host {
     /// SSH 后端覆盖：""（跟随全局设置）| "russh" | "ssh2"（个别老设备指定用 ssh2）
     #[serde(default)]
     pub backend: String,
+    /// 算法预设：""（后端默认）| "legacy"（兼容旧设备：SHA1 系 KEX/ssh-rsa）| "hardened"（仅现代算法）
+    #[serde(default)]
+    pub algo_profile: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

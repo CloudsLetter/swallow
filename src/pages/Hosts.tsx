@@ -284,6 +284,8 @@ export function Hosts() {  const { t } = useTranslation();
   /** 主机级 SSH 后端偏好：''=跟随全局 | 'russh' | 'ssh2' */
   // Radix SelectItem 不允许 value=""（空串不渲染文本）——"跟随全局"用哨兵值 auto，落库时映射回 ''
   const [backendPref, setBackendPref] = useState<'auto' | 'russh' | 'ssh2'>('auto');
+  /** 算法预设偏好：'auto'=后端默认 | 'legacy' | 'hardened'（同用 auto 哨兵，见 backendPref） */
+  const [algoPref, setAlgoPref] = useState<'auto' | 'legacy' | 'hardened'>('auto');
 
   // ============ 数据加载 ============
   useEffect(() => {
@@ -391,6 +393,7 @@ export function Hosts() {  const { t } = useTranslation();
         cert_id: auth.authType === 'certificate' ? auth.certId : undefined,
         passphrase: undefined,
         backend: host.backend ?? '',
+        algo_profile: host.algoProfile ?? '',
         hostId: host.id,
       },
     });
@@ -559,6 +562,7 @@ export function Hosts() {  const { t } = useTranslation();
     setProxyKeyId('');
     setProxyCertId('');
     setBackendPref('auto');
+    setAlgoPref('auto');
   };
 
   const openCreate = async () => {
@@ -610,6 +614,7 @@ export function Hosts() {  const { t } = useTranslation();
     setProxyKeyId(host.proxyKeyId || '');
     setProxyCertId(host.proxyCertId || '');
     setBackendPref(host.backend || 'auto');
+    setAlgoPref(host.algoProfile || 'auto');
     setSheetOpen(true);
   };
 
@@ -767,6 +772,7 @@ export function Hosts() {  const { t } = useTranslation();
             : undefined
         : undefined,
       backend: backendPref === 'auto' ? '' : backendPref,
+      algoProfile: algoPref === 'auto' ? '' : algoPref,
     };
 
     if (editingHost) {
@@ -1646,6 +1652,20 @@ export function Hosts() {  const { t } = useTranslation();
                     <SelectItem value="auto">{t('hosts.backendAuto')}</SelectItem>
                     <SelectItem value="russh">{t('hosts.backendRussh')}</SelectItem>
                     <SelectItem value="ssh2">{t('hosts.backendSsh2')}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="mt-1 flex flex-col gap-1">
+                  <div className="text-sm font-medium text-foreground/85">{t('hosts.algoSection')}</div>
+                  <div className="text-xs text-muted-foreground">{t('hosts.algoDesc')}</div>
+                </div>
+                <Select value={algoPref} onValueChange={(v) => setAlgoPref(v as 'auto' | 'legacy' | 'hardened')}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">{t('hosts.algoAuto')}</SelectItem>
+                    <SelectItem value="legacy">{t('hosts.algoLegacy')}</SelectItem>
+                    <SelectItem value="hardened">{t('hosts.algoHardened')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

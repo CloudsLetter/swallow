@@ -187,6 +187,7 @@ pub fn init_database() -> Result<(), String> {
     ensure_column(&conn, "hosts", "proxy_cert_id", "TEXT")?;
     ensure_column(&conn, "hosts", "icon", "TEXT")?;
     ensure_column(&conn, "hosts", "backend", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(&conn, "hosts", "algo_profile", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(&conn, "sftp_connections", "key_id", "TEXT")?;
     ensure_column(&conn, "keys", "key_path", "TEXT")?;
     ensure_column(&conn, "keys", "public_key_path", "TEXT")?;
