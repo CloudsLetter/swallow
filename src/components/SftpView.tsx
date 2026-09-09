@@ -2008,6 +2008,24 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
   // 拖拽高亮：右栏被拖入（本机/左栏远端）；左栏远端被拖入（右栏文件）
   const [dragLocalOver, setDragLocalOver] = useState(false);
   const [dragRightOver, setDragRightOver] = useState(false);
+  // 右栏落区类型：本机文件→上传；左栏远端文件→流式复制（决定提示文案）
+  const [dragLocalKind, setDragLocalKind] = useState<'upload' | 'copy' | null>(null);
+  // 落区高亮用 enter/leave 深度计数：跨子元素移动只增减计数，避免 dragleave+dragover 交替导致提示闪烁
+  const dragLocalDepth = useRef(0);
+  const dragRightDepth = useRef(0);
+
+  // 兜底：拖拽被取消/在窗口外释放时可能收不到 dragleave/drop → dragend 时统一熄灭高亮
+  useEffect(() => {
+    const resetHighlights = () => {
+      dragRightDepth.current = 0;
+      setDragRightOver(false);
+      dragLocalDepth.current = 0;
+      setDragLocalOver(false);
+      setDragLocalKind(null);
+    };
+    window.addEventListener('dragend', resetHighlights);
+    return () => window.removeEventListener('dragend', resetHighlights);
+  }, []);
 
   // 左栏主机选择器选项（已保存主机）
   useEffect(() => {
@@ -2125,19 +2143,29 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
       {leftRemote ? (
         <div
           className={cn(
-            'flex h-full w-0 min-w-0 flex-1 flex-col',
+            'relative flex h-full w-0 min-w-0 flex-1 flex-col',
             dragRightOver && 'ring-2 ring-inset ring-primary/40',
           )}
+          onDragEnter={(e) => {
+            if (e.dataTransfer.types.includes(MIME_REMOTE)) {
+              e.preventDefault();
+              dragRightDepth.current += 1;
+              setDragRightOver(true);
+            }
+          }}
           onDragOver={(e) => {
             if (e.dataTransfer.types.includes(MIME_REMOTE)) {
               e.preventDefault();
               e.dataTransfer.dropEffect = 'copy';
-              setDragRightOver(true);
             }
           }}
-          onDragLeave={() => setDragRightOver(false)}
+          onDragLeave={() => {
+            dragRightDepth.current = Math.max(0, dragRightDepth.current - 1);
+            if (dragRightDepth.current === 0) setDragRightOver(false);
+          }}
           onDrop={(e) => {
             e.preventDefault();
+            dragRightDepth.current = 0;
             setDragRightOver(false);
             const names = e.dataTransfer.getData(MIME_REMOTE);
             if (!names) return;
@@ -2152,6 +2180,13 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
             })();
           }}
         >
+          {dragRightOver && (
+            <div className="pointer-events-none absolute inset-1 z-10 flex items-center justify-center rounded-md bg-primary/10">
+              <span className="rounded-md border border-primary/40 bg-background/90 px-3 py-1 text-xs text-primary">
+                {t('sftp.dropToRemoteCopy', { host: leftRemote.hostName })}
+              </span>
+            </div>
+          )}
           <SftpPane
             key={leftRemote.sessionId}
             sessionId={leftRemote.sessionId}
@@ -2216,20 +2251,38 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
       {/* 右栏：远端主会话；接收本机/左栏远端拖入 */}
       <div
         className={cn(
-          'flex h-full min-w-0 flex-1 flex-col border-l border-border',
+          'relative flex h-full min-w-0 flex-1 flex-col border-l border-border',
           dragLocalOver && 'bg-primary/5',
         )}
+        onDragEnter={(e) => {
+          if (e.dataTransfer.types.includes(MIME_LOCAL) || e.dataTransfer.types.includes(MIME_LEFT_REMOTE)) {
+            e.preventDefault();
+            dragLocalDepth.current += 1;
+            setDragLocalOver(true);
+            // 文案类型：来自左栏另一台主机 → 流式复制；本机 → 上传
+            setDragLocalKind(
+              leftRemote && e.dataTransfer.types.includes(MIME_LEFT_REMOTE) ? 'copy' : 'upload',
+            );
+          }
+        }}
         onDragOver={(e) => {
           if (e.dataTransfer.types.includes(MIME_LOCAL) || e.dataTransfer.types.includes(MIME_LEFT_REMOTE)) {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
-            setDragLocalOver(true);
           }
         }}
-        onDragLeave={() => setDragLocalOver(false)}
+        onDragLeave={() => {
+          dragLocalDepth.current = Math.max(0, dragLocalDepth.current - 1);
+          if (dragLocalDepth.current === 0) {
+            setDragLocalOver(false);
+            setDragLocalKind(null);
+          }
+        }}
         onDrop={(e) => {
           e.preventDefault();
+          dragLocalDepth.current = 0;
           setDragLocalOver(false);
+          setDragLocalKind(null);
           // 本机文件 → 直接上传到右栏当前目录
           const rawLocal = e.dataTransfer.getData(MIME_LOCAL);
           if (rawLocal) {
@@ -2243,6 +2296,15 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
           }
         }}
       >
+        {dragLocalOver && (
+          <div className="pointer-events-none absolute inset-1 z-10 flex items-center justify-center rounded-md bg-primary/10">
+            <span className="rounded-md border border-primary/40 bg-background/90 px-3 py-1 text-xs text-primary">
+              {dragLocalKind === 'copy'
+                ? t('sftp.dropToRemoteCopy', { host: sftpConfig?.host ?? '' })
+                : t('sftp.dropToUpload')}
+            </span>
+          </div>
+        )}
         <SftpPane
           ref={rightPaneRef}
           sessionId={sessionId}

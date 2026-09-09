@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
@@ -125,6 +125,8 @@ export function LocalBrowser({
   const [error, setError] = useState('');
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [dragRemoteOver, setDragRemoteOver] = useState(false);
+  // 落区高亮 enter/leave 深度计数：跨子元素移动只增减计数，避免 dragleave+dragover 交替闪烁
+  const dragRemoteDepth = useRef(0);
 
   const load = useCallback(async (dir: string | null | undefined) => {
     setLoading(true);
@@ -188,10 +190,11 @@ export function LocalBrowser({
 
   /** 右栏（远程）行拖入左栏：下载到本机当前目录 */
   const handleFileFromRightDrop = async (e: DragEvent) => {
+    e.preventDefault();
+    dragRemoteDepth.current = 0;
+    setDragRemoteOver(false);
     const data = e.dataTransfer.getData(MIME_REMOTE);
     if (!data) return;
-    e.preventDefault();
-    setDragRemoteOver(false);
     const dir = path ?? '';
     for (const name of data.split('\n').filter(Boolean)) {
       try {
@@ -215,6 +218,20 @@ export function LocalBrowser({
   const label = path && path.length > 64 ? `…${path.slice(-60)}` : path;
   // 面包屑分段（本机：C:\a\b → 各级可点击跳转）
   const localSegs = path ? localPathSegments(path) : [];
+  // 拖拽提示里的目标目录：用最后一段（如 Downloads），比整串截断路径更直观
+  const dropDirName = path
+    ? path.split(/[\\/]/).filter(Boolean).pop() || path
+    : t('sftp.sourceLocal');
+
+  // 兜底：拖拽被取消/在窗口外释放时可能收不到 dragleave/drop → dragend 时统一熄灭高亮
+  useEffect(() => {
+    const resetHighlight = () => {
+      dragRemoteDepth.current = 0;
+      setDragRemoteOver(false);
+    };
+    window.addEventListener('dragend', resetHighlight);
+    return () => window.removeEventListener('dragend', resetHighlight);
+  }, []);
 
   const copyLocalPath = async (p: string) => {
     try {
@@ -327,19 +344,29 @@ export function LocalBrowser({
               dragRemoteOver && 'ring-2 ring-inset ring-primary/40',
             )}
             data-custom-contextmenu
-            onDragOver={(e) => {
+            onDragEnter={(e) => {
               if (e.dataTransfer.types.includes(MIME_REMOTE)) {
                 e.preventDefault();
+                dragRemoteDepth.current += 1;
                 setDragRemoteOver(true);
               }
             }}
-            onDragLeave={() => setDragRemoteOver(false)}
+            onDragOver={(e) => {
+              if (e.dataTransfer.types.includes(MIME_REMOTE)) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+              }
+            }}
+            onDragLeave={() => {
+              dragRemoteDepth.current = Math.max(0, dragRemoteDepth.current - 1);
+              if (dragRemoteDepth.current === 0) setDragRemoteOver(false);
+            }}
             onDrop={handleFileFromRightDrop}
           >
         {dragRemoteOver && (
           <div className="pointer-events-none absolute inset-1 z-10 flex items-center justify-center rounded-md bg-primary/10">
             <span className="rounded-md border border-primary/40 bg-background/90 px-3 py-1 text-xs text-primary">
-              {t('sftp.dropLocalDownload', { dir: label ?? '' })}
+              {t('sftp.dropLocalDownload', { dir: dropDirName })}
             </span>
           </div>
         )}
