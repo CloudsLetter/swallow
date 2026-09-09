@@ -77,7 +77,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { ScrollArea, ScrollBar } from './ui/scroll-area';
+import { LIST_COLS_ACTIONS } from './sftpListColumns';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -1041,27 +1042,12 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
   /** 双栏：把本机文件批量上传到当前远程目录（顺序执行，任一失败不中断）。 */
   const uploadLocalToRemote = async (localPaths: string[]) => {
     if (!sessionId) return;
-    let ok = 0;
-    const fail: string[] = [];
-    for (const localPath of localPaths) {
-      const name = localPath.split(/[\\/]/).pop() || localPath;
-      try {
-        await sftpUploadLocal(sessionId, localPath, joinRemotePath(name), `sftp-dup-${Date.now()}-${ok}`);
-        ok += 1;
-      } catch {
-        fail.push(name);
-      }
-    }
-    if (ok > 0) {
-      toast.success(t('sftp.localUploadDone', { count: ok }));
-      void loadFiles(currentPath);
-    }
-    if (fail.length > 0) {
-      toast.error(t('sftp.localUploadFailedN', { count: fail.length, names: fail.slice(0, 3).join('、') }));
-    }
+    await uploadByPaths(localPaths);
+    void loadFiles(currentPath);
   };
 
-  /** 双栏：把远程文件下载到本机栏当前目录（已有部分文件时询问续传）。 */
+  /** 双栏：把远程文件下载到左栏当前目录（已有部分文件时询问续传）。
+   *  走标准 download 任务（进度/取消/SftpTransferPanel），失败仅标 error 任务 + toast。 */
   const downloadRemoteToLocal = async (remoteName: string, localDir: string) => {
     if (!sessionId) return;
     const item = files.find((f) => f.name === remoteName);
@@ -1080,8 +1066,40 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
         if (resume) offset = localSize;
       }
     }
-    await sftpDownloadFileProgress(sessionId, joinRemotePath(remoteName), target, offset);
-    toast.success(t('sftp.downloadedToLocal', { name: remoteName }));
+    const remotePath = joinRemotePath(remoteName);
+    const cancelToken = `dl-${sessionId}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const taskId = addTransfer({
+      name: item.name,
+      kind: 'download',
+      status: 'active',
+      done: 0,
+      total: 0,
+      sessionId,
+      remotePath,
+      host: sftpConfig?.host,
+      protocol: sftpConfig?.protocol || 'sftp',
+      cancelToken,
+    });
+    try {
+      await sftpDownloadFileProgress(sessionId, remotePath, target, offset, cancelToken);
+      if (isCancelRequested(taskId)) {
+        scheduleTransferDismiss(taskId);
+        return;
+      }
+      updateTransfer(taskId, { status: 'done' });
+      scheduleTransferDismiss(taskId);
+      toast.success(t('sftp.downloadedToLocal', { name: remoteName }));
+    } catch (error) {
+      if (isCancelRequested(taskId)) {
+        scheduleTransferDismiss(taskId);
+        return;
+      }
+      updateTransfer(taskId, {
+        status: 'error',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      toast.error(t('sftp.downloadFailed', { message: String(error) }));
+    }
   };
 
   const leftRemoteRef = useRef<LeftRemoteInfo | null>(null);
@@ -1535,38 +1553,42 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
               </Button>
             </div>
 
-            {/* 当前路径（面包屑，点击分段跳转） */}
-            <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto whitespace-nowrap rounded-md border border-border bg-background px-3 py-1.5 text-sm">
-              <span className="shrink-0 text-muted-foreground">{sftpConfig.host}:</span>
-              <button
-                type="button"
-                className="shrink-0 rounded px-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                onClick={() => handleNavigate('/')}
-                title={t('sftp.rootSegment')}
-              >
-                /
-              </button>
-              {pathSegments.map((segment, index) => {
-                const target = '/' + pathSegments.slice(0, index + 1).join('/');
-                const isLast = index === pathSegments.length - 1;
-                return (
-                  <span key={target} className="flex shrink-0 items-center gap-0.5">
-                    <IconChevronRight size={12} className="text-muted-foreground/60" />
-                    <button
-                      type="button"
-                      className={
-                        isLast
-                          ? 'rounded px-1 text-foreground'
-                          : 'rounded px-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'
-                      }
-                      onClick={() => handleNavigate(target)}
-                    >
-                      {segment}
-                    </button>
-                  </span>
-                );
-              })}
-            </div>
+            {/* 当前路径（面包屑，点击分段跳转）。
+                超宽内容在容器内部横向滚动（shadcn ScrollArea，可见主题化 thumb）。 */}
+            <ScrollArea className="h-9 min-w-0 flex-1 rounded-md border border-border bg-background text-sm">
+              <div className="flex h-9 w-max items-center gap-0.5 whitespace-nowrap px-3">
+                <span className="shrink-0 text-muted-foreground">{sftpConfig.host}:</span>
+                <button
+                  type="button"
+                  className="shrink-0 rounded px-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  onClick={() => handleNavigate('/')}
+                  title={t('sftp.rootSegment')}
+                >
+                  /
+                </button>
+                {pathSegments.map((segment, index) => {
+                  const target = '/' + pathSegments.slice(0, index + 1).join('/');
+                  const isLast = index === pathSegments.length - 1;
+                  return (
+                    <span key={target} className="flex shrink-0 items-center gap-0.5">
+                      <IconChevronRight size={12} className="text-muted-foreground/60" />
+                      <button
+                        type="button"
+                        className={
+                          isLast
+                            ? 'rounded px-1 text-foreground'
+                            : 'rounded px-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'
+                        }
+                        onClick={() => handleNavigate(target)}
+                      >
+                        {segment}
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+              <ScrollBar orientation="horizontal" />
+            </ScrollArea>
 
             {/* 操作按钮 */}
             <div className="flex items-center gap-1">
@@ -1660,7 +1682,7 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
           {/* 文件列表（支持拖拽上传到当前目录，空白区右键快捷操作） */}
           <ContextMenu>
             <ContextMenuTrigger asChild>
-              <div className="relative flex-1 overflow-auto">
+              <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
                 {isDragOver && (
                   <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-primary/5">
                     <div className="flex flex-col items-center gap-1.5 rounded-xl border-2 border-dashed border-primary/40 bg-background/80 px-8 py-5">
@@ -1672,7 +1694,7 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
                 )}
                 {/* 加载失败提示条：连接断开/路径错误时明确反馈，提供重新连接入口 */}
                 {listError && (
-                  <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-border bg-destructive/5 px-4 py-2 backdrop-blur">
+                  <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-destructive/5 px-4 py-2">
                     <span className="flex min-w-0 items-center gap-2 text-sm text-destructive">
                       <IconAlert size={15} className="shrink-0" />
                       <span className="truncate">{t('sftp.listErrorPrefix', { message: listError })}</span>
@@ -1688,132 +1710,149 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
                     </Button>
                   </div>
                 )}
-                {loading ? (
-                  <div className="flex h-full items-center justify-center text-muted-foreground">{t('common.loading')}</div>
+                <ScrollArea className="min-h-0 w-full flex-1">
+                {loading && files.length === 0 ? (
+                  <div className="flex h-full w-full items-center justify-center text-muted-foreground">{t('common.loading')}</div>
                 ) : files.length === 0 ? (
-                  <div className="flex h-full items-center justify-center text-muted-foreground">
+                  <div className="flex h-full w-full items-center justify-center px-4 text-center text-muted-foreground">
                     {t('sftp.emptyDir')}
                     {isConnected(sessionId ?? '') ? t('sftp.emptyDirDropHint') : ''}
                   </div>
                 ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-10"></TableHead>
-                        <TableHead>
-                          <button
-                            type="button"
-                            className="flex items-center gap-1 text-left transition-colors hover:text-foreground"
-                            onClick={() => toggleSort('name')}
-                          >
-                            {t('sftp.tableName')}{sortIndicator('name')}
-                          </button>
-                        </TableHead>
-                        <TableHead>
-                          <button
-                            type="button"
-                            className="flex items-center gap-1 text-left transition-colors hover:text-foreground"
-                            onClick={() => toggleSort('size')}
-                          >
-                            {t('sftp.tableSize')}{sortIndicator('size')}
-                          </button>
-                        </TableHead>
-                        <TableHead>
-                          <button
-                            type="button"
-                            className="flex items-center gap-1 text-left transition-colors hover:text-foreground"
-                            onClick={() => toggleSort('modified')}
-                          >
-                            {t('sftp.tableModified')}{sortIndicator('modified')}
-                          </button>
-                        </TableHead>
-                        <TableHead>{t('sftp.tablePermissions')}</TableHead>
-                        <TableHead>{t('common.actions')}</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
+                  <div className="flex min-w-0 flex-col">
+                    {/* 表头（与左栏同构：行式表头 + 共享列模板 → 无固定整表宽，永不横向溢出） */}
+                    <div
+                      className={cn(
+                        'grid h-9 shrink-0 items-center gap-2 border-b border-border px-3 text-xs font-medium text-muted-foreground',
+                        LIST_COLS_ACTIONS,
+                      )}
+                    >
+                      <span className="min-w-0" />
+                      <button
+                        type="button"
+                        className="flex min-w-0 items-center gap-1 overflow-hidden text-left transition-colors hover:text-foreground"
+                        onClick={() => toggleSort('name')}
+                      >
+                        <span className="truncate">{t('sftp.tableName')}</span>
+                        <span className="shrink-0">{sortIndicator('name')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="flex min-w-0 items-center gap-1 overflow-hidden text-left transition-colors hover:text-foreground"
+                        onClick={() => toggleSort('size')}
+                      >
+                        <span className="truncate">{t('sftp.tableSize')}</span>
+                        <span className="shrink-0">{sortIndicator('size')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="flex min-w-0 items-center gap-1 overflow-hidden text-left transition-colors hover:text-foreground"
+                        onClick={() => toggleSort('modified')}
+                      >
+                        <span className="truncate">{t('sftp.tableModified')}</span>
+                        <span className="shrink-0">{sortIndicator('modified')}</span>
+                      </button>
+                      <span className="truncate">{t('sftp.tablePermissions')}</span>
+                      <span className="truncate text-right">{t('common.actions')}</span>
+                    </div>
                       {sortedFiles.map((file) => {
                         const multiSelected = selectedFiles.has(file.name) && selectedFiles.size > 1;
+                        const selected = selectedFiles.has(file.name);
                         return (
                           <ContextMenu key={file.name}>
                             <ContextMenuTrigger asChild>
-                              <TableRow
-                                draggable={file.type !== 'directory'}
-                                onDragStart={(e) => {
-                                  if (file.type === 'directory') return;
-                                  e.dataTransfer.setData(MIME_REMOTE, file.name);
-                                  e.dataTransfer.setData('text/plain', file.name);
-                                  e.dataTransfer.effectAllowed = 'copy';
-                                }}
-                                className={selectedFiles.has(file.name) ? 'bg-primary/10 hover:bg-primary/10' : ''}
-                                onDoubleClick={(e) => {
-                                  // 双击落在交互元素（复选框/操作按钮）上时不触发行级双击，避免与单击冲突
-                                  if ((e.target as HTMLElement).closest('button')) return;
-                                  handleDoubleClick(file);
-                                }}
-                              >
-                      <TableCell>
-                        <Checkbox
-                          checked={selectedFiles.has(file.name)}
-                          onCheckedChange={() => toggleSelection(file.name)}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          {file.type === 'directory' ? (
-                            <IconFolder size={18} className="text-warning" strokeWidth={2} />
-                          ) : (
-                            <IconFile size={18} className="text-muted-foreground" strokeWidth={2} />
-                          )}
-                          <span className="text-sm">{file.name}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{formatFileSize(file.size)}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{file.modified}</TableCell>
-                      <TableCell className="font-mono text-sm text-muted-foreground">{file.permissions}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          {file.type !== 'directory' && (
-                            <Button
-                              variant="ghost"
-                              size="icon-xs"
-                              className="text-muted-foreground"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDownload(file);
+                            <div
+                              draggable={file.type !== 'directory'}
+                              onDragStart={(e) => {
+                                if (file.type === 'directory') return;
+                                e.dataTransfer.setData(MIME_REMOTE, file.name);
+                                e.dataTransfer.setData('text/plain', file.name);
+                                e.dataTransfer.effectAllowed = 'copy';
                               }}
-                              title={t('sftp.download')}
+                              onClick={(e) => {
+                                // 行级单击仅选中文件（目录靠双击进入）；落在复选框/操作按钮上不抢（避免二次切换）
+                                if (file.type === 'directory') return;
+                                if ((e.target as HTMLElement).closest('button')) return;
+                                toggleSelection(file.name);
+                              }}
+                              onDoubleClick={(e) => {
+                                // 双击落在交互元素（复选框/操作按钮）上时不触发行级双击，避免与单击冲突
+                                if ((e.target as HTMLElement).closest('button')) return;
+                                handleDoubleClick(file);
+                              }}
+                              className={cn(
+                                'group grid min-h-9 items-center gap-2 border-b border-border/70 px-3 text-sm transition-colors',
+                                LIST_COLS_ACTIONS,
+                                selected ? 'bg-primary/10 hover:bg-primary/10' : 'hover:bg-accent/40',
+                              )}
                             >
-                              <IconDownload size={14} strokeWidth={2} />
-                            </Button>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            className="text-muted-foreground"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRename(file);
-                            }}
-                            title={t('sftp.rename')}
-                          >
-                            <IconPencil size={14} strokeWidth={2} />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            className="text-destructive"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDelete(file);
-                            }}
-                            title={t('common.delete')}
-                          >
-                            <IconTrash size={14} strokeWidth={2} />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
+                              <div className="flex min-w-0 items-center">
+                                <Checkbox
+                                  checked={selected}
+                                  onCheckedChange={() => toggleSelection(file.name)}
+                                />
+                              </div>
+                              <div className="flex min-w-0 items-center gap-2" title={file.name}>
+                                {file.type === 'directory' ? (
+                                  <IconFolder size={16} className="shrink-0 text-warning" strokeWidth={2} />
+                                ) : (
+                                  <IconFile size={16} className="shrink-0 text-muted-foreground" strokeWidth={2} />
+                                )}
+                                <span className="min-w-0 truncate text-sm">{file.name}</span>
+                              </div>
+                              <div className="min-w-0 truncate text-sm tabular-nums text-muted-foreground">
+                                {file.type === 'directory' ? '—' : formatFileSize(file.size)}
+                              </div>
+                              <div className="min-w-0 truncate text-sm text-muted-foreground" title={file.modified}>
+                                {file.modified.trim() && file.modified !== '-' ? file.modified : '—'}
+                              </div>
+                              <div
+                                className="min-w-0 truncate font-mono text-sm text-muted-foreground"
+                                title={file.permissions}
+                              >
+                                {file.permissions.trim() && file.permissions !== '-' ? file.permissions : '—'}
+                              </div>
+                              <div className="flex min-w-0 items-center justify-end gap-1 overflow-hidden opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                                {file.type !== 'directory' && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon-xs"
+                                    className="text-muted-foreground"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDownload(file);
+                                    }}
+                                    title={t('sftp.download')}
+                                  >
+                                    <IconDownload size={14} strokeWidth={2} />
+                                  </Button>
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="icon-xs"
+                                  className="text-muted-foreground"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRename(file);
+                                  }}
+                                  title={t('sftp.rename')}
+                                >
+                                  <IconPencil size={14} strokeWidth={2} />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon-xs"
+                                  className="text-destructive"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDelete(file);
+                                  }}
+                                  title={t('common.delete')}
+                                >
+                                  <IconTrash size={14} strokeWidth={2} />
+                                </Button>
+                              </div>
+                            </div>
                             </ContextMenuTrigger>
                             <ContextMenuContent className="w-52">
                               {file.type === 'directory' ? (
@@ -1863,9 +1902,9 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
                           </ContextMenu>
                         );
                       })}
-                </TableBody>
-              </Table>
-            )}
+                  </div>
+                )}
+                </ScrollArea>
               </div>
             </ContextMenuTrigger>
             <ContextMenuContent className="w-52">

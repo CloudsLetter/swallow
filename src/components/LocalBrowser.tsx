@@ -14,13 +14,14 @@ import {
   Server as IconServer,
 } from 'lucide-react';
 import { homeDir } from '@tauri-apps/api/path';
+import { ScrollArea } from './ui/scroll-area';
 import { Button } from './ui/button';
 import { Checkbox } from './ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { cn } from '@/lib/utils';
 import { listLocalDirectory, MIME_LOCAL, MIME_LEFT_REMOTE, MIME_REMOTE, type LocalDirListing } from '../services/localFs';
 import { sftpListDir } from '../services/sessionService';
+import { LIST_COLS, LIST_COLS_PERM } from './sftpListColumns';
 import type { FileItem } from './sftpPool';
 
 export interface LeftRemoteInfo {
@@ -49,6 +50,8 @@ interface Row {
   isDir: boolean;
   sizeText: string;
   mtime: string;
+  /** 本机无；另一台主机的远端文件为权限串（如 755 / drwxr-xr-x），未知为 '-'/'—' */
+  permsText: string;
   /** 本机文件绝对路径 / 左栏远程文件的远端完整路径（用于拖拽） */
   fullPath: string;
 }
@@ -63,6 +66,12 @@ function fmtSize(n: number): string {
 function fmtTime(secs: number): string {
   if (!secs) return '';
   return new Date(secs * 1000).toLocaleString();
+}
+
+/** 空/未知时间或权限 → '—'，避免出现整列空白。 */
+function cellText(v: string | undefined): string {
+  const s = (v ?? '').trim();
+  return s && s !== '-' ? s : '—';
 }
 
 /** 远端路径拼接（父目录或目标路径）。 */
@@ -115,6 +124,7 @@ export function LocalBrowser({
               isDir: it.type === 'directory',
               sizeText: it.type === 'directory' ? '—' : fmtSize(it.size),
               mtime: it.modified,
+              permsText: it.permissions,
               fullPath: joinRemote(target, it.name),
             })),
           );
@@ -129,6 +139,7 @@ export function LocalBrowser({
               isDir: e.isDir,
               sizeText: e.isDir ? '—' : fmtSize(e.size),
               mtime: e.modified ? fmtTime(e.modified) : '',
+              permsText: '',
               fullPath: e.path,
             })),
           );
@@ -300,10 +311,10 @@ export function LocalBrowser({
         )}
       </div>
 
-      {/* 文件表格（与右栏远程同构）+ 右栏拖入落区 */}
+      {/* 文件列表（与右栏同构：shadcn ScrollArea 滚动容器，不隐藏滚动条）+ 右栏拖入落区 */}
       <div
         className={cn(
-          'relative min-h-0 flex-1 overflow-auto panel-scroll',
+          'relative min-h-0 flex-1',
           dragRemoteOver && 'ring-2 ring-inset ring-primary/40',
         )}
         onDragOver={(e) => {
@@ -324,66 +335,82 @@ export function LocalBrowser({
             </span>
           </div>
         )}
-        {error ? (
-          <div className="flex h-full items-center justify-center text-sm text-destructive">{error}</div>
-        ) : loading && rows.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">{t('common.loading')}</div>
-        ) : (
-          <Table>
-            <TableHeader className="[&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground">
-              <TableRow className="bg-muted/40 hover:bg-muted/40">
-                <TableHead className="w-10" />
-                <TableHead>{t('sftp.tableName')}</TableHead>
-                <TableHead className="w-24">{t('sftp.tableSize')}</TableHead>
-                <TableHead className="w-40">{t('sftp.tableModified')}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+        <ScrollArea className="h-full w-full">
+          {error ? (
+            <div className="flex h-full w-full items-center justify-center px-4 text-center text-sm text-destructive">
+              {error}
+            </div>
+          ) : loading && rows.length === 0 ? (
+            <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
+              {t('common.loading')}
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="flex h-full w-full items-center justify-center px-4 text-center text-sm text-muted-foreground">
+              {isRemoteMode ? t('sftp.emptyDir') : t('sftp.localEmpty')}
+            </div>
+          ) : (
+            <div className="flex min-w-0 flex-col">
+              {/* 表头（与右栏同构：行式表头 + 共享列模板；本机无权限列，远端源才显示） */}
+              <div
+                className={cn(
+                  'grid h-9 shrink-0 items-center gap-2 border-b border-border px-3 text-xs font-medium text-muted-foreground',
+                  isRemoteMode ? LIST_COLS_PERM : LIST_COLS,
+                )}
+              >
+                <span className="min-w-0" />
+                <span className="truncate">{t('sftp.tableName')}</span>
+                <span className="truncate">{t('sftp.tableSize')}</span>
+                <span className="truncate">{t('sftp.tableModified')}</span>
+                {isRemoteMode && <span className="truncate">{t('sftp.tablePermissions')}</span>}
+              </div>
               {rows.map((row) => (
-                <TableRow
+                <div
                   key={row.key}
                   draggable={!row.isDir && !leftBusy}
                   onDragStart={(e) => handleDragStart(e, row)}
                   onDoubleClick={() => row.isDir && void load(row.fullPath)}
-                  onClick={() => toggleSelect(row.name, row.isDir)}
+                  onClick={(e) => {
+                    // 行级单击选中文件（目录靠双击进入）；落在复选框（Radix 按钮）上不抢，
+                    // 否则 checkbox onCheckedChange + 冒泡行点击会双重翻转、勾不上
+                    if (row.isDir) return;
+                    if ((e.target as HTMLElement).closest('button')) return;
+                    toggleSelect(row.name, row.isDir);
+                  }}
                   className={cn(
-                    'transition-colors',
+                    'grid min-h-9 items-center gap-2 border-b border-border/70 px-3 text-sm transition-colors',
+                    isRemoteMode ? LIST_COLS_PERM : LIST_COLS,
                     !row.isDir && sel.has(row.name) ? 'bg-primary/10 hover:bg-primary/10' : 'hover:bg-accent/40',
                   )}
                 >
-                  <TableCell className="w-10">
+                  <div className="flex min-w-0 items-center">
                     <Checkbox
                       checked={!row.isDir && sel.has(row.name)}
                       disabled={row.isDir}
                       onCheckedChange={() => toggleSelect(row.name, row.isDir)}
                     />
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      {row.isDir ? (
-                        <IconFolder size={18} className="shrink-0 text-warning" strokeWidth={2} />
-                      ) : (
-                        <IconFile size={18} className="shrink-0 text-muted-foreground" strokeWidth={2} />
-                      )}
-                      <span className="text-sm" title={row.name}>
-                        {row.name}
-                      </span>
+                  </div>
+                  <div className="flex min-w-0 items-center gap-2" title={row.name}>
+                    {row.isDir ? (
+                      <IconFolder size={16} className="shrink-0 text-warning" strokeWidth={2} />
+                    ) : (
+                      <IconFile size={16} className="shrink-0 text-muted-foreground" strokeWidth={2} />
+                    )}
+                    <span className="min-w-0 truncate text-sm">{row.name}</span>
+                  </div>
+                  <div className="min-w-0 truncate text-sm tabular-nums text-muted-foreground">{row.sizeText}</div>
+                  <div className="min-w-0 truncate text-sm text-muted-foreground" title={row.mtime}>
+                    {cellText(row.mtime)}
+                  </div>
+                  {isRemoteMode && (
+                    <div className="min-w-0 truncate font-mono text-sm text-muted-foreground" title={row.permsText}>
+                      {cellText(row.permsText)}
                     </div>
-                  </TableCell>
-                  <TableCell className="text-sm tabular-nums text-muted-foreground">{row.sizeText}</TableCell>
-                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{row.mtime}</TableCell>
-                </TableRow>
+                  )}
+                </div>
               ))}
-              {rows.length === 0 && !loading && (
-                <TableRow>
-                  <TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">
-                    {isRemoteMode ? t('sftp.emptyDir') : t('sftp.localEmpty')}
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        )}
+            </div>
+          )}
+        </ScrollArea>
       </div>
     </div>
   );
