@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type ChangeEvent } from 'react';
+import { Fragment, useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle, type ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { once } from '@tauri-apps/api/event';
 import { join as joinPath, tempDir } from '@tauri-apps/api/path';
@@ -24,10 +24,22 @@ import {
   FolderOpen as IconFolderOpen,
   X as IconX,
   AlertTriangle as IconAlert,
+  HardDrive as IconDrive,
+  Loader2 as IconLoader,
+  Server as IconServer,
+  MoreHorizontal as IconMoreHorizontal,
 } from 'lucide-react';
 import { ExternalLink as IconExternalLink } from 'lucide-react';
 import { ConnectionProgress } from './ConnectionProgress';
-import { LocalBrowser, type LeftRemoteInfo } from './LocalBrowser';
+import { LocalBrowser } from './LocalBrowser';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { MIME_LOCAL, MIME_LEFT_REMOTE, MIME_REMOTE } from '../services/localFs';
 import { useSessionConnection, sftpSessionPool } from '../hooks/useSessionConnection';
 import { touchHostLastConnected, getHosts, getAccounts, getKeys, getCertificates } from '../services/dataService';
@@ -77,8 +89,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
-import { ScrollArea, ScrollBar } from './ui/scroll-area';
-import { LIST_COLS_ACTIONS } from './sftpListColumns';
+import { ScrollArea } from './ui/scroll-area';
+import { LIST_COLS_FTP, LIST_COLS_PERM } from './sftpListColumns';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -247,7 +259,96 @@ async function collectDroppedFiles(dataTransfer: DataTransfer): Promise<DroppedU
   return out;
 }
 
-export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewProps) {
+/** 双栏复用的远端文件浏览器实例句柄：组合层跨栏操作时通过 ref 调用。 */
+export interface SftpPaneHandle {
+  /** 按本地真实路径批量上传到当前目录（走传输管线：任务 + 进度 + 可取消） */
+  uploadPaths: (localPaths: string[]) => Promise<void>;
+  /** 把当前目录下的远程条目下载/复制到指定本地目录（目录递归、文件走标准任务） */
+  downloadTo: (name: string, dir: string) => Promise<void>;
+  /** 重新加载当前目录列表 */
+  refresh: () => void;
+}
+
+interface SftpPaneProps {
+  sessionId?: string;
+  isActive?: boolean;
+  sftpConfig?: SftpViewProps['sftpConfig'];
+  /** 行拖出时写入的 MIME（右栏 MIME_REMOTE；左栏远端 MIME_LEFT_REMOTE） */
+  dragMime?: string;
+  /** 是否接管 window 级 OS 文件拖入上传（双栏时仅右栏开启，避免双实例重复响应） */
+  windowDragUploads?: boolean;
+  /** 工具栏最左侧插入的自定义区（左栏远端源切换下拉用，不破坏两栏对等布局） */
+  toolbarPrefix?: React.ReactNode;
+}
+
+/** chmod 三栏勾选矩阵：所有者/组/其他 × 读/写/执行，实时回写八进制（如 755）。 */
+function ChmodMatrix({ value, onChange }: { value: string; onChange: (octal: string) => void }) {
+  const { t } = useTranslation();
+  // 8 进制 → [所有者 r,w,x, 组 r,w,x, 其他 r,w,x]
+  const bits = useMemo(() => {
+    const digits = value.replace(/[^0-7]/g, '').slice(-3).padStart(3, '0').split('').map(Number);
+    const out: boolean[] = [];
+    for (const d of digits) {
+      out.push((d & 4) !== 0, (d & 2) !== 0, (d & 1) !== 0);
+    }
+    return out;
+  }, [value]);
+
+  const toggle = (idx: number) => {
+    const next = [...bits];
+    next[idx] = !next[idx];
+    const digits = [0, 1, 2].map(
+      (g) => (next[g * 3] ? 4 : 0) + (next[g * 3 + 1] ? 2 : 0) + (next[g * 3 + 2] ? 1 : 0),
+    );
+    onChange(digits.join(''));
+  };
+
+  const symbolic = (digit: number) => `${digit & 4 ? 'r' : '-'}${digit & 2 ? 'w' : '-'}${digit & 1 ? 'x' : '-'}`;
+  const digits = value.replace(/[^0-7]/g, '').slice(-3).padStart(3, '0').split('').map(Number);
+  const rows: { label: string; offset: number }[] = [
+    { label: t('sftp.permRead'), offset: 0 },
+    { label: t('sftp.permWrite'), offset: 1 },
+    { label: t('sftp.permExecute'), offset: 2 },
+  ];
+
+  return (
+    <div>
+      <div className="grid grid-cols-[3.5rem_1fr_1fr_1fr] items-center gap-y-2 text-sm">
+        <span />
+        <span className="text-center font-medium text-muted-foreground">{t('sftp.permOwner')}</span>
+        <span className="text-center font-medium text-muted-foreground">{t('sftp.permGroup')}</span>
+        <span className="text-center font-medium text-muted-foreground">{t('sftp.permOther')}</span>
+        {rows.map((row) => (
+          <Fragment key={row.offset}>
+            <span className="flex items-center gap-1.5">{row.label}</span>
+            {[0, 3, 6].map((group) => (
+              <span key={`${group}-${row.offset}`} className="flex justify-center">
+                <Checkbox
+                  checked={bits[group + row.offset]}
+                  onCheckedChange={() => toggle(group + row.offset)}
+                />
+              </span>
+            ))}
+          </Fragment>
+        ))}
+      </div>
+      <div className="mt-3 flex items-center justify-end gap-3 font-mono text-xs text-muted-foreground">
+        <span>{t('sftp.chmod')}:</span>
+        <span>{digits.join('')}</span>
+        <span>{digits.map(symbolic).join('')}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 单会话远端文件浏览器：工具栏 + 面包屑 + 文件列表 + 右键/对话框 + 传输面板 + 连接进度。
+ * 双栏时右栏与「左栏远端源」各渲染一个实例，能力完全一致（重构目标：不再有残缺的左栏远端分支）。
+ */
+const SftpPane = forwardRef<SftpPaneHandle, SftpPaneProps>(function SftpPane(
+  { sessionId, isActive = true, sftpConfig, dragMime = MIME_REMOTE, windowDragUploads = true, toolbarPrefix },
+  ref,
+) {
   const { t } = useTranslation();
   // UI 本地状态（从池中同步）
   const [currentPath, setCurrentPathLocal] = useState(sftpConfig?.remotePath || '/');
@@ -257,14 +358,8 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
   // 「用本机应用打开」的远程文件跟踪：临时下载到系统临时目录后交给默认程序，
   // 本地改动可一键回传（用户确认覆盖）
   const [openEdits, setOpenEdits] = useState<{ id: string; remotePath: string; localPath: string; name: string }[]>([]);
-  // 左栏远程源：另一台主机的 SFTP 会话（双主机 ⇄ 流式中转）
-  const [leftRemote, setLeftRemote] = useState<LeftRemoteInfo | null>(null);
-  const [leftBusy, setLeftBusy] = useState(false);
-  const [hostOptions, setHostOptions] = useState<{ id: string; name: string }[]>([]);
   const [promptState, setPromptState] = useState<{ mode: 'mkdir' | 'rename' | 'chmod'; value: string; itemName?: string } | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
-  // 双栏：右栏是否正被「本机文件拖入上传」
-  const [dragLocalOver, setDragLocalOver] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortAsc, setSortAsc] = useState(true);
   // 文件搜索状态
@@ -762,6 +857,9 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
     if (!sessionId) return;
     const dataTransfer = event.dataTransfer;
     if (!dataTransfer) return;
+    // 只认 OS 文件拖入（types 含 'Files'）。两栏内部的 MIME 拖拽（互传/流复制）由各栏落区接手，
+    // 绝不能在这里响应——否则内部拖拽会误报「未读取到拖拽的文件」。
+    if (!dataTransfer.types.includes('Files')) return;
     const dropped = await collectDroppedFiles(dataTransfer);
     if (dropped.files.length === 0) {
       toast.error(t('sftp.dropReadFailed'));
@@ -773,16 +871,19 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
   };
 
   useEffect(() => {
-    if (!isActive) return;
+    if (!isActive || !windowDragUploads) return;
 
     const handleDragEnter = (event: NativeDragEvent) => {
       event.preventDefault();
+      // 仅 OS 文件拖入才点亮拖拽遮罩；两栏内部 MIME 拖拽不触发上传 UI
+      if (!event.dataTransfer?.types.includes('Files')) return;
       dragDepthRef.current += 1;
       setIsDragOver(true);
     };
     const handleDragOver = (event: NativeDragEvent) => {
       event.preventDefault();
       if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+      if (!event.dataTransfer?.types.includes('Files')) return;
       setIsDragOver(true);
     };
     const handleDragLeave = (event: NativeDragEvent) => {
@@ -991,11 +1092,15 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
   };
 
   const handleDownloadSelected = async () => {
-    const selected = files.filter((file) => file.type !== 'directory' && selectedFiles.has(file.name));
+    const selected = files.filter((file) => selectedFiles.has(file.name));
     if (selected.length === 0 || !sessionId) return;
-    // 逐个下载（每个独立保存对话框 + 传输任务），失败不中断后续
+    // 逐个下载（每个独立保存对话框 + 传输任务），失败不中断后续；目录复用 handleDownloadDir
     for (const item of selected) {
-      await handleDownload(item);
+      if (item.type === 'directory') {
+        await handleDownloadDir(item);
+      } else {
+        await handleDownload(item);
+      }
     }
   };
 
@@ -1040,19 +1145,34 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
   };
 
   /** 双栏：把本机文件批量上传到当前远程目录（顺序执行，任一失败不中断）。 */
-  const uploadLocalToRemote = async (localPaths: string[]) => {
-    if (!sessionId) return;
+  /** 跨栏入口：按本地真实路径批量上传到当前目录（左栏「上传」与拖入本机文件共用）。 */
+  const uploadPaths = async (localPaths: string[]) => {
     await uploadByPaths(localPaths);
-    void loadFiles(currentPath);
+    await loadFiles(currentPath);
   };
 
-  /** 双栏：把远程文件下载到左栏当前目录（已有部分文件时询问续传）。
-   *  走标准 download 任务（进度/取消/SftpTransferPanel），失败仅标 error 任务 + toast。 */
-  const downloadRemoteToLocal = async (remoteName: string, localDir: string) => {
+  /** 跨栏入口：把当前目录条目下载/复制到指定本地目录（目录递归、文件走标准任务）。 */
+  const downloadTo = async (name: string, dir: string) => {
     if (!sessionId) return;
-    const item = files.find((f) => f.name === remoteName);
-    if (!item) throw new Error(`remote file not found: ${remoteName}`);
-    const target = await joinPath(localDir, remoteName);
+    const item = files.find((f) => f.name === name);
+    if (!item) throw new Error(`remote file not found: ${name}`);
+    if (item.type === 'directory') {
+      const remoteBase = joinRemotePath(item.name);
+      const localBase = `${dir.endsWith('/') || dir.endsWith('\\') ? dir : `${dir}/`}${item.name}`;
+      const results = { ok: 0, failed: [] as string[] };
+      await downloadDirRecursive(remoteBase, localBase, results);
+      if (results.ok > 0) toast.success(t('sftp.downloadedDir', { count: results.ok }));
+      if (results.failed.length > 0) {
+        toast.error(
+          t('sftp.downloadPartiallyFailed', {
+            first: results.failed[0],
+            more: results.failed.length > 1 ? t('sftp.downloadFailedMore', { count: results.failed.length }) : '',
+          }),
+        );
+      }
+      return;
+    }
+    const target = await joinPath(dir, item.name);
     let offset = 0;
     if (item.size > 0) {
       const localSize = await localFileSize(target).catch(() => 0);
@@ -1066,7 +1186,7 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
         if (resume) offset = localSize;
       }
     }
-    const remotePath = joinRemotePath(remoteName);
+    const remotePath = joinRemotePath(item.name);
     const cancelToken = `dl-${sessionId}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
     const taskId = addTransfer({
       name: item.name,
@@ -1088,7 +1208,7 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
       }
       updateTransfer(taskId, { status: 'done' });
       scheduleTransferDismiss(taskId);
-      toast.success(t('sftp.downloadedToLocal', { name: remoteName }));
+      toast.success(t('sftp.downloadedToLocal', { name: item.name }));
     } catch (error) {
       if (isCancelRequested(taskId)) {
         scheduleTransferDismiss(taskId);
@@ -1102,131 +1222,14 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
     }
   };
 
-  const leftRemoteRef = useRef<LeftRemoteInfo | null>(null);
-
-  // 左栏主机选择器选项（已保存主机）
-  useEffect(() => {
-    void getHosts()
-      .then((hs) => setHostOptions(hs.map((h) => ({ id: h.id, name: h.name }))))
-      .catch(() => setHostOptions([]));
-  }, []);
-
-  // 组件卸载时断开左栏远程会话
-  useEffect(
-    () => () => {
-      const cur = leftRemoteRef.current;
-      if (cur) void sftpDisconnect(cur.sessionId).catch(() => {});
+  // 跨栏操作句柄：组合层（SftpView）通过 ref 调用，实现左右栏互拖/上传
+  useImperativeHandle(ref, () => ({
+    uploadPaths,
+    downloadTo,
+    refresh: () => {
+      void loadFiles(currentPath);
     },
-    [],
-  );
-  useEffect(() => {
-    leftRemoteRef.current = leftRemote;
-  }, [leftRemote]);
-
-  /** 左栏连接另一台已保存主机（复用主机认证链路，含主机密钥确认）。 */
-  const attachLeftRemote = async (hostId: string) => {
-    if (!sessionId || leftBusy) return;
-    const host = (await getHosts()).find((h) => h.id === hostId);
-    if (!host) return;
-    if (leftRemote?.sessionId && leftRemote.hostName === host.name) return;
-    setLeftBusy(true);
-    const leftSid = `sftp-left-${Date.now()}`;
-    try {
-      if (leftRemote) {
-        try {
-          await sftpDisconnect(leftRemote.sessionId);
-        } catch {
-          /* 忽略旧会话清理失败 */
-        }
-        setLeftRemote(null);
-      }
-      const [accounts, keys, certs] = await Promise.all([
-        getAccounts().catch(() => []),
-        getKeys().catch(() => []),
-        getCertificates().catch(() => []),
-      ]);
-      const auth = resolveHostSshAuth(host, accounts, keys, certs);
-      if (auth.error) {
-        toast.warning(auth.error);
-        return;
-      }
-      if (auth.authType === 'certificate' || auth.authType === 'none') {
-        toast.warning(t('sftp.leftUnsupported'));
-        return;
-      }
-      const cfg = {
-        host: host.host,
-        port: host.port,
-        username: auth.username,
-        protocol: 'sftp',
-        auth_type: auth.authType === 'key' ? 'publickey' : 'password',
-        password: auth.password,
-        key_path: undefined,
-        key_id: auth.authType === 'key' ? auth.keyId : undefined,
-        passphrase: undefined,
-      };
-      let res = await sftpConnect(leftSid, cfg);
-      while (res.status === 'needsHostKeyApproval') {
-        const fingerprint = res.fingerprint ?? '';
-        const accepted = await dedupeHostKeyConfirm(
-          `${res.host}:${res.port}:${fingerprint}`,
-          () =>
-            ask(
-              t('connection.hostKeyBody', { host: res.host, port: res.port, fingerprint }),
-              {
-                title: t('connection.hostKeyTitle'),
-                okLabel: t('connection.trustAndConnect'),
-                cancelLabel: t('connection.decline'),
-                kind: 'warning',
-              },
-            ),
-        );
-        if (!accepted) throw new Error(t('connection.declinedHostKey'));
-        await acceptHostKey(res.hostKeyToken!, fingerprint);
-        res = await sftpConnect(leftSid, cfg);
-      }
-      if (res.status !== 'connected') {
-        throw new Error(t('connection.connectionFailedStatus', { status: res.status }));
-      }
-      setLeftRemote({ sessionId: leftSid, hostName: host.name });
-      toast.success(t('sftp.leftConnected', { host: host.name }));
-    } catch (e) {
-      console.error('Left remote connect failed:', e);
-      toast.error(String(e));
-      try {
-        await sftpDisconnect(leftSid);
-      } catch {
-        /* ignore */
-      }
-    } finally {
-      setLeftBusy(false);
-    }
-  };
-
-  /** 断开左栏远程源，回到本机目录。 */
-  const releaseLeftRemote = async () => {
-    const cur = leftRemote;
-    setLeftRemote(null);
-    if (cur) {
-      try {
-        await sftpDisconnect(cur.sessionId);
-      } catch {
-        /* ignore */
-      }
-    }
-  };
-
-  /** 右栏文件进入左栏：左栏为远程 → 流式复制；左栏为本机 → 下载到本机目录。 */
-  const handleFileFromRight = async (name: string, dir: string) => {
-    if (!sessionId) return;
-    if (leftRemote) {
-      const dst = dir === '/' || dir === '' ? `/${name}` : `${dir}/${name}`;
-      await sftpStreamCopy(sessionId, joinRemotePath(name), leftRemote.sessionId, dst);
-      toast.success(t('sftp.streamCopied', { name }));
-    } else {
-      await downloadRemoteToLocal(name, dir);
-    }
-  };
+  }));
 
   const handleDelete = async (item: FileItem) => {
     if (!sessionId) return;
@@ -1449,8 +1452,8 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
   // 面包屑分段
   const pathSegments = currentPath.split('/').filter(Boolean);
 
-  // 选中的「文件」数（排除目录）：下载只作用于文件，避免选中目录时下载按钮/计数误报
-  const selectedFileCount = files.filter((f) => f.type !== 'directory' && selectedFiles.has(f.name)).length;
+  // 选中条目数（含目录：目录走 handleDownloadDir 复用文件夹下载）
+  const selectedFileCount = files.filter((f) => selectedFiles.has(f.name)).length;
   const canOpenLocal =
     selectedFileCount === 1 && !!files.find((f) => f.type !== 'directory' && selectedFiles.has(f.name));
 
@@ -1460,9 +1463,13 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
     );
   }
 
+  // FTP：无 POSIX 权限、LIST 亦不可靠给修改时间 → 隐藏权限列/修改时间列/chmod（含右键）
+  const isFtp = (sftpConfig.protocol || 'sftp').toLowerCase() === 'ftp';
+  const listCols = isFtp ? LIST_COLS_FTP : LIST_COLS_PERM;
+
   return (
     <div
-      className="relative flex h-full w-full flex-col"
+      className="@container relative flex h-full w-full flex-col"
       style={{ width: '100%', height: '100%', overflow: 'hidden', boxSizing: 'border-box' }}
     >
       {/* 本标签的传输面板（按 sessionId 隔离，切走隐藏、切回保留） */}
@@ -1477,58 +1484,10 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
           onCancel={isConnectingState ? handleCancelConnection : undefined}
         />
       ) : (
-        <div className="flex h-full min-h-0">
-          {/* 左栏：本机目录（双栏 SFTP：本机 ⇄ 远程同屏） */}
-          <LocalBrowser
-            leftRemote={leftRemote}
-            leftBusy={leftBusy}
-            hostOptions={hostOptions}
-            onPickHost={(hostId) => void attachLeftRemote(hostId)}
-            onReleaseRemote={() => void releaseLeftRemote()}
-            onUploadFiles={uploadLocalToRemote}
-            onFileFromRight={handleFileFromRight}
-          />
-          {/* 右栏：远程文件（既有工具栏/列表逻辑）；接收本机/左栏远程拖入 */}
-          <div
-            className={cn(
-              'flex h-full min-w-0 flex-1 flex-col border-l border-border',
-              dragLocalOver && 'bg-primary/5',
-            )}
-            onDragOver={(e) => {
-              if (e.dataTransfer.types.includes(MIME_LOCAL) || e.dataTransfer.types.includes(MIME_LEFT_REMOTE)) {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'copy';
-                setDragLocalOver(true);
-              }
-            }}
-            onDragLeave={() => setDragLocalOver(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragLocalOver(false);
-              // 本机文件 → 直接上传到右栏当前目录
-              const rawLocal = e.dataTransfer.getData(MIME_LOCAL);
-              if (rawLocal) {
-                void uploadLocalToRemote(rawLocal.split('\n').filter(Boolean));
-                return;
-              }
-              // 左栏为另一台主机 → 流式复制到右栏当前目录（不落本地磁盘）
-              const rawLeftRemote = e.dataTransfer.getData(MIME_LEFT_REMOTE);
-              if (rawLeftRemote && leftRemote && sessionId) {
-                void (async () => {
-                  try {
-                    const name = rawLeftRemote.split('/').filter(Boolean).pop() ?? 'file';
-                    await sftpStreamCopy(leftRemote.sessionId, rawLeftRemote, sessionId, joinRemotePath(name));
-                    toast.success(t('sftp.streamCopied', { name }));
-                    void loadFiles(currentPath);
-                  } catch (err) {
-                    toast.error(String(err));
-                  }
-                })();
-              }
-            }}
-          >
+        <>
           {/* 工具栏 */}
           <div className="flex items-center gap-2 border-b border-border bg-muted p-3">
+            {toolbarPrefix}
             <div className="flex items-center gap-1">
               <Button
                 variant="ghost"
@@ -1553,10 +1512,11 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
               </Button>
             </div>
 
-            {/* 当前路径（面包屑，点击分段跳转）。
-                超宽内容在容器内部横向滚动（shadcn ScrollArea，可见主题化 thumb）。 */}
-            <ScrollArea className="h-9 min-w-0 flex-1 rounded-md border border-border bg-background text-sm">
-              <div className="flex h-9 w-max items-center gap-0.5 whitespace-nowrap px-3">
+            {/* 当前路径（面包屑，点击分段跳转）；超宽直接裁掉（overflow-x-hidden），不用滚动容器 */}
+            <div
+              className="flex h-9 min-w-0 flex-1 items-center gap-0.5 overflow-x-hidden whitespace-nowrap rounded-md border border-border bg-background px-3 text-sm"
+              title={currentPath}
+            >
                 <span className="shrink-0 text-muted-foreground">{sftpConfig.host}:</span>
                 <button
                   type="button"
@@ -1586,12 +1546,10 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
                     </span>
                   );
                 })}
-              </div>
-              <ScrollBar orientation="horizontal" />
-            </ScrollArea>
+            </div>
 
-            {/* 操作按钮 */}
-            <div className="flex items-center gap-1">
+            {/* 操作按钮：宽屏完整组；窄栏（容器查询）收进「更多操作」二级菜单，不再溢出 */}
+            <div className="hidden items-center gap-1 @[560px]:flex">
               <Button
                 size="sm"
                 onClick={handleUploadClick}
@@ -1642,6 +1600,38 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
                 {t('sftp.newFolder')}
               </Button>
             </div>
+            <div className="flex items-center gap-1 @[560px]:hidden">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" title={t('common.moreActions')}>
+                    <IconMoreHorizontal size={18} strokeWidth={2} />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem onClick={() => void handleUploadClick()} disabled={!sessionId}>
+                    <IconUpload size={15} className="mr-2" /> {t('sftp.uploadFile')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void handleDownloadSelected()} disabled={selectedFileCount === 0}>
+                    <IconDownload size={15} className="mr-2" /> {t('sftp.downloadSelected')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      const target = files.find((f) => f.type !== 'directory' && selectedFiles.has(f.name));
+                      if (target) void handleOpenWithLocal(target);
+                    }}
+                    disabled={!canOpenLocal}
+                  >
+                    <IconExternalLink size={15} className="mr-2" /> {t('sftp.openWithLocal')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleOpenSearch}>
+                    <IconSearch size={15} className="mr-2" /> {t('sftp.search')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleCreateDir}>
+                    <IconFolderPlus size={15} className="mr-2" /> {t('sftp.newFolder')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
           <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileSelected} />
 
@@ -1682,7 +1672,10 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
           {/* 文件列表（支持拖拽上传到当前目录，空白区右键快捷操作） */}
           <ContextMenu>
             <ContextMenuTrigger asChild>
-              <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div
+                className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+                data-custom-contextmenu
+              >
                 {isDragOver && (
                   <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-primary/5">
                     <div className="flex flex-col items-center gap-1.5 rounded-xl border-2 border-dashed border-primary/40 bg-background/80 px-8 py-5">
@@ -1724,7 +1717,7 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
                     <div
                       className={cn(
                         'grid h-9 shrink-0 items-center gap-2 border-b border-border px-3 text-xs font-medium text-muted-foreground',
-                        LIST_COLS_ACTIONS,
+                        listCols,
                       )}
                     >
                       <span className="min-w-0" />
@@ -1744,16 +1737,17 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
                         <span className="truncate">{t('sftp.tableSize')}</span>
                         <span className="shrink-0">{sortIndicator('size')}</span>
                       </button>
-                      <button
-                        type="button"
-                        className="flex min-w-0 items-center gap-1 overflow-hidden text-left transition-colors hover:text-foreground"
-                        onClick={() => toggleSort('modified')}
-                      >
-                        <span className="truncate">{t('sftp.tableModified')}</span>
-                        <span className="shrink-0">{sortIndicator('modified')}</span>
-                      </button>
-                      <span className="truncate">{t('sftp.tablePermissions')}</span>
-                      <span className="truncate text-right">{t('common.actions')}</span>
+                      {!isFtp && (
+                        <button
+                          type="button"
+                          className="flex min-w-0 items-center gap-1 overflow-hidden text-left transition-colors hover:text-foreground"
+                          onClick={() => toggleSort('modified')}
+                        >
+                          <span className="truncate">{t('sftp.tableModified')}</span>
+                          <span className="shrink-0">{sortIndicator('modified')}</span>
+                        </button>
+                      )}
+                      {!isFtp && <span className="truncate">{t('sftp.tablePermissions')}</span>}
                     </div>
                       {sortedFiles.map((file) => {
                         const multiSelected = selectedFiles.has(file.name) && selectedFiles.size > 1;
@@ -1763,17 +1757,16 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
                             <ContextMenuTrigger asChild>
                             <div
                               draggable={file.type !== 'directory'}
+                              onContextMenu={(e) => {
+                                // 行右键只开行级菜单：阻断冒泡到外层「空白区」ContextMenuTrigger，
+                                // 否则两个嵌套 trigger 都响应 contextmenu，外层后开会把行菜单顶掉
+                                e.stopPropagation();
+                              }}
                               onDragStart={(e) => {
                                 if (file.type === 'directory') return;
-                                e.dataTransfer.setData(MIME_REMOTE, file.name);
+                                e.dataTransfer.setData(dragMime, file.name);
                                 e.dataTransfer.setData('text/plain', file.name);
                                 e.dataTransfer.effectAllowed = 'copy';
-                              }}
-                              onClick={(e) => {
-                                // 行级单击仅选中文件（目录靠双击进入）；落在复选框/操作按钮上不抢（避免二次切换）
-                                if (file.type === 'directory') return;
-                                if ((e.target as HTMLElement).closest('button')) return;
-                                toggleSelection(file.name);
                               }}
                               onDoubleClick={(e) => {
                                 // 双击落在交互元素（复选框/操作按钮）上时不触发行级双击，避免与单击冲突
@@ -1782,7 +1775,7 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
                               }}
                               className={cn(
                                 'group grid min-h-9 items-center gap-2 border-b border-border/70 px-3 text-sm transition-colors',
-                                LIST_COLS_ACTIONS,
+                                listCols,
                                 selected ? 'bg-primary/10 hover:bg-primary/10' : 'hover:bg-accent/40',
                               )}
                             >
@@ -1803,55 +1796,19 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
                               <div className="min-w-0 truncate text-sm tabular-nums text-muted-foreground">
                                 {file.type === 'directory' ? '—' : formatFileSize(file.size)}
                               </div>
-                              <div className="min-w-0 truncate text-sm text-muted-foreground" title={file.modified}>
-                                {file.modified.trim() && file.modified !== '-' ? file.modified : '—'}
-                              </div>
-                              <div
-                                className="min-w-0 truncate font-mono text-sm text-muted-foreground"
-                                title={file.permissions}
-                              >
-                                {file.permissions.trim() && file.permissions !== '-' ? file.permissions : '—'}
-                              </div>
-                              <div className="flex min-w-0 items-center justify-end gap-1 overflow-hidden opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                                {file.type !== 'directory' && (
-                                  <Button
-                                    variant="ghost"
-                                    size="icon-xs"
-                                    className="text-muted-foreground"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleDownload(file);
-                                    }}
-                                    title={t('sftp.download')}
-                                  >
-                                    <IconDownload size={14} strokeWidth={2} />
-                                  </Button>
-                                )}
-                                <Button
-                                  variant="ghost"
-                                  size="icon-xs"
-                                  className="text-muted-foreground"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleRename(file);
-                                  }}
-                                  title={t('sftp.rename')}
+                              {!isFtp && (
+                                <div className="min-w-0 truncate text-sm text-muted-foreground" title={file.modified}>
+                                  {file.modified.trim() && file.modified !== '-' ? file.modified : '—'}
+                                </div>
+                              )}
+                              {!isFtp && (
+                                <div
+                                  className="min-w-0 truncate font-mono text-sm text-muted-foreground"
+                                  title={file.permissions}
                                 >
-                                  <IconPencil size={14} strokeWidth={2} />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon-xs"
-                                  className="text-destructive"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDelete(file);
-                                  }}
-                                  title={t('common.delete')}
-                                >
-                                  <IconTrash size={14} strokeWidth={2} />
-                                </Button>
-                              </div>
+                                  {file.permissions.trim() && file.permissions !== '-' ? file.permissions : '—'}
+                                </div>
+                              )}
                             </div>
                             </ContextMenuTrigger>
                             <ContextMenuContent className="w-52">
@@ -1889,9 +1846,11 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
                               <ContextMenuItem onClick={() => handleRename(file)}>
                                 <IconPencil size={15} className="mr-2" /> {t('sftp.rename')}
                               </ContextMenuItem>
-                              <ContextMenuItem onClick={() => handleChmod(file)}>
-                                <IconShield size={15} className="mr-2" /> {t('sftp.chmod')}
-                              </ContextMenuItem>
+                              {!isFtp && (
+                                <ContextMenuItem onClick={() => handleChmod(file)}>
+                                  <IconShield size={15} className="mr-2" /> {t('sftp.chmod')}
+                                </ContextMenuItem>
+                              )}
                               <ContextMenuItem
                                 className="text-destructive"
                                 onClick={() => void handleDelete(file)}
@@ -1927,8 +1886,7 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
               )}
             </ContextMenuContent>
           </ContextMenu>
-        </div>
-      </div>
+        </>
       )}
 
       {/* 新建目录 / 重命名 / 修改权限 输入对话框 */}
@@ -1943,21 +1901,28 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
                   : t('sftp.chmodTitle')}
             </DialogTitle>
           </DialogHeader>
-          <Input
-            autoFocus
-            value={promptState?.value ?? ''}
-            onChange={(e) => setPromptState((prev) => (prev ? { ...prev, value: e.target.value } : prev))}
-            placeholder={
-              promptState?.mode === 'mkdir'
-                ? t('sftp.inputDirName')
-                : promptState?.mode === 'rename'
-                  ? t('sftp.inputNewName')
-                  : t('sftp.chmodPlaceholder')
-            }
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') confirmPrompt();
-            }}
-          />
+          {promptState?.mode === 'chmod' ? (
+            <ChmodMatrix
+              value={promptState?.value || '755'}
+              onChange={(octal) => setPromptState((prev) => (prev ? { ...prev, value: octal } : prev))}
+            />
+          ) : (
+            <Input
+              autoFocus
+              value={promptState?.value ?? ''}
+              onChange={(e) => setPromptState((prev) => (prev ? { ...prev, value: e.target.value } : prev))}
+              placeholder={
+                promptState?.mode === 'mkdir'
+                  ? t('sftp.inputDirName')
+                  : promptState?.mode === 'rename'
+                    ? t('sftp.inputNewName')
+                    : t('sftp.chmodPlaceholder')
+              }
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') confirmPrompt();
+              }}
+            />
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setPromptState(null)}>
               {t('common.cancel')}
@@ -2023,6 +1988,269 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+});
+
+/** 双栏 SFTP 视图：左栏（本机 ⇄ 另一台主机）+ 右栏远端，两侧各渲染一个能力对等的 SftpPane。 */
+export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewProps) {
+  const { t } = useTranslation();
+  const rightPaneRef = useRef<SftpPaneHandle>(null);
+
+  // 左栏远程源：解析认证后交给 SftpPane 自管连接（进度/主机密钥/重连全套复用右栏逻辑）
+  const [leftRemote, setLeftRemote] = useState<{
+    sessionId: string;
+    hostName: string;
+    config: NonNullable<SftpViewProps['sftpConfig']>;
+  } | null>(null);
+  const [leftBusy, setLeftBusy] = useState(false);
+  const [hostOptions, setHostOptions] = useState<{ id: string; name: string }[]>([]);
+  // 拖拽高亮：右栏被拖入（本机/左栏远端）；左栏远端被拖入（右栏文件）
+  const [dragLocalOver, setDragLocalOver] = useState(false);
+  const [dragRightOver, setDragRightOver] = useState(false);
+
+  // 左栏主机选择器选项（已保存主机）
+  useEffect(() => {
+    void getHosts()
+      .then((hs) => setHostOptions(hs.map((h) => ({ id: h.id, name: h.name }))))
+      .catch(() => setHostOptions([]));
+  }, []);
+
+  // 组件卸载时断开左栏远程会话
+  const leftRemoteRef = useRef(leftRemote);
+  useEffect(() => {
+    leftRemoteRef.current = leftRemote;
+  }, [leftRemote]);
+  useEffect(
+    () => () => {
+      const cur = leftRemoteRef.current;
+      if (cur) void sftpDisconnect(cur.sessionId).catch(() => {});
+    },
+    [],
+  );
+
+  /** 左栏连接另一台已保存主机：解析认证 → 组配置 → SftpPane 接管连接流程。 */
+  const attachLeftRemote = async (hostId: string) => {
+    if (!sessionId || leftBusy) return;
+    const host = (await getHosts()).find((h) => h.id === hostId);
+    if (!host) return;
+    if (leftRemote?.hostName === host.name) return;
+    setLeftBusy(true);
+    try {
+      if (leftRemote) {
+        try {
+          await sftpDisconnect(leftRemote.sessionId);
+        } catch {
+          /* 忽略旧会话清理失败 */
+        }
+        setLeftRemote(null);
+      }
+      const [accounts, keys, certs] = await Promise.all([
+        getAccounts().catch(() => []),
+        getKeys().catch(() => []),
+        getCertificates().catch(() => []),
+      ]);
+      const auth = resolveHostSshAuth(host, accounts, keys, certs);
+      if (auth.error) {
+        toast.warning(auth.error);
+        return;
+      }
+      if (auth.authType === 'certificate' || auth.authType === 'none') {
+        toast.warning(t('sftp.leftUnsupported'));
+        return;
+      }
+      setLeftRemote({
+        sessionId: `sftp-left-${Date.now()}`,
+        hostName: host.name,
+        config: {
+          name: host.name,
+          host: host.host,
+          port: host.port,
+          username: auth.username,
+          protocol: 'sftp',
+          authType: auth.authType === 'key' ? 'publickey' : 'password',
+          password: auth.password,
+          keyId: auth.authType === 'key' ? auth.keyId : undefined,
+          remotePath: '/',
+        },
+      });
+    } finally {
+      setLeftBusy(false);
+    }
+  };
+
+  /** 断开左栏远程源，回到本机目录。 */
+  const releaseLeftRemote = async () => {
+    const cur = leftRemote;
+    setLeftRemote(null);
+    if (cur) {
+      try {
+        await sftpDisconnect(cur.sessionId);
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+
+  /** 右栏文件拖入左栏（本机模式）：下载到左栏当前目录。 */
+  const handleFileFromRight = async (name: string, dir: string) => {
+    await rightPaneRef.current?.downloadTo(name, dir);
+  };
+
+  /** 右栏文件拖入左栏（远端模式）：流式复制到左栏当前目录（不落本地磁盘）。 */
+  const handleRemoteDropToLeft = async (name: string) => {
+    if (!sessionId || !leftRemote) return;
+    const srcBase = getCurrentPath(sessionId) || '/';
+    const src = srcBase === '/' ? `/${name}` : `${srcBase}/${name}`;
+    const dstBase = getCurrentPath(leftRemote.sessionId) || '/';
+    const dst = dstBase === '/' ? `/${name}` : `${dstBase}/${name}`;
+    await sftpStreamCopy(sessionId, src, leftRemote.sessionId, dst);
+    toast.success(t('sftp.streamCopied', { name }));
+  };
+
+  /** 左栏远端文件拖入右栏：流式复制到右栏当前目录（不落本地磁盘）。 */
+  const handleLeftRemoteDropToRight = async (raw: string) => {
+    if (!sessionId || !leftRemote) return;
+    const name = raw.split('/').filter(Boolean).pop() ?? 'file';
+    const dstBase = getCurrentPath(sessionId) || '/';
+    const dst = dstBase === '/' ? `/${name}` : `${dstBase}/${name}`;
+    await sftpStreamCopy(leftRemote.sessionId, raw, sessionId, dst);
+    toast.success(t('sftp.streamCopied', { name }));
+    rightPaneRef.current?.refresh();
+  };
+
+  return (
+    <div className="flex h-full min-h-0 w-full">
+      {/* 左栏：本机目录 ⇄ 另一台主机（远端时渲染完整 SftpPane，能力与右栏对等） */}
+      {leftRemote ? (
+        <div
+          className={cn(
+            'flex h-full w-0 min-w-0 flex-1 flex-col',
+            dragRightOver && 'ring-2 ring-inset ring-primary/40',
+          )}
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes(MIME_REMOTE)) {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'copy';
+              setDragRightOver(true);
+            }
+          }}
+          onDragLeave={() => setDragRightOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragRightOver(false);
+            const names = e.dataTransfer.getData(MIME_REMOTE);
+            if (!names) return;
+            void (async () => {
+              for (const name of names.split('\n').filter(Boolean)) {
+                try {
+                  await handleRemoteDropToLeft(name);
+                } catch (err) {
+                  toast.error(String(err));
+                }
+              }
+            })();
+          }}
+        >
+          <SftpPane
+            key={leftRemote.sessionId}
+            sessionId={leftRemote.sessionId}
+            sftpConfig={leftRemote.config}
+            isActive
+            dragMime={MIME_LEFT_REMOTE}
+            windowDragUploads={false}
+            toolbarPrefix={
+              /* 源切换（本机 ⇄ 已存主机）：仅一个图标按钮，内嵌工具栏保持两栏对等 */
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0"
+                    disabled={leftBusy}
+                    title={leftRemote.hostName}
+                  >
+                    {leftBusy ? (
+                      <IconLoader size={16} className="animate-spin" />
+                    ) : (
+                      <IconServer size={16} strokeWidth={2} />
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-60">
+                  <DropdownMenuLabel>{t('sftp.sourcePicker')}</DropdownMenuLabel>
+                  <DropdownMenuItem onClick={() => void releaseLeftRemote()}>
+                    <IconDrive size={14} className="mr-2" />
+                    {t('sftp.sourceLocal')}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {hostOptions.map((h) => (
+                    <DropdownMenuItem
+                      key={h.id}
+                      onClick={() => void attachLeftRemote(h.id)}
+                      disabled={leftRemote.hostName === h.name}
+                    >
+                      <IconServer size={14} className="mr-2" />
+                      <span className="min-w-0 flex-1 truncate">{h.name}</span>
+                    </DropdownMenuItem>
+                  ))}
+                  {hostOptions.length === 0 && (
+                    <DropdownMenuItem disabled>{t('sftp.sourceNoHosts')}</DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            }
+          />
+        </div>
+      ) : (
+        <LocalBrowser
+          hostOptions={hostOptions}
+          onPickHost={(hostId) => void attachLeftRemote(hostId)}
+          onUploadFiles={async (paths) => {
+            await rightPaneRef.current?.uploadPaths(paths);
+          }}
+          onFileFromRight={handleFileFromRight}
+        />
+      )}
+
+      {/* 右栏：远端主会话；接收本机/左栏远端拖入 */}
+      <div
+        className={cn(
+          'flex h-full min-w-0 flex-1 flex-col border-l border-border',
+          dragLocalOver && 'bg-primary/5',
+        )}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes(MIME_LOCAL) || e.dataTransfer.types.includes(MIME_LEFT_REMOTE)) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+            setDragLocalOver(true);
+          }
+        }}
+        onDragLeave={() => setDragLocalOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragLocalOver(false);
+          // 本机文件 → 直接上传到右栏当前目录
+          const rawLocal = e.dataTransfer.getData(MIME_LOCAL);
+          if (rawLocal) {
+            void rightPaneRef.current?.uploadPaths(rawLocal.split('\n').filter(Boolean));
+            return;
+          }
+          // 左栏为另一台主机 → 流式复制到右栏当前目录（不落本地磁盘）
+          const rawLeftRemote = e.dataTransfer.getData(MIME_LEFT_REMOTE);
+          if (rawLeftRemote) {
+            void handleLeftRemoteDropToRight(rawLeftRemote);
+          }
+        }}
+      >
+        <SftpPane
+          ref={rightPaneRef}
+          sessionId={sessionId}
+          sftpConfig={sftpConfig}
+          isActive={isActive}
+          dragMime={MIME_REMOTE}
+        />
+      </div>
     </div>
   );
 }

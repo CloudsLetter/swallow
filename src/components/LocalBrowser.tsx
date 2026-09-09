@@ -10,37 +10,35 @@ import {
   Upload as IconUpload,
   HardDrive as IconDrive,
   ChevronDown as IconChevronDown,
-  Loader2 as IconLoader,
+  ChevronRight as IconChevronRight,
+  FolderOpen as IconFolderOpen,
+  ExternalLink as IconOpen,
+  ClipboardCopy as IconCopy,
   Server as IconServer,
 } from 'lucide-react';
 import { homeDir } from '@tauri-apps/api/path';
+import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { ScrollArea } from './ui/scroll-area';
 import { Button } from './ui/button';
 import { Checkbox } from './ui/checkbox';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from './ui/context-menu';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { listLocalDirectory, MIME_LOCAL, MIME_LEFT_REMOTE, MIME_REMOTE, type LocalDirListing } from '../services/localFs';
-import { sftpListDir } from '../services/sessionService';
-import { LIST_COLS, LIST_COLS_PERM } from './sftpListColumns';
-import type { FileItem } from './sftpPool';
-
-export interface LeftRemoteInfo {
-  sessionId: string;
-  hostName: string;
-}
+import { listLocalDirectory, MIME_LOCAL, MIME_REMOTE, type LocalDirListing } from '../services/localFs';
+import { LIST_COLS } from './sftpListColumns';
 
 interface LocalBrowserProps {
-  /** 非 null = 左栏显示另一台主机的 SFTP；null = 本机目录 */
-  leftRemote: LeftRemoteInfo | null;
-  leftBusy: boolean;
   hostOptions: { id: string; name: string }[];
-  /** 点击某台已保存主机（发起连接） */
+  /** 点击某台已保存主机（左栏切到远端源，由父级渲染 SftpPane） */
   onPickHost: (hostId: string) => void;
-  /** 断开左栏远程源，回到本机 */
-  onReleaseRemote: () => void;
-  /** 本机选中文件 → 上传到远程当前目录（仅本机模式） */
+  /** 本机选中文件 → 上传到远程当前目录（走右栏传输管线） */
   onUploadFiles: (localPaths: string[]) => Promise<void>;
-  /** 右栏文件拖入左栏：dir 为左栏当前目录（本机路径或另一台主机路径），由父级路由下载/流式复制 */
+  /** 右栏文件拖入左栏：dir 为本机当前目录，由父级路由下载 */
   onFileFromRight: (name: string, dir: string) => Promise<void>;
 }
 
@@ -50,9 +48,7 @@ interface Row {
   isDir: boolean;
   sizeText: string;
   mtime: string;
-  /** 本机无；另一台主机的远端文件为权限串（如 755 / drwxr-xr-x），未知为 '-'/'—' */
-  permsText: string;
-  /** 本机文件绝对路径 / 左栏远程文件的远端完整路径（用于拖拽） */
+  /** 本机文件绝对路径（用于拖拽） */
   fullPath: string;
 }
 
@@ -68,38 +64,59 @@ function fmtTime(secs: number): string {
   return new Date(secs * 1000).toLocaleString();
 }
 
-/** 空/未知时间或权限 → '—'，避免出现整列空白。 */
+/** 空时间 → '—'，避免出现整列空白。 */
 function cellText(v: string | undefined): string {
   const s = (v ?? '').trim();
   return s && s !== '-' ? s : '—';
 }
 
-/** 远端路径拼接（父目录或目标路径）。 */
-function joinRemote(parent: string, name: string): string {
-  if (parent === '/' || parent === '') return `/${name}`;
-  return `${parent.endsWith('/') ? parent : `${parent}/`}${name}`;
+/** 本机路径分段（供面包屑逐级跳转）：每段携带「点到该级时的目标路径」。
+ *  支持 Windows 盘符（C:\...）、UNC（\\srv\share）、POSIX（/a/b）。 */
+function localPathSegments(p: string): { name: string; target: string }[] {
+  const out: { name: string; target: string }[] = [];
+  if (p.startsWith('/')) {
+    let acc = '';
+    for (const part of p.split('/').filter(Boolean)) {
+      acc = `${acc}/${part}`;
+      out.push({ name: part, target: acc });
+    }
+    return out;
+  }
+  if (p.startsWith('\\\\')) {
+    const parts = p.split('\\').filter(Boolean);
+    let acc = '\\\\';
+    parts.forEach((part, i) => {
+      acc = `${acc}${part}${i < parts.length - 1 ? '\\' : ''}`;
+      out.push({ name: part, target: acc });
+    });
+    return out;
+  }
+  const parts = p.split(/[\\/]/).filter(Boolean);
+  if (parts.length && /^[A-Za-z]:$/.test(parts[0])) {
+    let acc = `${parts[0]}\\`;
+    out.push({ name: parts[0], target: acc });
+    for (let i = 1; i < parts.length; i++) {
+      acc = `${acc}${parts[i]}\\`;
+      out.push({ name: parts[i], target: acc });
+    }
+    return out;
+  }
+  let acc = '';
+  for (const part of parts) {
+    acc = acc ? `${acc}\\${part}` : part;
+    out.push({ name: part, target: acc });
+  }
+  return out;
 }
 
-/** 远端父目录（根返回 null）。 */
-function remoteParent(p: string): string | null {
-  if (!p || p === '/') return null;
-  const trimmed = p.endsWith('/') ? p.slice(0, -1) : p;
-  const idx = trimmed.lastIndexOf('/');
-  return idx <= 0 ? '/' : trimmed.slice(0, idx);
-}
-
-/** SFTP 双栏左侧：本机目录 ⇄ 另一台主机的 SFTP（表格样式与右栏一致，各占 50%）。 */
+/** SFTP 双栏左侧：纯本机目录浏览（左栏为远端源时由父级渲染 SftpPane，不再有残缺的远端分支）。 */
 export function LocalBrowser({
-  leftRemote,
-  leftBusy,
   hostOptions,
   onPickHost,
-  onReleaseRemote,
   onUploadFiles,
   onFileFromRight,
 }: LocalBrowserProps) {
   const { t } = useTranslation();
-  const isRemoteMode = !!leftRemote;
 
   const [path, setPath] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
@@ -109,77 +126,48 @@ export function LocalBrowser({
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [dragRemoteOver, setDragRemoteOver] = useState(false);
 
-  const load = useCallback(
-    async (dir: string | null | undefined) => {
-      setLoading(true);
-      setError('');
-      try {
-        if (isRemoteMode && leftRemote) {
-          const target = dir == null ? '/' : dir;
-          const items = await sftpListDir(leftRemote.sessionId, target);
-          setRows(
-            items.map((it: FileItem) => ({
-              key: it.name,
-              name: it.name,
-              isDir: it.type === 'directory',
-              sizeText: it.type === 'directory' ? '—' : fmtSize(it.size),
-              mtime: it.modified,
-              permsText: it.permissions,
-              fullPath: joinRemote(target, it.name),
-            })),
-          );
-          setParentPath(remoteParent(target));
-          setPath(target);
-        } else {
-          const res: LocalDirListing = await listLocalDirectory(dir ?? '');
-          setRows(
-            res.entries.map((e) => ({
-              key: e.path,
-              name: e.name,
-              isDir: e.isDir,
-              sizeText: e.isDir ? '—' : fmtSize(e.size),
-              mtime: e.modified ? fmtTime(e.modified) : '',
-              permsText: '',
-              fullPath: e.path,
-            })),
-          );
-          setParentPath(res.parent);
-          setPath(res.path);
-        }
-        setSel(new Set());
-      } catch (e) {
-        setError(String(e));
-      } finally {
-        setLoading(false);
-      }
-    },
-    [isRemoteMode, leftRemote],
-  );
+  const load = useCallback(async (dir: string | null | undefined) => {
+    setLoading(true);
+    setError('');
+    try {
+      const res: LocalDirListing = await listLocalDirectory(dir ?? '');
+      setRows(
+        res.entries.map((e) => ({
+          key: e.path,
+          name: e.name,
+          isDir: e.isDir,
+          sizeText: e.isDir ? '—' : fmtSize(e.size),
+          mtime: e.modified ? fmtTime(e.modified) : '',
+          fullPath: e.path,
+        })),
+      );
+      setParentPath(res.parent);
+      setPath(res.path);
+      setSel(new Set());
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  // 模式切换或首挂载：定位到本机主目录 / 远端根目录
+  // 首挂载：定位到本机主目录
   useEffect(() => {
-    if (isRemoteMode && leftRemote) {
-      void load('/');
-      return;
-    }
-    if (!loading && !isRemoteMode) {
-      void homeDir()
-        .then((h) => load(h))
-        .catch(() => load(null));
-    }
+    void homeDir()
+      .then((h) => load(h))
+      .catch(() => load(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isRemoteMode, leftRemote?.sessionId]);
+  }, []);
 
   const goUp = () => void load(parentPath);
-  const goHome = () => (isRemoteMode ? void load('/') : void load(null));
+  const goHome = () => void load(null);
 
   const selectedLocalPaths = useMemo(
     () => rows.filter((r) => !r.isDir && sel.has(r.name)).map((r) => r.fullPath),
     [rows, sel],
   );
 
-  const toggleSelect = (name: string, isDir: boolean) => {
-    if (isDir) return;
+  const toggleSelect = (name: string) => {
     setSel((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name);
@@ -198,7 +186,7 @@ export function LocalBrowser({
     }
   };
 
-  /** 右栏（远程）行拖入左栏 */
+  /** 右栏（远程）行拖入左栏：下载到本机当前目录 */
   const handleFileFromRightDrop = async (e: DragEvent) => {
     const data = e.dataTransfer.getData(MIME_REMOTE);
     if (!data) return;
@@ -216,55 +204,54 @@ export function LocalBrowser({
     }
   };
 
-  /** 左栏行拖出（本机文件 → MIME_LOCAL；另一台主机文件 → MIME_LEFT_REMOTE 携带远端路径） */
+  /** 左栏行拖出：本机文件 → MIME_LOCAL */
   const handleDragStart = (e: DragEvent, row: Row) => {
     if (row.isDir) return;
-    e.dataTransfer.setData(isRemoteMode ? MIME_LEFT_REMOTE : MIME_LOCAL, row.fullPath);
+    e.dataTransfer.setData(MIME_LOCAL, row.fullPath);
     e.dataTransfer.setData('text/plain', row.fullPath);
     e.dataTransfer.effectAllowed = 'copy';
   };
 
   const label = path && path.length > 64 ? `…${path.slice(-60)}` : path;
+  // 面包屑分段（本机：C:\a\b → 各级可点击跳转）
+  const localSegs = path ? localPathSegments(path) : [];
+
+  const copyLocalPath = async (p: string) => {
+    try {
+      await navigator.clipboard.writeText(p);
+      toast.success(t('sftp.copyLocalPath'));
+    } catch {
+      toast.error(t('common.copyFailed'));
+    }
+  };
+  const openLocalFile = (p: string) => openPath(p).catch((e) => toast.error(String(e)));
+  const revealLocal = (p: string) => revealItemInDir(p).catch((e) => toast.error(String(e)));
+  const uploadSingle = async (p: string) => {
+    try {
+      await onUploadFiles([p]);
+      setSel(new Set());
+    } catch (e) {
+      console.error('Local single upload failed:', e);
+    }
+  };
 
   return (
-    <div className="flex h-full w-0 min-w-0 flex-1 flex-col">
+    <div className="@container flex h-full w-0 min-w-0 flex-1 flex-col">
       {/* 栏头：与右栏工具栏同构；源可切「本机 / 已存主机」 */}
       <div className="flex items-center gap-2 border-b border-border bg-muted p-3">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 shrink-0 gap-1"
-              disabled={leftBusy}
-              title={leftBusy ? t('sftp.leftConnecting') : undefined}
-            >
-              {leftBusy ? (
-                <IconLoader size={15} className="animate-spin" />
-              ) : isRemoteMode ? (
-                <IconServer size={15} strokeWidth={2} />
-              ) : (
-                <IconDrive size={15} strokeWidth={2} />
-              )}
-              <span className="max-w-24 truncate">{isRemoteMode ? leftRemote!.hostName : t('sftp.sourceLocal')}</span>
+            <Button variant="ghost" size="sm" className="h-8 shrink-0 gap-1">
+              <IconDrive size={15} strokeWidth={2} />
+              <span className="max-w-24 truncate">{t('sftp.sourceLocal')}</span>
               <IconChevronDown size={12} />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-60">
             <DropdownMenuLabel>{t('sftp.sourcePicker')}</DropdownMenuLabel>
-            {isRemoteMode ? (
-              <DropdownMenuItem onClick={onReleaseRemote}>
-                <IconDrive size={14} className="mr-2" />
-                {t('sftp.sourceLocal')}
-              </DropdownMenuItem>
-            ) : null}
             <DropdownMenuSeparator />
             {hostOptions.map((h) => (
-              <DropdownMenuItem
-                key={h.id}
-                onClick={() => onPickHost(h.id)}
-                disabled={isRemoteMode && leftRemote?.hostName === h.name}
-              >
+              <DropdownMenuItem key={h.id} onClick={() => onPickHost(h.id)}>
                 <IconServer size={14} className="mr-2" />
                 <span className="min-w-0 flex-1 truncate">{h.name}</span>
               </DropdownMenuItem>
@@ -273,65 +260,86 @@ export function LocalBrowser({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <Button variant="ghost" size="icon" onClick={goUp} disabled={!parentPath || leftBusy} title={t('sftp.upDir')}>
+        <Button variant="ghost" size="icon" onClick={goUp} disabled={!parentPath} title={t('sftp.upDir')}>
           <IconArrowLeft size={18} strokeWidth={2} />
         </Button>
-        <Button variant="ghost" size="icon" onClick={goHome} disabled={leftBusy} title={t('sftp.localRootBtn')}>
+        <Button variant="ghost" size="icon" onClick={goHome} title={t('sftp.localRootBtn')}>
           <IconHome size={18} strokeWidth={2} />
         </Button>
         <Button
           variant="ghost"
           size="icon"
           onClick={() => void load(path)}
-          disabled={loading || leftBusy}
+          disabled={loading}
           title={t('common.refresh')}
         >
           <IconRefresh size={18} strokeWidth={2} className={loading ? 'animate-spin' : ''} />
         </Button>
 
-        {/* 当前路径（本机或另一台主机） */}
+        {/* 当前路径（面包屑，分段可点击跳转上下级；h-9 与右栏面包屑框等高） */}
         <div
-          className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden whitespace-nowrap rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+          className="flex h-9 min-w-0 flex-1 items-center gap-0.5 overflow-x-hidden whitespace-nowrap rounded-md border border-border bg-background px-3 text-sm"
           title={path ?? ''}
         >
-          <span className="truncate font-mono text-muted-foreground">{label || t('sftp.sourceLocal')}</span>
+          {localSegs.length > 0 ? (
+            localSegs.map((seg, index) => {
+              const isLast = index === localSegs.length - 1;
+              return (
+                <span key={seg.target} className="flex shrink-0 items-center gap-0.5">
+                  {index > 0 && <IconChevronRight size={12} className="text-muted-foreground/60" />}
+                  <button
+                    type="button"
+                    className={
+                      isLast
+                        ? 'rounded px-1 font-mono text-foreground'
+                        : 'rounded px-1 font-mono text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'
+                    }
+                    onClick={() => void load(seg.target)}
+                  >
+                    {seg.name}
+                  </button>
+                </span>
+              );
+            })
+          ) : (
+            <span className="truncate font-mono text-muted-foreground">{label || t('sftp.sourceLocal')}</span>
+          )}
         </div>
 
-        {!isRemoteMode && (
-          <Button
-            size="sm"
-            className="h-8 shrink-0"
-            disabled={selectedLocalPaths.length === 0}
-            onClick={() => void uploadSelected()}
-            title={t('sftp.localUploadHint')}
-          >
-            <IconUpload size={15} strokeWidth={2} />
-            {t('sftp.localUpload', { count: selectedLocalPaths.length })}
-          </Button>
-        )}
+        <Button
+          size="sm"
+          className="h-8 shrink-0"
+          disabled={selectedLocalPaths.length === 0}
+          onClick={() => void uploadSelected()}
+          title={t('sftp.localUploadHint')}
+        >
+          <IconUpload size={15} strokeWidth={2} />
+          {t('sftp.localUpload', { count: selectedLocalPaths.length })}
+        </Button>
       </div>
 
-      {/* 文件列表（与右栏同构：shadcn ScrollArea 滚动容器，不隐藏滚动条）+ 右栏拖入落区 */}
-      <div
-        className={cn(
-          'relative min-h-0 flex-1',
-          dragRemoteOver && 'ring-2 ring-inset ring-primary/40',
-        )}
-        onDragOver={(e) => {
-          if (e.dataTransfer.types.includes(MIME_REMOTE)) {
-            e.preventDefault();
-            setDragRemoteOver(true);
-          }
-        }}
-        onDragLeave={() => setDragRemoteOver(false)}
-        onDrop={handleFileFromRightDrop}
-      >
+      {/* 文件列表（与右栏同构：shadcn ScrollArea 滚动容器，不隐藏滚动条）+ 右键（空白区/行级）+ 右栏拖入落区 */}
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            className={cn(
+              'relative min-h-0 flex-1',
+              dragRemoteOver && 'ring-2 ring-inset ring-primary/40',
+            )}
+            data-custom-contextmenu
+            onDragOver={(e) => {
+              if (e.dataTransfer.types.includes(MIME_REMOTE)) {
+                e.preventDefault();
+                setDragRemoteOver(true);
+              }
+            }}
+            onDragLeave={() => setDragRemoteOver(false)}
+            onDrop={handleFileFromRightDrop}
+          >
         {dragRemoteOver && (
           <div className="pointer-events-none absolute inset-1 z-10 flex items-center justify-center rounded-md bg-primary/10">
             <span className="rounded-md border border-primary/40 bg-background/90 px-3 py-1 text-xs text-primary">
-              {isRemoteMode
-                ? t('sftp.dropToRemoteCopy', { host: leftRemote!.hostName })
-                : t('sftp.dropLocalDownload', { dir: label ?? '' })}
+              {t('sftp.dropLocalDownload', { dir: label ?? '' })}
             </span>
           </div>
         )}
@@ -346,39 +354,33 @@ export function LocalBrowser({
             </div>
           ) : rows.length === 0 ? (
             <div className="flex h-full w-full items-center justify-center px-4 text-center text-sm text-muted-foreground">
-              {isRemoteMode ? t('sftp.emptyDir') : t('sftp.localEmpty')}
+              {t('sftp.localEmpty')}
             </div>
           ) : (
             <div className="flex min-w-0 flex-col">
-              {/* 表头（与右栏同构：行式表头 + 共享列模板；本机无权限列，远端源才显示） */}
+              {/* 表头（与右栏同构：行式表头 + 共享列模板） */}
               <div
                 className={cn(
                   'grid h-9 shrink-0 items-center gap-2 border-b border-border px-3 text-xs font-medium text-muted-foreground',
-                  isRemoteMode ? LIST_COLS_PERM : LIST_COLS,
+                  LIST_COLS,
                 )}
               >
                 <span className="min-w-0" />
                 <span className="truncate">{t('sftp.tableName')}</span>
                 <span className="truncate">{t('sftp.tableSize')}</span>
                 <span className="truncate">{t('sftp.tableModified')}</span>
-                {isRemoteMode && <span className="truncate">{t('sftp.tablePermissions')}</span>}
               </div>
               {rows.map((row) => (
+                <ContextMenu key={row.key}>
+                  <ContextMenuTrigger asChild>
                 <div
-                  key={row.key}
-                  draggable={!row.isDir && !leftBusy}
+                  draggable={!row.isDir}
+                  onContextMenu={(e) => e.stopPropagation()}
                   onDragStart={(e) => handleDragStart(e, row)}
                   onDoubleClick={() => row.isDir && void load(row.fullPath)}
-                  onClick={(e) => {
-                    // 行级单击选中文件（目录靠双击进入）；落在复选框（Radix 按钮）上不抢，
-                    // 否则 checkbox onCheckedChange + 冒泡行点击会双重翻转、勾不上
-                    if (row.isDir) return;
-                    if ((e.target as HTMLElement).closest('button')) return;
-                    toggleSelect(row.name, row.isDir);
-                  }}
                   className={cn(
                     'grid min-h-9 items-center gap-2 border-b border-border/70 px-3 text-sm transition-colors',
-                    isRemoteMode ? LIST_COLS_PERM : LIST_COLS,
+                    LIST_COLS,
                     !row.isDir && sel.has(row.name) ? 'bg-primary/10 hover:bg-primary/10' : 'hover:bg-accent/40',
                   )}
                 >
@@ -386,7 +388,7 @@ export function LocalBrowser({
                     <Checkbox
                       checked={!row.isDir && sel.has(row.name)}
                       disabled={row.isDir}
-                      onCheckedChange={() => toggleSelect(row.name, row.isDir)}
+                      onCheckedChange={() => toggleSelect(row.name)}
                     />
                   </div>
                   <div className="flex min-w-0 items-center gap-2" title={row.name}>
@@ -401,17 +403,47 @@ export function LocalBrowser({
                   <div className="min-w-0 truncate text-sm text-muted-foreground" title={row.mtime}>
                     {cellText(row.mtime)}
                   </div>
-                  {isRemoteMode && (
-                    <div className="min-w-0 truncate font-mono text-sm text-muted-foreground" title={row.permsText}>
-                      {cellText(row.permsText)}
-                    </div>
-                  )}
-                </div>
+                  </div>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent className="w-52">
+                    {row.isDir ? (
+                      <ContextMenuItem onClick={() => void revealLocal(row.fullPath)}>
+                        <IconFolderOpen size={15} className="mr-2" /> {t('sftp.openInExplorer')}
+                      </ContextMenuItem>
+                    ) : (
+                      <>
+                        <ContextMenuItem onClick={() => void openLocalFile(row.fullPath)}>
+                          <IconOpen size={15} className="mr-2" /> {t('sftp.openLocalFile')}
+                        </ContextMenuItem>
+                        <ContextMenuItem onClick={() => void uploadSingle(row.fullPath)}>
+                          <IconUpload size={15} className="mr-2" /> {t('sftp.uploadFile')}
+                        </ContextMenuItem>
+                      </>
+                    )}
+                    <ContextMenuItem onClick={() => void copyLocalPath(row.fullPath)}>
+                      <IconCopy size={15} className="mr-2" /> {t('sftp.copyLocalPath')}
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
               ))}
             </div>
           )}
         </ScrollArea>
-      </div>
+        </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-52">
+          <ContextMenuItem onClick={() => void load(path)}>
+            <IconRefresh size={15} className="mr-2" /> {t('common.refresh')}
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => void uploadSelected()}
+            disabled={selectedLocalPaths.length === 0}
+          >
+            <IconUpload size={15} className="mr-2" />
+            {t('sftp.localUpload', { count: selectedLocalPaths.length })}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
     </div>
   );
 }

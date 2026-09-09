@@ -342,7 +342,7 @@ export function TabBar() {
         {visibleTabs.map((tab: Tab) => (
           <ContextMenu key={tab.id}>
             <ContextMenuTrigger asChild>
-              <div className="flex h-full" style={{ minWidth: 0 }}>
+              <div className="flex h-full" style={{ minWidth: 0 }} data-custom-contextmenu>
                 <TabItem
                   tab={tab}
                   isActive={tab.isActive}

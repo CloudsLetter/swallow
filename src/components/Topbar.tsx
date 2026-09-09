@@ -51,8 +51,11 @@ export function Topbar() {
       )}
       data-tauri-drag-region=""
       style={{
-        WebkitAppRegion: 'drag',
         userSelect: 'none',
+      }}
+      // 拖拽区右键不弹原生菜单（空白区没有自定义菜单，直接压掉；标签项自带菜单会先行 stopPropagation）
+      onContextMenu={(e) => {
+        e.preventDefault();
       }}
     >
       <div data-tauri-drag-region="" style={{ flex: 1, minWidth: 0, height: '100%' }}>

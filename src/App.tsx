@@ -92,9 +92,16 @@ function App() {
   }, []);
 
   // 禁用 WebView 原生右键菜单（复制/粘贴/检查元素等系统 UI）。
-  // capture 阶段拦截，组件自定义右键菜单（如标签栏）自身的逻辑不受影响。
+  // capture 阶段拦截。⚠️ 标注了 data-custom-contextmenu 的区域必须放行：
+  // Radix ContextMenu 的打开逻辑在 event.defaultPrevented 时会被 composeEventHandlers
+  // 跳过（checkForDefaultPrevented），全局 preventDefault 会把应用内所有
+  // 自定义右键菜单静默废掉——放行后由 Radix 自己 preventDefault 抑制原生菜单。
   useEffect(() => {
-    const preventContextMenu = (e: MouseEvent) => e.preventDefault();
+    const preventContextMenu = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el?.closest('[data-custom-contextmenu]')) return;
+      e.preventDefault();
+    };
     document.addEventListener('contextmenu', preventContextMenu, true);
     return () => document.removeEventListener('contextmenu', preventContextMenu, true);
   }, []);
