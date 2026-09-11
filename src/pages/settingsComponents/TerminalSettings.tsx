@@ -23,6 +23,67 @@ const STANDARD_ANSI_KEYS = ['black', 'red', 'green', 'yellow', 'blue', 'magenta'
 const BRIGHT_ANSI_KEYS = ['bright_black', 'bright_red', 'bright_green', 'bright_yellow', 'bright_blue', 'bright_magenta', 'bright_cyan', 'bright_white'] as const;
 const BASIC_COLOR_KEYS = ['foreground', 'background', 'cursor', 'cursor_accent', 'selection'] as const;
 
+/** 右键菜单宏管理：增删改查 + 上下排序（最多 12 条进菜单）。 */
+function ContextMenuMacros() {
+  const { t } = useTranslation();
+  const config = useConfigStore((state) => state.config);
+  const updateConfig = useConfigStore((state) => state.updateConfig);
+  const [name, setName] = useState('');
+  const [command, setCommand] = useState('');
+  if (!config) return null;
+  const macros = config.context_menu ?? [];
+  const save = (next: typeof macros) => {
+    const cfg = useConfigStore.getState().config;
+    if (!cfg) return;
+    updateConfig({ ...cfg, context_menu: next });
+  };
+  const move = (idx: number, dir: -1 | 1) => {
+    const j = idx + dir;
+    if (j < 0 || j >= macros.length) return;
+    const next = [...macros];
+    [next[idx], next[j]] = [next[j], next[idx]];
+    save(next);
+  };
+  return (
+    <div className="rounded-lg border border-border p-3">
+      <Label className="mb-1 block text-sm font-medium">{t('settings.contextMenuMacros')}</Label>
+      <p className="mb-2 text-xs text-muted-foreground">{t('settings.contextMenuMacrosDesc')}</p>
+      {macros.length > 0 && (
+        <div className="mb-2 flex flex-col gap-1.5">
+          {macros.map((m, i) => (
+            <div key={m.id} className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2 py-1.5">
+              <span className="min-w-0 flex-1 truncate text-xs font-medium">{m.name}</span>
+              <code className="hidden min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground sm:block">
+                {m.command}
+              </code>
+              <Button variant="ghost" size="icon-sm" disabled={i === 0} onClick={() => move(i, -1)} aria-label="↑">↑</Button>
+              <Button variant="ghost" size="icon-sm" disabled={i === macros.length - 1} onClick={() => move(i, 1)} aria-label="↓">↓</Button>
+              <Button variant="ghost" size="icon-sm" className="text-destructive" onClick={() => save(macros.filter((x) => x.id !== m.id))} aria-label={t('common.delete')}>
+                <IconTrash size={14} />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex flex-col gap-1.5 sm:flex-row">
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('settings.contextMenuMacroName')} className="h-8 text-xs" />
+        <Input value={command} onChange={(e) => setCommand(e.target.value)} placeholder={t('settings.contextMenuMacroCommand')} className="h-8 flex-1 font-mono text-xs" />
+        <Button
+          size="sm"
+          disabled={!name.trim() || !command.trim()}
+          onClick={() => {
+            save([...macros, { id: `ctx-${Date.now()}`, name: name.trim(), command: command.trim() }]);
+            setName('');
+            setCommand('');
+          }}
+        >
+          <IconPlus size={14} /> {t('common.add')}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /** 颜色 key → 友好显示名（foreground → Foreground，bright_black → Bright black，cursor_accent → Cursor accent）。 */
 const colorLabel = (key: string) => key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -523,7 +584,7 @@ export function TerminalSettings() {
             checked={config.terminal.autocomplete_enabled ?? true}
             onCheckedChange={(v) => updateTerminalConfig({ autocomplete_enabled: v })}
           />
-          {/* 右键行为二选一：右键选词 ⇄ 右键粘贴 互斥联动，总有一个生效 */}
+          {/* 右键行为：自定义菜单接管右键（复制/粘贴/选词/宏都在菜单里）；旧开关保留作菜单内默认偏好 */}
           <SwitchRow
             label={t('settings.rightClickPaste')}
             desc={t('settings.rightClickPasteDesc')}
@@ -546,6 +607,7 @@ export function TerminalSettings() {
               })
             }
           />
+          <ContextMenuMacros />
           <SwitchRow
             label={t('settings.panelAutoConnect')}
             desc={t('settings.panelAutoConnectDesc')}

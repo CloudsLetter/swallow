@@ -9,6 +9,25 @@ export interface Config {
   advanced: Advanced;
   file_version: FileVersion;
   ai: Ai;
+  /** 终端右键菜单自定义条目（宏） */
+  context_menu: ContextMenuItem[];
+  /** 监控告警阈值 */
+  monitor_alerts: MonitorAlerts;
+}
+
+/** 终端右键菜单宏：点击把 command 发到当前会话 */
+export interface ContextMenuItem {
+  id: string;
+  name: string;
+  command: string;
+}
+
+/** 监控告警阈值：0 = 关闭该项 */
+export interface MonitorAlerts {
+  enabled: boolean;
+  cpu_threshold: number;
+  mem_threshold: number;
+  cooldown_secs: number;
 }
 
 export interface Application {

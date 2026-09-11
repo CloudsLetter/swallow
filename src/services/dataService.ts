@@ -15,6 +15,12 @@ export interface Host {
   password?: string;
   keyId?: string;
   certificateId?: string;
+  /** 分组名称（空 = 未分组） */
+  group?: string;
+  /** 标签（搜索/筛选用） */
+  tags?: string[];
+  /** 收藏（置顶） */
+  favorite?: boolean;
   useProxy?: boolean;
   proxyHostId?: string;
   proxyAuthType?: 'password' | 'key' | 'certificate' | 'agent' | 'none';
@@ -128,6 +134,8 @@ export interface PortForwarding {
   description?: string;
   createdAt: string;
   lastUsed?: string;
+  /** 启动/重连时自动建立隧道 */
+  autoConnect?: boolean;
   /** SOCKS5 代理认证用户名（dynamic 转发可选，配置后启用 RFC 1929 认证） */
   socksUsername?: string;
   /** SOCKS5 代理认证密码（dynamic 转发可选，编辑回填用） */
@@ -228,6 +236,26 @@ export async function removeHost(id: string): Promise<void> {
 /** 连接成功后回写最近连接时间（供「最近连接」排序显示）。 */
 export async function touchHostLastConnected(host: string, port: number): Promise<void> {
   await invoke('touch_host_last_connected', { host, port });
+}
+
+/** 收藏/取消收藏（置顶）。 */
+export async function toggleHostFavorite(id: string): Promise<Host> {
+  return invoke<Host>('toggle_host_favorite', { id });
+}
+
+/** 导出全部主机 JSON（含凭据明文）。 */
+export async function exportHosts(): Promise<string> {
+  return invoke<string>('export_hosts');
+}
+
+/** 导出主机到用户选择的目标路径，返回条数。 */
+export async function exportHostsTo(targetPath: string): Promise<number> {
+  return invoke<number>('export_hosts_to', { targetPath });
+}
+
+/** 从文本导入主机（Swallow JSON 或 ~/.ssh/config），返回导入条数。 */
+export async function importHostsText(text: string): Promise<number> {
+  return invoke<number>('import_hosts_text', { text });
 }
 
 export async function updateHost(id: string, updates: Partial<Host>): Promise<Host> {

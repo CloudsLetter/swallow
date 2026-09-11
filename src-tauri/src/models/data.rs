@@ -36,6 +36,15 @@ pub struct Host {
     /// 选「无图标」/自定义图标后置 false，探测即停——不再每次连接重复获取）
     #[serde(default = "os_auto_default")]
     pub os_auto: bool,
+    /// 分组名称（空 = 未分组；前端按分组展示/筛选）
+    #[serde(default)]
+    pub group: String,
+    /// 标签（搜索/筛选用，与 accounts.tags 一致存 tags_json）
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+    /// 收藏（前端置顶展示）
+    #[serde(default)]
+    pub favorite: bool,
 }
 
 fn os_auto_default() -> bool {
@@ -247,6 +256,9 @@ pub struct PortForwarding {
     pub description: Option<String>,
     pub created_at: String,
     pub last_used: Option<String>,
+    /// 开机/启动时自动建立隧道（前端展示开关，后端启动时批量重连）
+    #[serde(default)]
+    pub auto_connect: bool,
     /// SOCKS5 代理认证用户名（dynamic 转发可选；配置后启用 RFC 1929 认证）
     pub socks_username: Option<String>,
     /// SOCKS5 代理认证密码（存系统密钥链，DB 列仅占位，不返回前端）

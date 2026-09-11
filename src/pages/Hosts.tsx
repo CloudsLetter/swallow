@@ -6,6 +6,9 @@ import {
   addHost,
   removeHost,
   updateHost,
+  toggleHostFavorite,
+  exportHostsTo,
+  importHostsText,
   getAccounts,
   getKeys,
   getCertificates,
@@ -40,6 +43,9 @@ import {
   X as IconX,
   Image as IconImage,
   RotateCw as IconRotateCw,
+  Star as IconStar,
+  Download as IconDownload,
+  Upload as IconUpload,
 } from 'lucide-react';
 import { useTabStore } from '../store/tabStore';
 import { useActiveSshTargets } from '../hooks/useActiveSshTargets';
@@ -63,7 +69,7 @@ import {
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { message, ask } from '@tauri-apps/plugin-dialog';
+import { message, ask, save } from '@tauri-apps/plugin-dialog';
 import { toast } from 'sonner';
 import { resolveHostSshAuth } from '../services/sshAuthResolver';
 import { setQuickConnectIntent } from '../services/quickConnectIntent';
@@ -256,6 +262,8 @@ export function Hosts() {  const { t } = useTranslation();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [authFilter, setAuthFilter] = useState<AuthFilter>('all');
+  const [groupFilter, setGroupFilter] = useState('all');
+  const [favOnly, setFavOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [editingHost, setEditingHost] = useState<Host | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -263,6 +271,8 @@ export function Hosts() {  const { t } = useTranslation();
 
   // 表单状态
   const [name, setName] = useState('');
+  const [hostGroup, setHostGroup] = useState('');
+  const [hostTags, setHostTags] = useState('');
   const [hostIcon, setHostIcon] = useState<string | undefined>(undefined);
   /** 是否自动探测远端 OS 图标（✕=false 禁用；自动=true；手动 os/图片=false） */
   const [osAuto, setOsAuto] = useState(true);
@@ -377,6 +387,49 @@ export function Hosts() {  const { t } = useTranslation();
   const resolveHostAccountName = (host: Host) => resolveHostAccount(host)?.name;
 
   // ============ 业务操作 ============
+  const handleToggleFavorite = async (host: Host) => {
+    try {
+      await toggleHostFavorite(host.id);
+      await loadHosts();
+    } catch (e) {
+      console.error('Failed to toggle favorite:', e);
+    }
+  };
+
+  const handleExport = async () => {
+    const confirmed = await ask(t('hosts.exportConfirmBody', { count: hosts.length }), {
+      title: t('hosts.exportTitle'),
+      kind: 'warning',
+    });
+    if (!confirmed) return;
+    try {
+      const target = await save({ title: t('hosts.exportTitle'), defaultPath: 'swallow-hosts.json' });
+      if (!target) return;
+      const count = await exportHostsTo(target);
+      toast.success(t('hosts.exportDone', { count }));
+    } catch (e) {
+      console.error('Failed to export hosts:', e);
+      toast.error(t('hosts.exportFailed'));
+    }
+  };
+
+  const handleImportFile = async () => {
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const selected = await open({ multiple: false, directory: false });
+      const path = typeof selected === 'string' ? selected : null;
+      if (!path) return;
+      const { invoke } = await import('@tauri-apps/api/core');
+      const text = await invoke<string>('read_text_file_for_import', { path });
+      const count = await importHostsText(text);
+      toast.success(t('hosts.importDone', { count }));
+      await loadHosts();
+    } catch (e) {
+      console.error('Failed to import hosts:', e);
+      toast.error(t('hosts.importFailed', { message: String(e) }));
+    }
+  };
+
   const handleConnect = async (host: Host) => {
     const auth = resolveHostSshAuth(host, accounts, keys, certs);
     if (auth.error) {
@@ -546,6 +599,8 @@ export function Hosts() {  const { t } = useTranslation();
   // ============ 表单逻辑 ============
   const resetForm = () => {
     setName('');
+    setHostGroup('');
+    setHostTags('');
     setHostIcon(undefined);
     setOsAuto(true);
     setHost('');
@@ -583,6 +638,8 @@ export function Hosts() {  const { t } = useTranslation();
     const matchedAccount = findHostAccount(host, latestAccounts);
 
     setName(host.name);
+    setHostGroup(host.group || '');
+    setHostTags((host.tags || []).join(', '));
     setHostIcon(host.icon);
     setOsAuto(host.osAuto ?? true);
     setHost(host.host);
@@ -710,6 +767,9 @@ export function Hosts() {  const { t } = useTranslation();
       port,
       icon: hostIcon || undefined,
       osAuto,
+      group: hostGroup.trim(),
+      tags: hostTags.split(/[,，]/).map((s) => s.trim()).filter(Boolean),
+      favorite: editingHost?.favorite ?? false,
       accountId: selectedAccount?.id,
       username: selectedAccount?.username || nextManualUsername,
       status: editingHost?.status || 'disconnected',
@@ -805,6 +865,8 @@ export function Hosts() {  const { t } = useTranslation();
   };
 
   const filteredHosts = hosts.filter((host) => {
+    if (favOnly && !host.favorite) return false;
+    if (groupFilter !== 'all' && (host.group || '') !== groupFilter) return false;
     if (authFilter !== 'all') {
       if (authFilter === 'proxy' && !host.useProxy) return false;
       if (authFilter !== 'proxy') {
@@ -816,14 +878,29 @@ export function Hosts() {  const { t } = useTranslation();
     const query = searchQuery.toLowerCase();
     const accountName = resolveHostAccountName(host)?.toLowerCase() || '';
     const username = resolveHostUsername(host).toLowerCase();
+    const groupName = (host.group || '').toLowerCase();
+    const tags = (host.tags || []).join(' ').toLowerCase();
     return (
       host.name.toLowerCase().includes(query) ||
       host.host.toLowerCase().includes(query) ||
       username.includes(query) ||
       accountName.includes(query) ||
+      groupName.includes(query) ||
+      tags.includes(query) ||
       host.port.toString().includes(query)
     );
   });
+
+  const allGroups = [...new Set(hosts.map((h) => h.group || '').filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b),
+  );
+
+  // 收藏置顶：同组内 favorite 排前，再按名称
+  const sortHosts = (items: Host[]) =>
+    [...items].sort((a, b) => {
+      if (!!a.favorite !== !!b.favorite) return a.favorite ? -1 : 1;
+      return a.name.localeCompare(b.name, 'zh-CN');
+    });
 
   const groups: { key: Host['status']; label: string; items: Host[] }[] = (
     [
@@ -832,7 +909,10 @@ export function Hosts() {  const { t } = useTranslation();
       { key: 'error', label: 'hosts.groupError', items: [] },
     ] as { key: Host['status']; label: string; items: Host[] }[]
   )
-    .map((group) => ({ ...group, items: filteredHosts.filter((h) => liveHostStatus(h) === group.key) }))
+    .map((group) => ({
+      ...group,
+      items: sortHosts(filteredHosts.filter((h) => liveHostStatus(h) === group.key)),
+    }))
     .filter((group) => group.items.length > 0);
 
   const connectedCount = hosts.filter((h) => liveHostStatus(h) === 'connected').length;
@@ -908,6 +988,17 @@ export function Hosts() {  const { t } = useTranslation();
         {/* 名称 + 地址 */}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => void handleToggleFavorite(host)}
+              title={host.favorite ? t('hosts.unfavorite') : t('hosts.favorite')}
+              className={cn(
+                'shrink-0 transition-colors',
+                host.favorite ? 'text-warning' : 'text-muted-foreground/40 hover:text-warning',
+              )}
+            >
+              <IconStar size={13} strokeWidth={2} fill={host.favorite ? 'currentColor' : 'none'} />
+            </button>
             <span className="truncate text-sm font-medium text-foreground">{host.name}</span>
             {authIcon(resolveHostAuthType(host))}
             {host.useProxy && <IconServer size={12} className="shrink-0 text-warning" />}
@@ -916,6 +1007,20 @@ export function Hosts() {  const { t } = useTranslation();
             <IconGlobe size={10} className="shrink-0 opacity-60" />
             {resolveHostUsername(host)}@{host.host}:{host.port}
           </div>
+          {(host.group || (host.tags && host.tags.length > 0)) && (
+            <div className="mt-1 flex flex-wrap items-center gap-1">
+              {host.group && (
+                <Badge variant="outline" className="h-5 px-1.5 text-[10px] font-normal">
+                  {host.group}
+                </Badge>
+              )}
+              {(host.tags || []).slice(0, 3).map((tag) => (
+                <span key={tag} className="rounded bg-muted px-1.5 py-px text-[10px] text-muted-foreground">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* 右侧操作：连接 + 更多菜单（SFTP/编辑/复制/删除收纳） */}
@@ -941,6 +1046,9 @@ export function Hosts() {  const { t } = useTranslation();
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem onClick={() => void handleToggleFavorite(host)}>
+                <IconStar size={15} className="mr-2" /> {host.favorite ? t('hosts.unfavorite') : t('hosts.favorite')}
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleSftpConnect(host)}>
                 <IconFolderOpen size={15} className="mr-2" /> {t('hosts.openSftp')}
               </DropdownMenuItem>
@@ -1237,6 +1345,12 @@ export function Hosts() {  const { t } = useTranslation();
           <Button variant="ghost" size="icon" onClick={refresh} aria-label={t('common.refresh')} title={t('common.refresh')}>
             <IconRefresh size={16} />
           </Button>
+          <Button variant="ghost" size="icon" onClick={() => void handleExport()} aria-label={t('hosts.exportTitle')} title={t('hosts.exportTitle')}>
+            <IconDownload size={16} />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={() => void handleImportFile()} aria-label={t('hosts.importTitle')} title={t('hosts.importTitle')}>
+            <IconUpload size={16} />
+          </Button>
           <Button variant="ghost" onClick={handleSerialQuickConnect} title={t('hosts.serialTerminal')}>
             <IconUsb size={15} strokeWidth={2} />
             {t('hosts.serialTerminal')}
@@ -1265,6 +1379,35 @@ export function Hosts() {  const { t } = useTranslation();
             {t(chip.label)}
           </button>
         ))}
+        {allGroups.length > 0 && (
+          <select
+            value={groupFilter}
+            onChange={(e) => setGroupFilter(e.target.value)}
+            className="h-7 rounded-full bg-muted px-3 text-xs font-medium text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground"
+            title={t('hosts.groupFilter')}
+          >
+            <option value="all">{t('hosts.groupAll')}</option>
+            {allGroups.map((g) => (
+              <option key={g} value={g}>
+                {g}
+              </option>
+            ))}
+          </select>
+        )}
+        <button
+          type="button"
+          onClick={() => setFavOnly((v) => !v)}
+          className={cn(
+            'flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors',
+            favOnly
+              ? 'bg-warning/20 text-warning'
+              : 'bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+          )}
+          title={t('hosts.favOnly')}
+        >
+          <IconStar size={11} strokeWidth={2} fill={favOnly ? 'currentColor' : 'none'} />
+          {t('hosts.favOnly')}
+        </button>
       </div>
 
       {/* ===== 内容区域 ===== */}
@@ -1345,6 +1488,32 @@ export function Hosts() {  const { t } = useTranslation();
                   </>,
                 )}
                 <Input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="host" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  {fieldLabel(t('hosts.formGroup'))}
+                  <Input
+                    type="text"
+                    value={hostGroup}
+                    onChange={(e) => setHostGroup(e.target.value)}
+                    placeholder={t('hosts.formGroupPlaceholder')}
+                    list="host-group-list"
+                  />
+                  <datalist id="host-group-list">
+                    {allGroups.map((g) => (
+                      <option key={g} value={g} />
+                    ))}
+                  </datalist>
+                </div>
+                <div>
+                  {fieldLabel(t('hosts.formTags'))}
+                  <Input
+                    type="text"
+                    value={hostTags}
+                    onChange={(e) => setHostTags(e.target.value)}
+                    placeholder={t('hosts.formTagsPlaceholder')}
+                  />
+                </div>
               </div>
 
               {/* 图标：无图标 / 内置 OS 图标库 / 上传自定义图片（自动压缩到 64px） */}

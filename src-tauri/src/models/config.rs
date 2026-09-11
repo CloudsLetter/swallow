@@ -13,6 +13,12 @@ pub struct Config {
 	pub advanced: Advanced,
 	pub file_version: FileVersion,
 	pub ai: Ai,
+	/// 终端右键菜单：自定义条目（宏）列表，右键时按顺序渲染
+	#[serde(default)]
+	pub context_menu: Vec<ContextMenuItem>,
+	/// 监控告警阈值（CPU/内存百分比；0 = 关闭该项）
+	#[serde(default)]
+	pub monitor_alerts: MonitorAlerts,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -478,6 +484,8 @@ impl Default for Config {
 			advanced: Advanced::default(),
 			file_version: FileVersion::default(),
 			ai: Ai::default(),
+			context_menu: Vec::new(),
+			monitor_alerts: MonitorAlerts::default(),
 		}
 	}
 }
@@ -1292,6 +1300,47 @@ impl Default for Ai {
 			context_max_chars: 12000,
 			profiles: Vec::new(),
 			active_profile: "".into(),
+		}
+	}
+}
+
+/// 终端右键菜单自定义条目（宏）：右键菜单按顺序渲染，点击把 command 发到当前会话。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ContextMenuItem {
+	pub id: String,
+	pub name: String,
+	pub command: String,
+}
+
+impl Default for ContextMenuItem {
+	fn default() -> Self {
+		Self {
+			id: crate::utils::sqlite::new_id("ctxmenu"),
+			name: "".into(),
+			command: "".into(),
+		}
+	}
+}
+
+/// 监控告警阈值：CPU/内存使用率百分比（0 = 关闭该项告警）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MonitorAlerts {
+	pub enabled: bool,
+	pub cpu_threshold: u32,
+	pub mem_threshold: u32,
+	/// 冷却秒数：同一主机同一指标在该窗口内只告警一次
+	pub cooldown_secs: u32,
+}
+
+impl Default for MonitorAlerts {
+	fn default() -> Self {
+		Self {
+			enabled: true,
+			cpu_threshold: 90,
+			mem_threshold: 90,
+			cooldown_secs: 300,
 		}
 	}
 }

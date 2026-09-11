@@ -63,6 +63,7 @@ import { localPlatformOsId } from './osLogo';
 import { buildPanelTheme } from './panelTheme';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { TerminalContextMenu } from './TerminalContextMenu';
 import {
   ArrowDown as IconArrowDown,
   ArrowUp as IconArrowUp,
@@ -1155,18 +1156,20 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
         opacity={config?.terminal?.background_image_opacity ?? 0.7}
       />
 
-      {/* 终端容器 - 始终存在，只是在显示进度时隐藏 */}
-      <div
-        ref={terminalRef}
-        style={{
-          width: '100%',
-          height: '100%',
-          visibility: showProgress ? 'hidden' : 'visible',
-          overflow: 'hidden',
-          boxSizing: 'border-box',
-          position: 'relative',
-        }}
-      />
+      {/* 终端容器 - 始终存在，只是在显示进度时隐藏（右键由 TerminalContextMenu 接管） */}
+      <TerminalContextMenu sessionId={sessionId}>
+        <div
+          ref={terminalRef}
+          style={{
+            width: '100%',
+            height: '100%',
+            visibility: showProgress ? 'hidden' : 'visible',
+            overflow: 'hidden',
+            boxSizing: 'border-box',
+            position: 'relative',
+          }}
+        />
+      </TerminalContextMenu>
 
       {/* 自动补全浮层：贴输入命令行（光标行下方/上方，避免溢出）；配色跟随终端主题；
           ↑/↓ 选择、Enter 补全并执行、Esc 关闭、鼠标点选执行 */}

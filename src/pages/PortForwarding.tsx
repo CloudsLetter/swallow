@@ -35,6 +35,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 import { Label } from '../components/ui/label';
+import { Switch } from '../components/ui/switch';
 import { Badge } from '../components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { CardGridSkeleton, ListTableSkeleton } from '../components/ui/listSkeleton';
@@ -120,6 +121,7 @@ interface RuleForm {
   targetHost: string;
   targetPort: number;
   description: string;
+  autoConnect: boolean;
   socksUsername: string;
   socksPassword: string;
 }
@@ -133,6 +135,7 @@ const EMPTY_FORM: RuleForm = {
   targetHost: '',
   targetPort: 80,
   description: '',
+  autoConnect: false,
   socksUsername: '',
   socksPassword: '',
 };
@@ -177,6 +180,23 @@ export function PortForwarding() {
 
   // 连接中的阶段记录：ruleId -> tcp|ssh|auth（后端 on_progress 推送）
   const [connectingStage, setConnectingStage] = useState<Record<string, string>>({});
+  // 自动重连：断开事件到达时，对 autoConnect 规则延迟重试（指数退避，上限 5 次）
+  const retryCountRef = useRef<Record<string, number>>({});
+  const retryTimerRef = useRef<Record<string, number>>({});
+
+  const handleConnectRef = useRef<(rule: PortForwarding) => Promise<void>>(async () => {});
+
+  const scheduleRetry = (rule: PortForwarding) => {
+    if (!rule.autoConnect || !rule.hostId) return;
+    const n = (retryCountRef.current[rule.id] ?? 0) + 1;
+    if (n > 5) return;
+    retryCountRef.current[rule.id] = n;
+    const delay = Math.min(30000, 3000 * 2 ** (n - 1));
+    window.clearTimeout(retryTimerRef.current[rule.id]);
+    retryTimerRef.current[rule.id] = window.setTimeout(() => {
+      void handleConnectRef.current(rule);
+    }, delay);
+  };
 
   // ============ 隧道断开事件 ============
   // 后端看门狗检测到隧道意外断开时推送事件，前端即时刷新状态。
@@ -189,9 +209,19 @@ export function PortForwarding() {
           (event) => {
             // 用 payload 定向更新对应规则，避免全量 reload
             const { ruleId, status, stage } = event.payload;
-            setRules((prev) =>
-              prev.map((r) => (r.id === ruleId ? { ...r, status: status as PortForwarding['status'] } : r)),
-            );
+            setRules((prev) => {
+              const next = prev.map((r) => (r.id === ruleId ? { ...r, status: status as PortForwarding['status'] } : r));
+              // 意外断开 + 开了自动连接 → 延迟重试；手动断开由 handleDisconnect 清计数
+              if (status === 'disconnected') {
+                const rule = next.find((r) => r.id === ruleId);
+                if (rule) scheduleRetry(rule);
+              }
+              if (status === 'connected') {
+                retryCountRef.current[ruleId] = 0;
+                window.clearTimeout(retryTimerRef.current[ruleId]);
+              }
+              return next;
+            });
             // 连接中记录当前阶段（卡片副标题展示「连接中：<阶段>」），结束时清除
             if (status === 'connecting') {
               setConnectingStage((prev) => ({ ...prev, [ruleId]: stage || 'tcp' }));
@@ -264,6 +294,7 @@ export function PortForwarding() {
       targetHost: rule.targetHost || '',
       targetPort: rule.targetPort,
       description: rule.description || '',
+      autoConnect: rule.autoConnect ?? false,
       socksUsername: rule.socksUsername || '',
       socksPassword: rule.socksPassword || '',
     });
@@ -329,6 +360,7 @@ export function PortForwarding() {
       targetHost: form.type === 'dynamic' ? undefined : form.targetHost.trim(),
       targetPort: form.type === 'dynamic' ? 0 : form.targetPort,
       description: form.description.trim() || undefined,
+      autoConnect: form.autoConnect,
       socksUsername: form.type === 'dynamic' ? form.socksUsername.trim() || undefined : undefined,
       socksPassword: form.type === 'dynamic' ? form.socksPassword || undefined : undefined,
     };
@@ -454,6 +486,9 @@ export function PortForwarding() {
   };
 
   const handleDisconnect = async (rule: PortForwarding) => {
+    // 手动断开：清掉自动重连计时与计数，避免刚关掉又被拉起
+    retryCountRef.current[rule.id] = 0;
+    window.clearTimeout(retryTimerRef.current[rule.id]);
     markBusy(rule.id);
     try {
       await stopPortForward(rule.id);
@@ -474,6 +509,24 @@ export function PortForwarding() {
       await handleConnect(rule);
     }
   };
+
+  // handleConnect 引用同步到 ref（断开事件的重连定时器经 ref 调用最新闭包）
+  useEffect(() => {
+    handleConnectRef.current = handleConnect;
+  });
+
+  // 进入本页：自动建立所有 autoConnect 规则（静默，失败走指数退避重试）
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (loading || autoStartedRef.current) return;
+    autoStartedRef.current = true;
+    for (const rule of rules) {
+      if (rule.autoConnect && normalizeRuleStatus(rule.status) !== 'connected' && rule.hostId) {
+        void handleConnectRef.current(rule);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
 
   // ============ 派生数据 ============
   const hostName = (id?: string) => hosts.find((h) => h.id === id)?.name || t('common.notSpecified');
@@ -1000,6 +1053,13 @@ export function PortForwarding() {
                 </div>
               )}
               <p className="text-xs text-muted-foreground">{t('portForwarding.saveHint')}</p>
+              <div className="flex items-center justify-between rounded-md bg-muted/50 px-2.5 py-2">
+                <div>
+                  <div className="text-xs font-medium">{t('portForwarding.autoConnect')}</div>
+                  <div className="text-[11px] text-muted-foreground">{t('portForwarding.autoConnectDesc')}</div>
+                </div>
+                <Switch checked={form.autoConnect} onCheckedChange={(v) => setForm({ ...form, autoConnect: v })} />
+              </div>
             </div>
 
             {/* 代理认证（仅动态转发） */}

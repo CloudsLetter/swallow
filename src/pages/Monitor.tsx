@@ -18,6 +18,7 @@ import {
 import { getHosts, getAccounts, getKeys, getCertificates, type Host, type Account, type Key, type Certificate } from '../services/dataService';
 import { resolveHostSshAuth } from '../services/sshAuthResolver';
 import { acceptHostKey } from '../services/sessionService';
+import { useConfigStore } from '../store/config';
 import { monitorStart, monitorCollect, monitorStop, monitorGetState, monitorSaveState, type MonitorSnapshot, type TopProcess } from '../services/monitorService';
 import { Button } from '../components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
@@ -407,6 +408,8 @@ const pushHistory = (h: MonitorItem['history'], snap: MonitorSnapshot) => ({
 
 export function Monitor() {
   const { t } = useTranslation();
+  const alertsCfg = useConfigStore((s) => s.config?.monitor_alerts);
+  const updateConfig = useConfigStore((s) => s.updateConfig);
   const [hosts, setHosts] = useState<Host[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [keys, setKeys] = useState<Key[]>([]);
@@ -489,6 +492,8 @@ export function Monitor() {
 
   // 统一采集循环：每 2 秒并发（窗口 3）采集所有 monitoring 项，
   // 一轮结束后**单次** setItems 合并全部结果（避免逐主机 setItems 造成 O(n²) 状态更新）。
+  // 阈值告警：CPU/内存超阈值且过冷却期 → toast 警告（同一主机同一指标 cooldown 内只报一次）。
+  const alertedRef = useRef<Record<string, number>>({});
   useEffect(() => {
     if (items.length === 0) return;
     let stopped = false;
@@ -516,11 +521,37 @@ export function Monitor() {
 
       // 单次合并：outcome Map 命中 O(1)，整体一轮仍是 O(n) 而非逐主机 O(n²)
       const outcomeMap = new Map(outcomes.map((o) => [o.sessionId, o]));
+      const cfg = useConfigStore.getState().config?.monitor_alerts;
+      const now = Date.now();
+      const cooldownMs = (cfg?.cooldown_secs ?? 300) * 1000;
       setItems((prev) =>
         prev.map((i) => {
           const out = outcomeMap.get(i.sessionId);
           if (!out) return i;
           if (out.ok && out.snap) {
+            // 阈值告警（读最新配置，避免闭包 stale）
+            if (cfg?.enabled) {
+              const cpuT = cfg.cpu_threshold ?? 0;
+              const memT = cfg.mem_threshold ?? 0;
+              const memPct = memPercent(out.snap);
+              const checks: { key: string; over: boolean; value: string }[] = [
+                { key: 'cpu', over: cpuT > 0 && out.snap.cpuUsage >= cpuT, value: `${out.snap.cpuUsage.toFixed(0)}%` },
+                { key: 'mem', over: memT > 0 && memPct >= memT, value: `${memPct.toFixed(0)}%` },
+              ];
+              for (const c of checks) {
+                const alertKey = `${i.hostId}:${c.key}`;
+                if (c.over && now - (alertedRef.current[alertKey] ?? 0) >= cooldownMs) {
+                  alertedRef.current[alertKey] = now;
+                  toast.warning(
+                    t(c.key === 'cpu' ? 'monitor.alertCpu' : 'monitor.alertMem', {
+                      name: i.hostName,
+                      value: c.value,
+                    }),
+                    { duration: 8000 },
+                  );
+                }
+              }
+            }
             return {
               ...i,
               snapshot: out.snap,
@@ -828,6 +859,24 @@ export function Monitor() {
               className="cursor-pointer select-none whitespace-nowrap text-xs text-muted-foreground"
             >
               {t('monitor.autoStart')}
+            </label>
+          </div>
+          <div className="flex items-center gap-1.5" title={t('monitor.alertsDesc')}>
+            <Switch
+              id="monitor-alerts"
+              checked={alertsCfg?.enabled ?? true}
+              onCheckedChange={(v) => {
+                const cfg = useConfigStore.getState().config;
+                if (!cfg) return;
+                updateConfig({ ...cfg, monitor_alerts: { ...(cfg.monitor_alerts ?? { enabled: true, cpu_threshold: 90, mem_threshold: 90, cooldown_secs: 300 }), enabled: v } });
+              }}
+              className="scale-90"
+            />
+            <label
+              htmlFor="monitor-alerts"
+              className="cursor-pointer select-none whitespace-nowrap text-xs text-muted-foreground"
+            >
+              {t('monitor.alerts')}（CPU {alertsCfg?.cpu_threshold ?? 90}% / {t('monitor.memory')} {alertsCfg?.mem_threshold ?? 90}%）
             </label>
           </div>
           {items.length > 0 && (

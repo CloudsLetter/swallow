@@ -128,6 +128,17 @@ pub fn local_file_size(path: String) -> Result<u64, String> {
     }
 }
 
+/// 读取文本文件内容（主机导入用：读用户选择的 JSON / ssh_config 文件）。
+#[tauri::command]
+pub fn read_text_file_for_import(path: String) -> Result<String, String> {
+    const MAX_BYTES: u64 = 10 * 1024 * 1024;
+    let meta = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+    if meta.len() > MAX_BYTES {
+        return Err("文件过大（上限 10MB）".to_string());
+    }
+    std::fs::read_to_string(&path).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn update_config(state: State<GlobaConfig>, config: crate::models::config::Config) -> Result<(), String> {
     let mut guard = state.config.write().map_err(|_| "lock failed")?;

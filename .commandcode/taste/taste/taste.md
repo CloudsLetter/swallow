@@ -1,0 +1,13 @@
+# Taste
+- Writes requests in Chinese, and expects Chinese responses and Chinese UI strings (project keeps both `zh-CN` and `en-US` locale files in sync for every new string). Confidence: 0.75
+- Gives short, terse, imperative instructions and iterates fast — often just "还是不行" or a one-line repro — expecting the agent to keep digging rather than ask for more detail. Confidence: 0.65
+- Communicates bugs mainly via screenshots plus a brief symptom description (e.g., small window fine, large window broken), treating the image as evidence of the symptom only. Confidence: 0.6
+- Works on a Tauri 2 + React 19 + TypeScript + Rust desktop app; core libs are xterm.js, Zustand, shadcn/ui; verification is done via `pnpm build` / `pnpm test` and `cargo check`. Confidence: 0.8
+- Prefers reusing existing project libraries, official addons, and existing UI components (shadcn) over hand-rolled implementations. Confidence: 0.75
+- For terminal behavior, prefers xterm.js native rendering coupled with official addons (e.g., `@xterm/addon-serialize`) rather than custom text/VT handling. Confidence: 0.7
+- Prefers new views/features (e.g., session replay) to open as a new app tab rendered with a real terminal, not as a modal dialog. Confidence: 0.65
+- Dislikes intrusive modal dialogs (e.g., save dialogs) for background operations; prefers behavior to be driven by Settings with sensible app-data defaults. Confidence: 0.65
+- Prefers clean, minimal output — no redundant marker lines or duplicated input records added on top of the terminal's own output. Confidence: 0.6
+- On bug reports expects a thorough root-cause investigation ("严审代码") rather than incremental band-aid fixes, and will call out when a fix is only a guess. Confidence: 0.65
+- Comfortable rolling back experiments: will explicitly ask to undo/revert a change that didn't work ("撤销这次更改") before trying another approach. Confidence: 0.6
+- Treats mobile as out of scope for this project and wants mobile/porting suggestions ignored here (mobile is handled in a separate project). Confidence: 0.85

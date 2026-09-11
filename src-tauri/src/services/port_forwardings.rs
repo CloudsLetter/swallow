@@ -15,7 +15,7 @@ fn query_all_port_forwardings() -> Result<Vec<PortForwarding>, String> {
     let conn = sqlite::open_connection()?;
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, type, host_id, listen_host, listen_port, target_host, target_port, status, description, created_at, last_used, socks_username, socks_password
+            "SELECT id, name, type, host_id, listen_host, listen_port, target_host, target_port, status, description, created_at, last_used, auto_connect, socks_username, socks_password
              FROM port_forwardings ORDER BY name COLLATE NOCASE ASC",
         )
         .map_err(|e| e.to_string())?;
@@ -34,8 +34,9 @@ fn query_all_port_forwardings() -> Result<Vec<PortForwarding>, String> {
                 description: row.get(9)?,
                 created_at: row.get(10)?,
                 last_used: row.get(11)?,
-                socks_username: row.get(12)?,
-                socks_password: row.get(13)?,
+                auto_connect: row.get::<_, i64>(12).unwrap_or(0) != 0,
+                socks_username: row.get(13)?,
+                socks_password: row.get(14)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -130,8 +131,8 @@ pub async fn save_port_forwarding(
 
     conn.execute(
         "INSERT INTO port_forwardings (
-            id, name, type, host_id, listen_host, listen_port, target_host, target_port, status, description, created_at, last_used, socks_username, socks_password
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+            id, name, type, host_id, listen_host, listen_port, target_host, target_port, status, description, created_at, last_used, auto_connect, socks_username, socks_password
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
          ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             type = excluded.type,
@@ -144,6 +145,7 @@ pub async fn save_port_forwarding(
             description = excluded.description,
             created_at = excluded.created_at,
             last_used = excluded.last_used,
+            auto_connect = excluded.auto_connect,
             socks_username = excluded.socks_username,
             socks_password = excluded.socks_password",
         params![
@@ -159,6 +161,7 @@ pub async fn save_port_forwarding(
             rule.description,
             rule.created_at,
             rule.last_used,
+            rule.auto_connect as i64,
             rule.socks_username,
             rule.socks_password,
         ],
@@ -246,7 +249,7 @@ pub async fn test_port_forward_target(target_host: String, target_port: u16) -> 
 pub fn load_port_forwarding(conn: &Connection, id: &str) -> Result<Option<PortForwarding>, String> {
     let mut rule = conn
         .query_row(
-            "SELECT id, name, type, host_id, listen_host, listen_port, target_host, target_port, status, description, created_at, last_used, socks_username, socks_password
+            "SELECT id, name, type, host_id, listen_host, listen_port, target_host, target_port, status, description, created_at, last_used, auto_connect, socks_username, socks_password
              FROM port_forwardings WHERE id = ?1",
             params![id],
             |row| {
@@ -263,8 +266,9 @@ pub fn load_port_forwarding(conn: &Connection, id: &str) -> Result<Option<PortFo
                     description: row.get(9)?,
                     created_at: row.get(10)?,
                     last_used: row.get(11)?,
-                    socks_username: row.get(12)?,
-                    socks_password: row.get(13)?,
+                    auto_connect: row.get::<_, i64>(12).unwrap_or(0) != 0,
+                    socks_username: row.get(13)?,
+                    socks_password: row.get(14)?,
                 })
             },
         )
@@ -294,10 +298,11 @@ fn load_host(conn: &Connection, id: &str) -> Result<Option<Host>, String> {
         "SELECT id, name, host, port, account_id, username, status, last_connected, auth_type, password,
                 key_id, certificate_id, use_proxy, proxy_host_id, proxy_auth_type, proxy_key_id,
                 proxy_cert_id, proxy_host, proxy_port, proxy_username, proxy_password, icon, backend,
-                algo_profile, os_auto
+                algo_profile, os_auto, group_name, tags_json, favorite
          FROM hosts WHERE id = ?1",
         params![id],
         |row| {
+            let tags_json: Option<String> = row.get(26).unwrap_or(None);
             let mut host = Host {
                 id: row.get(0)?,
                 name: row.get(1)?,
@@ -324,6 +329,9 @@ fn load_host(conn: &Connection, id: &str) -> Result<Option<Host>, String> {
                 backend: row.get(22)?,
                 algo_profile: row.get(23)?,
                 os_auto: row.get::<_, i64>(24)? != 0,
+                group: row.get(25).unwrap_or_default(),
+                tags: crate::services::common::parse_tags(tags_json),
+                favorite: row.get::<_, i64>(27).unwrap_or(0) != 0,
             };
             host.password = resolve_secret(host.password.take(), &format!("hosts/{}/password", id));
             host.proxy_password =
@@ -534,6 +542,7 @@ mod tests {
             description: None,
             created_at: String::new(),
             last_used: None,
+            auto_connect: false,
             socks_username: None,
             socks_password: None,
         }

@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(npx tsc --noEmit)",
+      "Shell(pnpm:*)",
+      "Shell(cargo:*)",
+      "Shell(npx vitest run 2 >& 1)",
+      "Shell(npx vitest run)",
+      "Shell(del:*)",
+      "Shell(git add -A && git commit -F - <<'EOF' feat(hosts): 分组/标签/收藏 + JSON 与 ssh_config 导入导出 feat(terminal): 自定义右键菜单 + 快捷命令宏（设置可维护） feat(forwarding): 规则自启开关 + 意外断开指数退避重连 feat(monitor): CPU/内存阈值告警 + 冷却去重 Co-authored-by: CommandCodeBot <noreply@commandcode.ai> EOF)",
+      "Shell(git:*)"
+    ],
+    "deny": [],
+    "defaultMode": "default"
+  }
+}

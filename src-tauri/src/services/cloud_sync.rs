@@ -182,7 +182,7 @@ fn collect_port_forwardings() -> Result<Vec<PortForwarding>, String> {
     let conn = sqlite::open_connection()?;
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, type, host_id, listen_host, listen_port, target_host, target_port, status, description, created_at, last_used, socks_username, socks_password
+            "SELECT id, name, type, host_id, listen_host, listen_port, target_host, target_port, status, description, created_at, last_used, auto_connect, socks_username, socks_password
              FROM port_forwardings ORDER BY name COLLATE NOCASE ASC",
         )
         .map_err(|e| e.to_string())?;
@@ -201,8 +201,9 @@ fn collect_port_forwardings() -> Result<Vec<PortForwarding>, String> {
                 description: row.get(9)?,
                 created_at: row.get(10)?,
                 last_used: row.get(11)?,
-                socks_username: row.get(12)?,
-                socks_password: row.get(13)?,
+                auto_connect: row.get::<_, i64>(12).unwrap_or(0) != 0,
+                socks_username: row.get(13)?,
+                socks_password: row.get(14)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -367,8 +368,8 @@ fn restore_hosts(conn: &rusqlite::Connection, hosts: &[Host]) -> Result<usize, S
         conn.execute(
             "INSERT INTO hosts (id, name, host, port, account_id, username, status, last_connected, auth_type, password,
                     key_id, certificate_id, use_proxy, proxy_host_id, proxy_auth_type, proxy_key_id,
-                    proxy_cert_id, proxy_host, proxy_port, proxy_username, proxy_password, icon)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, '', ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, '', ?20)
+                    proxy_cert_id, proxy_host, proxy_port, proxy_username, proxy_password, icon, group_name, tags_json, favorite, backend, algo_profile, os_auto)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, '', ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, '', ?20, ?21, ?22, ?23, ?24, ?25, ?26)
              ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 host = excluded.host,
@@ -390,7 +391,13 @@ fn restore_hosts(conn: &rusqlite::Connection, hosts: &[Host]) -> Result<usize, S
                 proxy_port = excluded.proxy_port,
                 proxy_username = excluded.proxy_username,
                 proxy_password = '',
-                icon = excluded.icon",
+                icon = excluded.icon,
+                group_name = excluded.group_name,
+                tags_json = excluded.tags_json,
+                favorite = excluded.favorite,
+                backend = excluded.backend,
+                algo_profile = excluded.algo_profile,
+                os_auto = excluded.os_auto",
             rusqlite::params![
                 host.id,
                 host.name,
@@ -412,6 +419,12 @@ fn restore_hosts(conn: &rusqlite::Connection, hosts: &[Host]) -> Result<usize, S
                 host.proxy_port,
                 host.proxy_username,
                 host.icon,
+                host.group,
+                crate::services::common::to_tags_json(&host.tags),
+                host.favorite as i64,
+                host.backend,
+                host.algo_profile,
+                host.os_auto,
             ],
         )
         .map_err(|e| e.to_string())?;
@@ -518,8 +531,8 @@ fn restore_port_forwardings(
         )?;
 
         conn.execute(
-            "INSERT INTO port_forwardings (id, name, type, host_id, listen_host, listen_port, target_host, target_port, status, description, created_at, last_used, socks_username, socks_password)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, '')
+            "INSERT INTO port_forwardings (id, name, type, host_id, listen_host, listen_port, target_host, target_port, status, description, created_at, last_used, auto_connect, socks_username, socks_password)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, '')
              ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 type = excluded.type,
@@ -532,6 +545,7 @@ fn restore_port_forwardings(
                 description = excluded.description,
                 created_at = excluded.created_at,
                 last_used = excluded.last_used,
+                auto_connect = excluded.auto_connect,
                 socks_username = excluded.socks_username,
                 socks_password = ''",
             rusqlite::params![
@@ -547,6 +561,7 @@ fn restore_port_forwardings(
                 rule.description,
                 rule.created_at,
                 rule.last_used,
+                rule.auto_connect as i64,
                 rule.socks_username,
             ],
         )

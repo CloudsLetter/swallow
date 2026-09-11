@@ -1,7 +1,7 @@
 use rusqlite::{params, OptionalExtension};
 
 use crate::models::data::Host;
-use crate::services::common::{resolve_secret, store_secret_or_clear};
+use crate::services::common::{parse_tags, resolve_secret, store_secret_or_clear, to_tags_json};
 use crate::services::logs::append_log_i18n;
 use crate::utils::secrets;
 use crate::utils::sqlite;
@@ -41,7 +41,7 @@ pub fn list_hosts() -> Result<Vec<Host>, String> {
             "SELECT id, name, host, port, account_id, username, status, last_connected, auth_type, password,
                     key_id, certificate_id, use_proxy, proxy_host_id, proxy_auth_type, proxy_key_id,
                     proxy_cert_id, proxy_host, proxy_port, proxy_username, proxy_password, icon, backend,
-                    algo_profile, os_auto
+                    algo_profile, os_auto, group_name, tags_json, favorite
              FROM hosts ORDER BY name COLLATE NOCASE ASC",
         )
         .map_err(|e| e.to_string())?;
@@ -74,6 +74,9 @@ pub fn list_hosts() -> Result<Vec<Host>, String> {
                 backend: row.get(22)?,
                 algo_profile: row.get(23)?,
                 os_auto: row.get::<_, i64>(24)? != 0,
+                group: row.get(25).unwrap_or_default(),
+                tags: parse_tags(row.get(26)?),
+                favorite: row.get::<_, i64>(27).unwrap_or(0) != 0,
             };
             host.password = resolve_secret(host.password.take(), &format!("hosts/{}/password", host.id));
             host.proxy_password =
@@ -108,11 +111,12 @@ pub fn save_host(mut host: Host) -> Result<Host, String> {
             id, name, host, port, account_id, username, status, last_connected, auth_type, password,
             key_id, certificate_id, use_proxy, proxy_host_id, proxy_auth_type, proxy_key_id,
             proxy_cert_id, proxy_host, proxy_port, proxy_username, proxy_password, icon, backend,
-            algo_profile, os_auto
+            algo_profile, os_auto, group_name, tags_json, favorite
          ) VALUES (
             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
             ?11, ?12, ?13, ?14, ?15, ?16,
-            ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25
+            ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25,
+            ?26, ?27, ?28
          )
          ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
@@ -138,7 +142,10 @@ pub fn save_host(mut host: Host) -> Result<Host, String> {
             icon = excluded.icon,
             backend = excluded.backend,
             algo_profile = excluded.algo_profile,
-            os_auto = excluded.os_auto",
+            os_auto = excluded.os_auto,
+            group_name = excluded.group_name,
+            tags_json = excluded.tags_json,
+            favorite = excluded.favorite",
         params![
             host.id,
             host.name,
@@ -164,7 +171,10 @@ pub fn save_host(mut host: Host) -> Result<Host, String> {
             host.icon,
             host.backend,
             host.algo_profile,
-            host.os_auto
+            host.os_auto,
+            host.group,
+            to_tags_json(&host.tags),
+            host.favorite as i64
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -218,4 +228,150 @@ pub fn touch_host_last_connected(host: String, port: u16) -> Result<(), String> 
     )
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// 导出全部主机为 JSON（含凭据明文：调用前已弹确认，文件只写用户选定的目标路径）。
+#[tauri::command]
+pub fn export_hosts() -> Result<String, String> {
+    let hosts = list_hosts()?;
+    serde_json::to_string_pretty(&hosts).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn export_hosts_to(target_path: String) -> Result<usize, String> {
+    let content = export_hosts()?;
+    let count: usize = serde_json::from_str::<Vec<Host>>(&content)
+        .map(|v| v.len())
+        .unwrap_or(0);
+    std::fs::write(&target_path, content).map_err(|e| e.to_string())?;
+    Ok(count)
+}
+
+#[tauri::command]
+pub fn toggle_host_favorite(id: String) -> Result<Host, String> {
+    let conn = sqlite::open_connection()?;
+    conn.execute(
+        "UPDATE hosts SET favorite = CASE WHEN favorite IS NULL OR favorite = 0 THEN 1 ELSE 0 END WHERE id = ?1",
+        params![id],
+    )
+    .map_err(|e| e.to_string())?;
+    list_hosts()?
+        .into_iter()
+        .find(|h| h.id == id)
+        .ok_or_else(|| "主机不存在".to_string())
+}
+
+/// 从 JSON 导入主机：解析 Swallow 导出格式或 ~/.ssh/config 文本（二者其一）。
+/// 返回成功导入条数；失败整批报错、不写半截数据。
+#[tauri::command]
+pub fn import_hosts_text(text: String) -> Result<usize, String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err("导入内容为空".to_string());
+    }
+    if let Ok(items) = serde_json::from_str::<Vec<Host>>(trimmed) {
+        return import_host_records(items);
+    }
+    if let Ok(item) = serde_json::from_str::<Host>(trimmed) {
+        return import_host_records(vec![item]);
+    }
+    let parsed = parse_ssh_config(trimmed);
+    if parsed.is_empty() {
+        return Err("无法识别：既不是 Swallow 主机 JSON，也不是 ~/.ssh/config 格式".to_string());
+    }
+    import_host_records(parsed)
+}
+
+fn import_host_records(mut items: Vec<Host>) -> Result<usize, String> {
+    for item in &mut items {
+        item.id = String::new();
+        if item.status.trim().is_empty() {
+            item.status = "disconnected".to_string();
+        }
+        if item.port == 0 {
+            item.port = 22;
+        }
+        if item.username.trim().is_empty() {
+            item.username = "root".to_string();
+        }
+        if item.auth_type.as_deref().unwrap_or("").is_empty() {
+            item.auth_type = Some(if item.password.as_deref().unwrap_or("").is_empty() {
+                "none".to_string()
+            } else {
+                "password".to_string()
+            });
+        }
+    }
+    let mut count = 0;
+    for item in items {
+        save_host(item)?;
+        count += 1;
+    }
+    Ok(count)
+}
+
+/// 极简 ~/.ssh/config 解析：Host 别名 + HostName + Port + User（ProxyJump 映射为 proxyHost 内联）。
+fn parse_ssh_config(text: &str) -> Vec<Host> {
+    #[derive(Default)]
+    struct Block {
+        name: String,
+        hostname: String,
+        port: u16,
+        user: String,
+        proxy: String,
+    }
+    let mut blocks: Vec<Block> = Vec::new();
+    let mut current: Option<Block> = None;
+    let flush = |c: &mut Option<Block>, out: &mut Vec<Block>| {
+        if let Some(b) = c.take() {
+            if !b.name.is_empty() && b.name != "*" {
+                out.push(b);
+            }
+        }
+    };
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut parts = line.splitn(2, char::is_whitespace);
+        let key = parts.next().unwrap_or("").to_lowercase();
+        let value = parts.next().unwrap_or("").trim().trim_matches('"').to_string();
+        if key == "host" {
+            flush(&mut current, &mut blocks);
+            let first = value.split_whitespace().next().unwrap_or("").to_string();
+            if first.contains('*') || first.contains('?') || first.is_empty() {
+                continue;
+            }
+            current = Some(Block { name: first, port: 22, user: "root".into(), ..Default::default() });
+        } else if let Some(b) = current.as_mut() {
+            match key.as_str() {
+                "hostname" => b.hostname = value,
+                "port" => b.port = value.parse().unwrap_or(22),
+                "user" => b.user = value,
+                "proxyjump" => b.proxy = value.split(',').next().unwrap_or("").trim().to_string(),
+                _ => {}
+            }
+        }
+    }
+    flush(&mut current, &mut blocks);
+    blocks
+        .into_iter()
+        .map(|b| {
+            let addr = if b.hostname.is_empty() { b.name.clone() } else { b.hostname };
+            let use_proxy = !b.proxy.is_empty();
+            Host {
+                name: b.name,
+                host: addr,
+                port: if b.port == 0 { 22 } else { b.port },
+                username: if b.user.is_empty() { "root".into() } else { b.user },
+                status: "disconnected".into(),
+                auth_type: Some("none".into()),
+                use_proxy: Some(use_proxy),
+                proxy_host: if use_proxy { Some(b.proxy) } else { None },
+                proxy_port: if use_proxy { Some(22) } else { None },
+                ..Default::default()
+            }
+        })
+        .collect()
 }

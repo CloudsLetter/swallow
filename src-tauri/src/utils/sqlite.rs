@@ -189,6 +189,10 @@ pub fn init_database() -> Result<(), String> {
     ensure_column(&conn, "hosts", "backend", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(&conn, "hosts", "algo_profile", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(&conn, "hosts", "os_auto", "INTEGER NOT NULL DEFAULT 1")?;
+    ensure_column(&conn, "hosts", "group_name", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(&conn, "hosts", "tags_json", "TEXT")?;
+    ensure_column(&conn, "hosts", "favorite", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(&conn, "port_forwardings", "auto_connect", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(&conn, "sftp_connections", "key_id", "TEXT")?;
     ensure_column(&conn, "keys", "key_path", "TEXT")?;
     ensure_column(&conn, "keys", "public_key_path", "TEXT")?;

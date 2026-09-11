@@ -88,8 +88,9 @@ type PoolItem = {
   serialize?: SerializeAddon;
   // 查找快捷键回调：组件挂载时 setFindToggleHandler 注册，触发查找条开/关
   onFindToggle?: () => void;
+  // 右键菜单请求回调：TerminalView 注册后右键走自定义菜单（x/y 为视口坐标）
+  onContextMenuRequest?: (x: number, y: number) => void;
 };
-
 /** xterm 渲染引擎（与后端 config.terminal.render_engine 对齐）。 */
 export type TerminalRenderEngine = 'dom' | 'canvas' | 'webgl';
 
@@ -224,6 +225,17 @@ export function setFindToggleHandler(sessionId: string, cb: (() => void) | undef
   if (item) item.onFindToggle = cb;
 }
 
+/** 注册/清除右键菜单请求回调（TerminalView 挂载时注册，卸载时清空）。 */
+export function setContextMenuHandler(sessionId: string, cb: ((x: number, y: number) => void) | undefined) {
+  const item = pool[sessionId];
+  if (item) item.onContextMenuRequest = cb;
+}
+
+/** 取右键菜单请求回调（bindRightClickPaste 内部消费）。 */
+export function getContextMenuHandler(sessionId: string): ((x: number, y: number) => void) | undefined {
+  return pool[sessionId]?.onContextMenuRequest;
+}
+
 /** 把键盘焦点还给 xterm（查找条关闭/点空白后调用）。 */
 export function focusTerminal(sessionId: string) {
   pool[sessionId]?.terminal.focus();
@@ -311,6 +323,27 @@ function copySelection(terminal: Terminal) {
     // 失败回退 navigator.clipboard。
     writeText(text).catch(() => navigator.clipboard.writeText(text).catch(() => {}));
   }
+}
+
+export function copySessionSelection(sessionId: string): boolean {
+  const terminal = pool[sessionId]?.terminal;
+  if (!terminal || !terminal.hasSelection()) return false;
+  copySelection(terminal);
+  return true;
+}
+
+export function selectWordAtCursor(sessionId: string): void {
+  const term = pool[sessionId]?.terminal as unknown as { selectWord?: () => void } | undefined;
+  term?.selectWord?.();
+}
+
+export function selectAllSession(sessionId: string): void {
+  pool[sessionId]?.terminal.selectAll();
+}
+
+export async function pasteToSession(sessionId: string): Promise<void> {
+  const terminal = pool[sessionId]?.terminal;
+  if (terminal) await pasteToTerminal(terminal);
 }
 
 async function pasteToTerminal(terminal: Terminal) {
@@ -624,9 +657,9 @@ export function attachTerminal(sessionId: string, container: HTMLElement) {
 }
 
 /**
- * 右键粘贴（Windows Terminal / PuTTY 惯例）：由 right_click_pastes 开关控制，
- * 且与 right_click_selects_word 互斥（选词开启时交给 xterm 原生，粘贴不生效；
- * 设置页做联动，正常不会双开）。只在 terminal.open() 后调用（element 才存在）。
+ * 右键行为（Windows Terminal / PuTTY 惯例 + 自定义菜单）：
+ * - 注册了 onContextMenuRequest（TerminalView 常驻注册）→ 一律走自定义右键菜单；
+ * - 未注册时回退旧行为：right_click_selects_word 优先选词，right_click_pastes 粘贴。
  * capture 阶段监听：先于 xterm 内部的 mousedown 处理执行，粘贴不被其吞掉。
  */
 function bindRightClickPaste(sessionId: string, terminal: Terminal) {
@@ -639,6 +672,13 @@ function bindRightClickPaste(sessionId: string, terminal: Terminal) {
     'mousedown',
     (event) => {
       if (event.button !== 2) return;
+      const menuCb = pool[sessionId]?.onContextMenuRequest;
+      if (menuCb) {
+        event.preventDefault();
+        event.stopPropagation();
+        menuCb(event.clientX, event.clientY);
+        return;
+      }
       const cfg = useConfigStore.getState().config;
       if (cfg?.terminal?.right_click_selects_word) return; // 右键选词优先
       if (!cfg?.terminal?.right_click_pastes) return; // 右键粘贴开关
