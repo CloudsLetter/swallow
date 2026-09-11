@@ -127,6 +127,13 @@ export default {
     // Toolbar buttons
     import: 'Import',
     export: 'Export',
+    importDesc: 'Restore from a backup JSON (overwrites settings, appends records)',
+    exportDesc: 'Export all settings and data as a JSON backup (includes plaintext credentials — keep it safe)',
+    exportTitle: 'Export config backup',
+    exportDone: 'Config backup exported',
+    exportFailed: 'Export failed: {{message}}',
+    importDone: 'Restored {{count}} records',
+    importFailed: 'Restore failed: {{message}}',
     save: 'Save',
     saving: 'Saving...',
     reload: 'Reload',
@@ -438,6 +445,12 @@ export default {
     clearCache: 'Clear All Cache',
     resetSettings: 'Reset All Settings',
     deleteAllData: 'Delete All Data (Cannot be undone)',
+    dangerConfirm_cache: 'Clear app cache and session log files? Database and settings are kept.',
+    dangerConfirm_reset: 'Reset all settings to defaults? Hosts/keys and other data are kept.',
+    dangerConfirm_wipe: 'Delete all hosts, accounts, keys, certificates, forwarding rules and logs? This cannot be undone!',
+    dangerDone_cache: 'Cache cleared',
+    dangerDone_reset: 'Settings reset',
+    dangerDone_wipe: 'All data deleted',
 
     // Shortcuts
     customShortcutsComingSoon: 'Custom shortcuts feature is coming soon',

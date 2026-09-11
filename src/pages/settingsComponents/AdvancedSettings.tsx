@@ -1,20 +1,43 @@
 import { useConfigStore } from '../../store/config';
 import { useTranslation } from 'react-i18next';
 import { useState } from 'react';
+import { toast } from 'sonner';
+import { ask } from '@tauri-apps/plugin-dialog';
 import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
 import { Label } from '../../components/ui/label';
 import { SectionTitle, SwitchRow } from './shared';
 import { checkForAppUpdates } from '../../services/updaterService';
+import { clearAppCache, deleteAllData, resetAppSettings } from '../../services/dataService';
 
 export function AdvancedSettings() {
   const { t } = useTranslation();
   const config = useConfigStore((state) => state.config);
   const updateConfig = useConfigStore((state) => state.updateConfig);
+  const loadConfig = useConfigStore((state) => state.loadConfig);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [busyDanger, setBusyDanger] = useState<string | null>(null);
 
   if (!config) return null;
+
+  const runDanger = async (key: 'cache' | 'reset' | 'wipe', fn: () => Promise<string | void>, doneKey: string) => {
+    const confirmed = await ask(t(`settings.dangerConfirm_${key}`), {
+      title: t('settings.dangerZone'),
+      kind: 'warning',
+    });
+    if (!confirmed) return;
+    setBusyDanger(key);
+    try {
+      const msg = await fn();
+      toast.success(typeof msg === 'string' && msg ? msg : t(doneKey));
+      await loadConfig();
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setBusyDanger(null);
+    }
+  };
 
   const updateSecurityConfig = (updates: Partial<typeof config.security>) => {
     updateConfig({ ...config, security: { ...config.security, ...updates } });
@@ -217,14 +240,33 @@ export function AdvancedSettings() {
       <div className="rounded-lg border border-border bg-card p-4">
         <SectionTitle danger>{t('settings.dangerZone')}</SectionTitle>
         <div className="flex flex-col gap-3">
-          <Button variant="outline" className="w-full justify-start" disabled title={t('settings.comingSoon')}>
-            {t('settings.clearCache')}
+          <Button
+            variant="outline"
+            className="w-full justify-start"
+            disabled={busyDanger !== null}
+            onClick={() => void runDanger('cache', clearAppCache, 'settings.dangerDone_cache')}
+          >
+            {busyDanger === 'cache' ? t('common.loading') : t('settings.clearCache')}
           </Button>
-          <Button variant="outline" className="w-full justify-start" disabled title={t('settings.comingSoon')}>
-            {t('settings.resetSettings')}
+          <Button
+            variant="outline"
+            className="w-full justify-start"
+            disabled={busyDanger !== null}
+            onClick={() =>
+              void runDanger('reset', async () => {
+                await resetAppSettings();
+              }, 'settings.dangerDone_reset')
+            }
+          >
+            {busyDanger === 'reset' ? t('common.loading') : t('settings.resetSettings')}
           </Button>
-          <Button variant="destructive" className="w-full" disabled title={t('settings.comingSoon')}>
-            {t('settings.deleteAllData')}
+          <Button
+            variant="destructive"
+            className="w-full"
+            disabled={busyDanger !== null}
+            onClick={() => void runDanger('wipe', deleteAllData, 'settings.dangerDone_wipe')}
+          >
+            {busyDanger === 'wipe' ? t('common.loading') : t('settings.deleteAllData')}
           </Button>
         </div>
       </div>

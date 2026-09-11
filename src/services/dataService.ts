@@ -525,6 +525,38 @@ export async function cloudSyncNow(direction: 'upload' | 'download'): Promise<Sy
   return invoke<SyncReport>('cloud_sync_now', { direction });
 }
 
+// ==================== 应用配置备份 ====================
+
+/** 导出全部应用配置 JSON（含 config 全段 + DB 全表，密钥内容含明文）。 */
+export async function exportAppConfig(): Promise<string> {
+  return invoke<string>('export_app_config');
+}
+
+/** 导出应用配置到用户选择的目标路径。 */
+export async function exportAppConfigTo(targetPath: string): Promise<void> {
+  await invoke('export_app_config_to', { targetPath });
+}
+
+/** 从备份 JSON 恢复（覆盖配置 + 全表新增导入），返回各类目条数。 */
+export async function importAppConfig(text: string): Promise<Record<string, number>> {
+  return invoke<Record<string, number>>('import_app_config', { text });
+}
+
+/** 清缓存：删应用缓存目录 + 会话日志目录，返回清理说明。 */
+export async function clearAppCache(): Promise<string> {
+  return invoke<string>('clear_app_cache');
+}
+
+/** 重置所有设置：config.toml 恢复默认（DB 数据不动）。 */
+export async function resetAppSettings(): Promise<void> {
+  await invoke('reset_app_settings');
+}
+
+/** 删除所有数据（不可恢复），返回说明。 */
+export async function deleteAllData(): Promise<string> {
+  return invoke<string>('delete_all_data');
+}
+
 // ==================== 会话持久化 ====================
 
 /** 保存打开的标签会话（JSON 字符串，由前端序列化，密码/passphrase 已剔除）。 */

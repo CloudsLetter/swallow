@@ -5,6 +5,9 @@ import {
   RotateCw as IconReload,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
+import { open, save } from '@tauri-apps/plugin-dialog';
+import { invoke } from '@tauri-apps/api/core';
 import {
   AppearanceSettings,
   TerminalSettings,
@@ -16,6 +19,7 @@ import {
 import { useConfigStore } from '../store/config';
 import { Button } from '../components/ui/button';
 import { cn } from '@/lib/utils';
+import { exportAppConfigTo, importAppConfig } from '../services/dataService';
 
 type configTab = 'appearance' | 'terminal' | 'shortcuts' | 'cloud' | 'ai' | 'advanced';
 
@@ -24,6 +28,34 @@ export function SettingsPage() {
   const loadConfig = useConfigStore((state) => state.loadConfig);
 
   const [activeTab, setActiveTab] = useState<configTab>('appearance');
+
+  const handleExport = async () => {
+    try {
+      const target = await save({ title: t('settings.exportTitle'), defaultPath: 'swallow-backup.json' });
+      if (!target) return;
+      await exportAppConfigTo(target);
+      toast.success(t('settings.exportDone'));
+    } catch (e) {
+      console.error('Failed to export config:', e);
+      toast.error(t('settings.exportFailed', { message: String(e) }));
+    }
+  };
+
+  const handleImport = async () => {
+    try {
+      const selected = await open({ multiple: false, directory: false });
+      const path = typeof selected === 'string' ? selected : null;
+      if (!path) return;
+      const text = await invoke<string>('read_text_file_for_import', { path });
+      const counts = await importAppConfig(text);
+      const total = Object.values(counts).reduce((a, b) => a + b, 0);
+      toast.success(t('settings.importDone', { count: total }));
+      await loadConfig();
+    } catch (e) {
+      console.error('Failed to import config:', e);
+      toast.error(t('settings.importFailed', { message: String(e) }));
+    }
+  };
 
   const tabs: { id: configTab; label: string }[] = [
     { id: 'appearance', label: t('settings.appearance') },
@@ -62,11 +94,11 @@ export function SettingsPage() {
           <p className="truncate text-xs text-muted-foreground">{t('settings.subtitle')}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="secondary" disabled title={t('settings.comingSoon')}>
+          <Button variant="secondary" onClick={() => void handleImport()} title={t('settings.importDesc')}>
             <IconDownload size={16} />
             {t('settings.import')}
           </Button>
-          <Button variant="secondary" disabled title={t('settings.comingSoon')}>
+          <Button variant="secondary" onClick={() => void handleExport()} title={t('settings.exportDesc')}>
             <IconUpload size={16} />
             {t('settings.export')}
           </Button>

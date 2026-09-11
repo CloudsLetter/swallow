@@ -127,6 +127,13 @@ export default {
     // 工具栏按钮
     import: '导入',
     export: '导出',
+    importDesc: '从备份 JSON 恢复（覆盖配置，各表新增导入）',
+    exportDesc: '导出全部配置与数据为 JSON 备份（含凭据明文，请妥善保管）',
+    exportTitle: '导出配置备份',
+    exportDone: '配置备份已导出',
+    exportFailed: '导出失败：{{message}}',
+    importDone: '已恢复 {{count}} 条记录',
+    importFailed: '恢复失败：{{message}}',
     save: '保存',
     saving: '保存中...',
     reload: '重载',
@@ -436,6 +443,12 @@ export default {
     clearCache: '清除所有缓存',
     resetSettings: '重置所有设置',
     deleteAllData: '删除所有数据（不可恢复）',
+    dangerConfirm_cache: '清除应用缓存与会话日志文件？数据库与配置不受影响。',
+    dangerConfirm_reset: '将全部设置恢复为默认值？主机/密钥等数据不受影响。',
+    dangerConfirm_wipe: '删除全部主机、账号、密钥、证书、转发规则与日志？此操作不可恢复！',
+    dangerDone_cache: '缓存已清理',
+    dangerDone_reset: '设置已重置',
+    dangerDone_wipe: '全部数据已删除',
 
     // 快捷键设置
     customShortcutsComingSoon: '自定义快捷键功能即将推出',
