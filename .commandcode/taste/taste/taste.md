@@ -11,3 +11,4 @@
 - On bug reports expects a thorough root-cause investigation ("严审代码") rather than incremental band-aid fixes, and will call out when a fix is only a guess. Confidence: 0.65
 - Comfortable rolling back experiments: will explicitly ask to undo/revert a change that didn't work ("撤销这次更改") before trying another approach. Confidence: 0.6
 - Treats mobile as out of scope for this project and wants mobile/porting suggestions ignored here (mobile is handled in a separate project). Confidence: 0.85
+- Prefers git commit messages in English (conventional-commit style, e.g. perf/feat/style) even though discussion and UI strings are in Chinese, and never includes a Co-authored-by trailer line. Confidence: 0.9
