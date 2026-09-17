@@ -3,9 +3,10 @@
 //! 模型（docs/SSH_BACKEND_MIGRATION.md §9，API 已对 vendor russh 0.60.1 实证）：
 //! - 认证/主机密钥/跳板全部复用 `russh_backend::connect()`，本模块只管「起 shell 会话」；
 //! - **spawn() 内同步完成**连接 + PTY + shell：错误（含 HostKeyApprovalRequired）可透传
-//!   给装配层 downcast 转前端待确认；随后把已打开的 channel 交给后台
-//!   单 task `tokio::select!`：远端输出臂 `wait()` 推事件；本地命令臂走 mpsc；
-//! - 写用 `channel.make_writer()`（AsyncWrite + 'static），resize 用 `window_change`；
+//!   给装配层 downcast 转前端待确认；随后把已打开的 channel 交给后台输出泵 task
+//!   `run_output_pump`（只做 `wait()` 读远端输出并推事件）；
+//! - 写走 `Handle::data` 直发（按键级小包单包零排队，长粘贴 16KB 分片），
+//!   resize 走 `window_change` 直发——输入不再经 mpsc/select 排队，无输出阻塞延迟；
 //! - 会话事件与 ssh2 读线程同协议：`session-{id}` 的 Output/Progress/Disconnected/Error。
 //!
 //! ssh2 保留作为 DSA/老设备回退后端：回退判定在命令装配层（`is_ssh2_fallback_eligible`，
@@ -13,8 +14,6 @@
 #![allow(dead_code)]
 
 use anyhow::{Context, Result};
-use tokio::io::AsyncWriteExt;
-use tokio::sync::mpsc;
 
 use crate::session_events::{emit_session_event, SessionEvent};
 use crate::ssh::russh_backend::{connect as russh_connect, ClientHandler, RusshConnection};
@@ -22,46 +21,77 @@ use crate::ssh::session::SshConfig;
 use crate::AppState;
 use tauri::{AppHandle, Manager};
 
-/// 命令通道：外部（IPC 写/重设尺寸）经 mpsc 汇入独占 channel 的 select task。
-enum ShellCmd {
-    Write(Vec<u8>),
-    Resize(u32, u32),
-    Stop,
-}
-
 /// 运行中的 russh shell 会话句柄（值类型，放入 AppState.russh_shells）。
+/// 写半端与读半端分离：写半端 Clone 后给 IPC 写路径直用（Send+Sync+'static），
+/// 读半端留给后台输出泵——输入不再经 mpsc/select 排队，无输出阻塞延迟。
 pub struct ShellSession {
-    tx: mpsc::Sender<ShellCmd>,
+    writer: std::sync::Arc<tokio::sync::Mutex<russh::ChannelWriteHalf<russh::client::Msg>>>,
 }
 
 impl ShellSession {
-    /// 异步背压写入：队列满时等待而不是丢输入（高频粘贴/广播时 select task 若被
-    /// 大量输出占用，try_send 会满——丢键/丢粘贴不可接受）。
+    /// 直写输入：按键级小包（≤256B）单包直发，零排队；
+    /// 长数据（粘贴）按 writable_packet_size 切片逐片直发，尊重服务端窗口。
     pub async fn write(&self, data: Vec<u8>) -> Result<()> {
-        self.tx
-            .send(ShellCmd::Write(data))
-            .await
-            .map_err(|e| anyhow::anyhow!("shell 写通道已关闭: {e}"))
+        let writer = self.writer.clone();
+        let mut guard = writer.lock().await;
+        write_data_windowed(&mut *guard, &data).await
     }
 
-    /// 重设 PTY 尺寸（数量少，仍走带背压的异步发送保证送达）。
+    /// 重设 PTY 尺寸（window_change 走写半端直发，不经 mpsc 排队）。
     pub async fn resize(&self, cols: u32, rows: u32) -> Result<()> {
-        self.tx
-            .send(ShellCmd::Resize(cols, rows))
+        self.writer
+            .lock()
             .await
-            .map_err(|e| anyhow::anyhow!("shell resize 通道已关闭: {e}"))
+            .window_change(cols, rows, 0, 0)
+            .await
+            .map_err(|e| anyhow::anyhow!("shell resize 失败: {e}"))
     }
 
-    /// 请求停止并断开（幂等；Drop 也会兜底发 Stop）。
+    /// 请求停止并断开（幂等；Drop 也会兜底断开）。
     pub fn stop(&self) {
-        let _ = self.tx.try_send(ShellCmd::Stop);
+        let writer = self.writer.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = writer.lock().await.close().await;
+        });
     }
 }
 
 impl Drop for ShellSession {
     fn drop(&mut self) {
-        let _ = self.tx.try_send(ShellCmd::Stop);
+        self.stop();
     }
+}
+
+/// 输入直写：按键级小包（≤256B）单次直发，零排队；
+/// 长数据（粘贴）按服务端窗口切片逐片直发，每片独立 SSH 包、无 mpsc 串行等待。
+/// 旧路径（mpsc 1024 + make_writer + select 复用）的问题：
+/// 高频输出时 select 的输出臂持续就绪，写命令在 rx 队列后排队，
+/// 按键要等输出处理完才发出 → 体感「跳跃式延迟」。
+async fn write_data_windowed(
+    writer: &mut russh::ChannelWriteHalf<russh::client::Msg>,
+    data: &[u8],
+) -> Result<()> {
+    use tokio::io::AsyncWriteExt;
+    if data.is_empty() {
+        return Ok(());
+    }
+    if data.len() <= 256 {
+        let mut w = writer.make_writer();
+        return w
+            .write_all(data)
+            .await
+            .map_err(|e| anyhow::anyhow!("shell 写失败: {e}"));
+    }
+    let mut rest = data;
+    while !rest.is_empty() {
+        let n = writer.writable_packet_size().await.max(1).min(rest.len());
+        let mut w = writer.make_writer();
+        w.write_all(&rest[..n])
+            .await
+            .map_err(|e| anyhow::anyhow!("shell 写失败: {e}"))?;
+        rest = &rest[n..];
+    }
+    Ok(())
 }
 
 /// 建立 russh shell 会话：连接 + 认证 + PTY + shell 全部在本函数 await 完成，
@@ -119,24 +149,21 @@ pub async fn spawn(
         },
     );
 
-    let (tx, rx) = mpsc::channel::<ShellCmd>(1024);
-    tauri::async_runtime::spawn(run_select(
-        app,
-        session_id,
-        channel,
-        handle,
-        rx,
-    ));
-    Ok(ShellSession { tx })
+    let (read_half, write_half) = channel.split();
+    let writer = std::sync::Arc::new(tokio::sync::Mutex::new(write_half));
+    let session = ShellSession { writer: writer.clone() };
+    // handle 所有权移交输出泵：远端断开时由它显式 disconnect 并清会话表
+    tauri::async_runtime::spawn(run_output_pump(app, session_id, read_half, handle));
+    Ok(session)
 }
 
-/// 后台 select：channel 独占于此 task（`wait()` 需 &mut），本地命令经 rx 汇入。
-async fn run_select(
+/// 后台输出泵：只做一件事——读半端 `wait()` 读远端输出并推事件。
+/// 写/resize 走写半端直发（与读半端无锁竞争），输出不再阻塞输入 → 按键零排队延迟。
+async fn run_output_pump(
     app: AppHandle,
     session_id: String,
-    mut channel: russh::Channel<russh::client::Msg>,
+    mut read_half: russh::ChannelReadHalf,
     handle: russh::client::Handle<ClientHandler>,
-    mut rx: mpsc::Receiver<ShellCmd>,
 ) {
     emit_session_event(
         &app,
@@ -147,124 +174,81 @@ async fn run_select(
         },
     );
 
-    let mut writer = channel.make_writer();
     let mut pending: Vec<u8> = Vec::with_capacity(8192 + 4);
-    // remote_end：对端关闭/通道关闭/IO 错误（非主动）→ 需要给前端 Disconnected 事件并清会话表
-    let mut remote_end = false;
 
     loop {
-        tokio::select! {
-            // 远端输出（服务器 → 客户端）
-            msg = channel.wait() => {
-                let Some(msg) = msg else {
-                    remote_end = true;
-                    break; // 事件循环侧已关闭
-                };
-                match msg {
-                    russh::ChannelMsg::Data { ref data } => {
-                        pending.extend_from_slice(data);
-                        // 增量 UTF-8：只发完整前缀，尾部留给下一块；非法字节 lossy 替换。
-                        loop {
-                            if pending.is_empty() {
-                                break;
-                            }
-                            match std::str::from_utf8(&pending) {
-                                Ok(_) => {
-                                    let text =
-                                        String::from_utf8(std::mem::take(&mut pending))
-                                            .unwrap_or_default();
-                                    if !text.is_empty() {
-                                        emit_session_event(
-                                            &app,
-                                            &session_id,
-                                            &SessionEvent::Output { data: text },
-                                        );
-                                    }
-                                    break;
-                                }
-                                Err(e) => {
-                                    let valid = e.valid_up_to();
-                                    let tail_incomplete = e.error_len().is_none();
-                                    if valid > 0 {
-                                        let text = String::from_utf8(pending[..valid].to_vec())
-                                            .unwrap_or_default();
-                                        pending.drain(..valid);
-                                        if !text.is_empty() {
-                                            emit_session_event(
-                                                &app,
-                                                &session_id,
-                                                &SessionEvent::Output { data: text },
-                                            );
-                                        }
-                                    } else if !tail_incomplete {
-                                        pending.drain(..e.error_len().unwrap_or(1));
-                                        emit_session_event(
-                                            &app,
-                                            &session_id,
-                                            &SessionEvent::Output {
-                                                data: "\u{FFFD}".into(),
-                                            },
-                                        );
-                                    } else {
-                                        break; // 等下一块补全尾部
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    russh::ChannelMsg::ExitStatus { .. } | russh::ChannelMsg::Close => {
-                        remote_end = true;
+        let msg = read_half.wait().await;
+        let Some(msg) = msg else {
+            break; // 事件循环侧已关闭 → 远端断开
+        };
+        match msg {
+            russh::ChannelMsg::Data { ref data } => {
+                pending.extend_from_slice(data);
+                // 增量 UTF-8：只发完整前缀，尾部留给下一块；非法字节 lossy 替换。
+                loop {
+                    if pending.is_empty() {
                         break;
                     }
-                    _ => {}
-                }
-            }
-            // 本地命令（IPC 写 / 重设尺寸 / 停止）
-            cmd = rx.recv() => {
-                let Some(cmd) = cmd else {
-                    break; // 会话句柄已 drop
-                };
-                match cmd {
-                    ShellCmd::Write(data) => {
-                        if let Err(e) = writer.write_all(&data).await {
-                            emit_session_event(
-                                &app,
-                                &session_id,
-                                &SessionEvent::Error { message: e.to_string() },
-                            );
-                            remote_end = true;
+                    match std::str::from_utf8(&pending) {
+                        Ok(_) => {
+                            let text =
+                                String::from_utf8(std::mem::take(&mut pending))
+                                    .unwrap_or_default();
+                            if !text.is_empty() {
+                                emit_session_event(
+                                    &app,
+                                    &session_id,
+                                    &SessionEvent::Output { data: text },
+                                );
+                            }
                             break;
                         }
-                    }
-                    ShellCmd::Resize(c, r) => {
-                        if let Err(e) = channel.window_change(c, r, 0, 0).await {
-                            emit_session_event(
-                                &app,
-                                &session_id,
-                                &SessionEvent::Error { message: e.to_string() },
-                            );
-                            remote_end = true;
-                            break;
+                        Err(e) => {
+                            let valid = e.valid_up_to();
+                            let tail_incomplete = e.error_len().is_none();
+                            if valid > 0 {
+                                let text = String::from_utf8(pending[..valid].to_vec())
+                                    .unwrap_or_default();
+                                pending.drain(..valid);
+                                if !text.is_empty() {
+                                    emit_session_event(
+                                        &app,
+                                        &session_id,
+                                        &SessionEvent::Output { data: text },
+                                    );
+                                }
+                            } else if !tail_incomplete {
+                                pending.drain(..e.error_len().unwrap_or(1));
+                                emit_session_event(
+                                    &app,
+                                    &session_id,
+                                    &SessionEvent::Output {
+                                        data: "\u{FFFD}".into(),
+                                    },
+                                );
+                            } else {
+                                break; // 等下一块补全尾部
+                            }
                         }
                     }
-                    ShellCmd::Stop => break, // 主动停止：不补 Disconnected（由调用方处理）
                 }
             }
+            russh::ChannelMsg::ExitStatus { .. } | russh::ChannelMsg::Close => {
+                break;
+            }
+            _ => {}
         }
     }
 
-    // 结束：显式断开（eventloop 收到 disconnect 后关闭底层连接）。
+    // 输出泵退出即视为远端结束：显式断开（eventloop 收到 disconnect 后关闭底层连接），
+    // 通知前端 + 清会话表（否则 ssh_connect 复用检查会把已死的会话当成已连接）。
     let _ = handle
         .disconnect(russh::Disconnect::ByApplication, "Shell closed", "en")
         .await;
-    if remote_end {
-        // 远端/IO 导致的断开：通知前端 + 清会话表（否则 ssh_connect 复用检查会
-        // 把已死的会话当成已连接，重连/再开全部假成功）。
-        emit_session_event(&app, &session_id, &SessionEvent::Disconnected);
-        if let Some(state) = app.try_state::<AppState>() {
-            if let Ok(mut map) = state.russh_shells.lock() {
-                map.remove(&session_id);
-            }
+    emit_session_event(&app, &session_id, &SessionEvent::Disconnected);
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Ok(mut map) = state.russh_shells.lock() {
+            map.remove(&session_id);
         }
     }
 }

@@ -380,14 +380,13 @@ function playBellSound() {
   }
 }
 
-// 输入微批：把连续 onData 合并成少量 IPC（15ms 窗口；长按/粘贴/广播从每秒上百次降到几十次以下）。
-// 顺序保持（append 序=发送序）；会话日志按原始输入逐次记录不受影响；serial 保持即时（硬件时序敏感）。
-const WRITE_BATCH_MS = 15;
+// 输入直发：单次按键直接 IPC，不再 15ms 微批等待。
+// 旧微批（WRITE_BATCH_MS=15）的问题：每次按键固定 +15ms 发出延迟，
+// 连续输入时按键在批里排队攒批 → 体感「一顿一顿」。IPC 洪泛防护改由
+// 下面的串行队列承担（同会话同时只在途一个 invoke，按序完成）。
 const WRITE_BATCH_MAX = 256 * 1024;
-const writeBatches = new Map<string, string>();
-const writeBatchTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-/** 按会话类型分流的单次写（微批 flush 与旧路径共用）。 */
+/** 按会话类型分流的单次写。 */
 function sendToSession(id: string, payload: string) {
   const st = getSessionType(id);
   if (st === 'telnet') return telnetWrite(id, payload);
@@ -397,33 +396,22 @@ function sendToSession(id: string, payload: string) {
   return sshWrite(id, payload);
 }
 
-function flushWriteBatch(id: string) {
-  const timer = writeBatchTimers.get(id);
-  if (timer) {
-    clearTimeout(timer);
-    writeBatchTimers.delete(id);
-  }
-  const payload = writeBatches.get(id);
-  writeBatches.delete(id);
-  if (!payload) return;
-  enqueueWrite(id, () =>
-    sendToSession(id, payload).catch((error: unknown) => {
-      console.error(`Failed to write to terminal (${id}):`, error);
-    }),
-  );
-}
-
 /**
  * 向目标会话写入数据（广播/单会话通用）：按各会话协议类型分流 ssh/telnet/local 命令，
  * 经会话级写队列串行化（高频输入不压垮后端 IPC）。替代各处手写 targets+分流+enqueue 重复块。
+ *
+ * 时序语义（按键实时性的关键）：
+ * - 短输入（单次按键/短串，≤64 字符）直接进串行队列立即发送，不攒批、不等待；
+ * - 长输入（粘贴/宏/补全补全，>64 字符）才按 256KB 切片分段，避免单次 IPC 过大阻塞队列。
  */
+const WRITE_DIRECT_MAX = 64;
+
 export function enqueueWriteToTargets(targets: string[], data: string) {
   for (const id of targets) {
     // 会话日志记录：输入按目标会话记录（广播时每个接收会话都记，语义准确）；
     // 录制未开启时 appendInput 内部直接返回。
     appendInput(id, data);
-    // serial（以及其它即时敏感协议在需要时）直接发送，不做微批
-    if (getSessionType(id) === 'serial') {
+    if (data.length <= WRITE_DIRECT_MAX) {
       enqueueWrite(id, () =>
         sendToSession(id, data).catch((error: unknown) => {
           console.error(`Failed to write to terminal (${id}):`, error);
@@ -431,18 +419,13 @@ export function enqueueWriteToTargets(targets: string[], data: string) {
       );
       continue;
     }
-    const prev = writeBatches.get(id) ?? '';
-    const next = prev + data;
-    writeBatches.set(id, next);
-    // 大批量（长粘贴/上传）超过上限立即 flush，避免缓冲无限增长
-    if (next.length >= WRITE_BATCH_MAX) {
-      flushWriteBatch(id);
-      continue;
-    }
-    if (!writeBatchTimers.has(id)) {
-      writeBatchTimers.set(
-        id,
-        setTimeout(() => flushWriteBatch(id), WRITE_BATCH_MS),
+    // 长输入分片：每片独立入队，保持顺序（append 序=发送序）
+    for (let i = 0; i < data.length; i += WRITE_BATCH_MAX) {
+      const chunk = data.slice(i, i + WRITE_BATCH_MAX);
+      enqueueWrite(id, () =>
+        sendToSession(id, chunk).catch((error: unknown) => {
+          console.error(`Failed to write to terminal (${id}):`, error);
+        }),
       );
     }
   }
@@ -575,7 +558,7 @@ export async function attachListeners(sessionId: string) {
       }
       switch (event.kind) {
         case 'output':
-          handlers.onOutput(event.data);
+          queueOutput(pool[sessionId], event.data, handlers.onOutput);
           break;
         case 'disconnected':
           handlers.onDisconnect();
@@ -612,18 +595,74 @@ export function registerEventHandlers(sessionId: string, handlers: TerminalEvent
     }
   }
   // 回放缓冲的早期输出（连接成功到组件注册之间的 motd / Last login 等），
-  // 回放后清空，避免重复
+  // 回放后清空，避免重复（同样走 rAF 合并渲染，避免一次性 N 次 write 卡顿）
   if (item.pendingOutputs && item.pendingOutputs.length > 0) {
     const pending = item.pendingOutputs;
     item.pendingOutputs = [];
     for (const chunk of pending) {
-      try {
-        handlers.onOutput(chunk);
-      } catch (e) {
-        console.warn(`[${sessionId}] Failed to replay pending output:`, e);
-      }
+      queueOutput(item, chunk, (data) => {
+        try {
+          handlers.onOutput(data);
+        } catch (e) {
+          console.warn(`[${sessionId}] Failed to replay pending output:`, e);
+        }
+      });
     }
   }
+}
+
+/**
+ * 输出合并渲染：同一帧内到达的多个 Output 事件攒成一次 terminal.write。
+ * 旧路径每个事件一次 write → 高频输出（cat 大文件/vim 重绘）时每秒上百次
+ * write + 回调，DOM 渲染器逐次重排 → 体感「跳跃」。rAF 合并后每帧最多一次 write，
+ * 与浏览器刷新率对齐，输出如流水。回调（replay 快照）只在合并后的整块上跑一次。
+ */
+type OutputQueue = { chunks: string[]; scheduled: boolean; handler: (data: string) => void };
+
+const outputQueues = new Map<string, OutputQueue>();
+
+/** 反查 sessionId（pool key）。线性扫描仅在输出事件路径触发，开销可忽略。 */
+function findSessionId(item: PoolItem): string | undefined {
+  for (const k of Object.keys(pool)) {
+    if (pool[k] === item) return k;
+  }
+  return undefined;
+}
+
+function queueOutput(
+  item: PoolItem | undefined,
+  data: string,
+  handler: (data: string) => void,
+) {
+  if (!item) {
+    handler(data);
+    return;
+  }
+  const sessionId = findSessionId(item);
+  if (!sessionId) {
+    handler(data);
+    return;
+  }
+  let q = outputQueues.get(sessionId);
+  if (!q) {
+    q = { chunks: [], scheduled: false, handler };
+    outputQueues.set(sessionId, q);
+  }
+  q.handler = handler;
+  q.chunks.push(data);
+  if (q.scheduled) return;
+  q.scheduled = true;
+  requestAnimationFrame(() => {
+    const cur = outputQueues.get(sessionId);
+    outputQueues.delete(sessionId);
+    if (!cur || cur.chunks.length === 0) return;
+    const merged = cur.chunks.length === 1 ? cur.chunks[0] : cur.chunks.join('');
+    try {
+      cur.handler(merged);
+    } catch (e) {
+      console.error(`[${sessionId}] Failed to write merged output:`, e);
+    }
+  });
 }
 
 export function unattachListeners(sessionId: string) {
@@ -808,13 +847,6 @@ export function disposeTerminal(sessionId: string) {
   
   // 销毁终端实例
   try { item.terminal.dispose(); } catch (e) {}
-  // 清输入微批残留（未发送的缓冲直接丢弃）
-  const batchTimer = writeBatchTimers.get(sessionId);
-  if (batchTimer) {
-    clearTimeout(batchTimer);
-    writeBatchTimers.delete(sessionId);
-  }
-  writeBatches.delete(sessionId);
   delete pool[sessionId];
   delete writeQueues[sessionId];
   delete sessionTypes[sessionId];
