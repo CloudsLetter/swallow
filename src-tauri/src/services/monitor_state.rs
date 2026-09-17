@@ -1,12 +1,12 @@
 use rusqlite::{params, OptionalExtension};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::utils::sqlite;
 
 /// 监控页持久化状态（单行表 monitor_state，id 恒为 1）：
 /// - host_ids：正在监控的主机 id 列表（有序，前端添加顺序）
 /// - auto_start：进入监控页时是否自动重连上次监控的主机
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MonitorState {
     pub host_ids: Vec<String>,

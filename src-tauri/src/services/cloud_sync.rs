@@ -21,8 +21,11 @@ use crate::services::logs::append_log_i18n;
 use crate::utils::crypto;
 use crate::utils::sqlite;
 
-/// 数据包版本号。
-const PACKET_VERSION: u32 = 1;
+/// 数据包版本号。v2 新增：桌面连接（remote_conns）、已知主机（known_hosts）、
+/// 监控状态（monitor_state），以及 settings 全段（含 ai/context_menu/monitor_alerts）。
+const PACKET_VERSION: u32 = 2;
+/// 本地可读取的最低包版本（v1 老包仍可下载恢复）。
+const MIN_READABLE_VERSION: u32 = 1;
 
 /// 同步结果统计（返回给前端展示）。
 #[derive(Debug, Clone, Serialize)]
@@ -34,6 +37,18 @@ pub struct SyncReport {
     pub counts: HashMap<String, usize>,
     /// 同步时间（RFC3339）
     pub timestamp: String,
+    /// 本次跳过的条目（冲突/校验失败等），供前端展示明细
+    #[serde(default)]
+    pub skipped: Vec<SyncSkipped>,
+}
+
+/// 同步跳过条目：冲突或校验失败时记录原因，不阻断整批。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncSkipped {
+    pub category: String,
+    pub name: String,
+    pub reason: String,
 }
 
 /// 密钥条目：密钥记录 + 密钥内容（私钥/公钥明文 PEM）。
@@ -70,9 +85,9 @@ struct SyncedCert {
     private_key_content: Option<String>,
 }
 
-/// 设置同步子集：只同步用户关心的配置，排除 server_key 等云端自身凭据。
-/// 这里同步 appearance/terminal/ssh/security/advanced 的常用项，用 serde_json::Value
-/// 原样透传，避免在前端/后端间维护两套字段清单。
+/// 设置同步子集：只同步用户关心的配置，排除 cloud 自身凭据（server_key 等）。
+/// v2 起同步全部可同步段（appearance/terminal/ssh/security/advanced/ai/
+/// context_menu/monitor_alerts），用 serde_json::Value 原样透传；cloud 段永不进包。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SyncedSettings {
@@ -86,6 +101,24 @@ struct SyncedSettings {
     security: serde_json::Value,
     #[serde(default)]
     advanced: serde_json::Value,
+    #[serde(default)]
+    ai: serde_json::Value,
+    #[serde(default)]
+    context_menu: serde_json::Value,
+    #[serde(default)]
+    monitor_alerts: serde_json::Value,
+}
+
+/// 已知主机同步条目（raw_line 足以重建全部字段）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncedKnownHost {
+    host: String,
+    key_type: String,
+    fingerprint: String,
+    last_used: String,
+    added_date: String,
+    raw_line: String,
 }
 
 /// 完整数据包：上传/下载的载荷。
@@ -108,6 +141,15 @@ struct CloudPacket {
     certificates: Vec<SyncedCert>,
     #[serde(default)]
     snippets: Vec<Snippet>,
+    /// 桌面连接（VNC/RDP 会话簿，v2 新增）
+    #[serde(default)]
+    remote_conns: Vec<crate::services::remotes::RemoteConn>,
+    /// 已知主机信任条目（v2 新增）
+    #[serde(default)]
+    known_hosts: Vec<SyncedKnownHost>,
+    /// 监控页状态（v2 新增）
+    #[serde(default)]
+    monitor_state: Option<crate::services::monitor_state::MonitorState>,
     #[serde(default)]
     settings: Option<SyncedSettings>,
 }
@@ -218,7 +260,7 @@ fn collect_port_forwardings() -> Result<Vec<PortForwarding>, String> {
     Ok(rules)
 }
 
-/// 收集设置子集：从内存态配置摘出需要同步的段落。
+/// 收集设置子集：从内存态配置摘出需要同步的段落（cloud 段永不进包）。
 fn collect_settings(
     config_state: &tauri::State<'_, crate::config::global_config::GlobaConfig>,
 ) -> Result<SyncedSettings, String> {
@@ -233,7 +275,37 @@ fn collect_settings(
         ssh: serde_json::to_value(config.ssh).unwrap_or_default(),
         security: serde_json::to_value(config.security).unwrap_or_default(),
         advanced: serde_json::to_value(config.advanced).unwrap_or_default(),
+        ai: serde_json::to_value(config.ai).unwrap_or_default(),
+        context_menu: serde_json::to_value(config.context_menu).unwrap_or_default(),
+        monitor_alerts: serde_json::to_value(config.monitor_alerts).unwrap_or_default(),
     })
+}
+
+/// 收集已知主机信任条目。
+fn collect_known_hosts(conn: &rusqlite::Connection) -> Result<Vec<SyncedKnownHost>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT host, key_type, fingerprint, last_used, added_date, raw_line
+             FROM known_hosts ORDER BY host COLLATE NOCASE ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(SyncedKnownHost {
+                host: row.get(0)?,
+                key_type: row.get(1)?,
+                fingerprint: row.get(2)?,
+                last_used: row.get(3)?,
+                added_date: row.get(4)?,
+                raw_line: row.get(5)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(out)
 }
 
 /// 根据 sync_* 开关收集本地数据为数据包。
@@ -252,6 +324,9 @@ fn collect_packet(
         keys: Vec::new(),
         certificates: Vec::new(),
         snippets: Vec::new(),
+        remote_conns: Vec::new(),
+        known_hosts: Vec::new(),
+        monitor_state: None,
         settings: None,
     };
 
@@ -260,6 +335,9 @@ fn collect_packet(
         packet.accounts = crate::services::accounts::list_accounts()?;
         packet.sftp_connections = crate::services::sftp_connections::list_sftp_connections()?;
         packet.port_forwardings = collect_port_forwardings()?;
+        packet.remote_conns = crate::services::remotes::list_remote_conns()?;
+        packet.known_hosts = collect_known_hosts(&conn)?;
+        packet.monitor_state = crate::services::monitor_state::monitor_get_state().ok();
     }
     if cloud.sync_keys {
         packet.keys = collect_keys(&conn)?;
@@ -600,6 +678,122 @@ fn restore_snippets(conn: &rusqlite::Connection, snippets: &[Snippet]) -> Result
     Ok(snippets.len())
 }
 
+/// 恢复桌面连接（upsert + 密码写密钥链）。
+fn restore_remote_conns(
+    conn: &rusqlite::Connection,
+    items: &[crate::services::remotes::RemoteConn],
+) -> Result<usize, String> {
+    for item in items {
+        let password = item.password.clone();
+        store_secret_or_clear(
+            &format!("remote/{}/password", item.id),
+            password.as_deref(),
+        )?;
+        conn.execute(
+            "INSERT INTO remote_conns (id, name, protocol, host, port, username, password, jump_host_id, created)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', ?7, ?8)
+             ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                protocol = excluded.protocol,
+                host = excluded.host,
+                port = excluded.port,
+                username = excluded.username,
+                password = '',
+                jump_host_id = excluded.jump_host_id,
+                created = excluded.created",
+            rusqlite::params![
+                item.id,
+                item.name,
+                item.protocol,
+                item.host,
+                item.port,
+                item.username,
+                item.jump_host_id,
+                if item.created.trim().is_empty() { sqlite::now_iso() } else { item.created.clone() },
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(items.len())
+}
+
+/// 恢复已知主机（按 host+key_type 去重：云端条目不存在才插入，避免覆盖本地信任）。
+fn restore_known_hosts(
+    conn: &rusqlite::Connection,
+    items: &[SyncedKnownHost],
+    skipped: &mut Vec<SyncSkipped>,
+) -> Result<usize, String> {
+    let mut n = 0;
+    for item in items {
+        let exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM known_hosts WHERE host = ?1 AND key_type = ?2",
+                rusqlite::params![item.host, item.key_type],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if exists > 0 {
+            skipped.push(SyncSkipped {
+                category: "knownHosts".into(),
+                name: format!("{} ({})", item.host, item.key_type),
+                reason: "本地已存在相同信任条目，保留本地".into(),
+            });
+            continue;
+        }
+        let key_data = item
+            .raw_line
+            .split_whitespace()
+            .nth(2)
+            .unwrap_or_default()
+            .to_string();
+        conn.execute(
+            "INSERT INTO known_hosts (id, host, key_type, fingerprint, last_used, added_date, key_data, raw_line)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![
+                sqlite::new_id("kh"),
+                item.host,
+                item.key_type,
+                if item.fingerprint.is_empty() { sqlite::compute_fingerprint(&key_data) } else { item.fingerprint.clone() },
+                if item.last_used.is_empty() { sqlite::now_iso() } else { item.last_used.clone() },
+                if item.added_date.is_empty() { sqlite::now_iso() } else { item.added_date.clone() },
+                key_data,
+                if item.raw_line.is_empty() { format!("{} {} {}", item.host, item.key_type, "") } else { item.raw_line.clone() },
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+        n += 1;
+    }
+    Ok(n)
+}
+
+/// 恢复监控页状态（host_ids 中本地不存在的主机被剔除并计入跳过）。
+fn restore_monitor_state(
+    state: &crate::services::monitor_state::MonitorState,
+    skipped: &mut Vec<SyncSkipped>,
+) -> Result<usize, String> {
+    let local_hosts = crate::services::hosts::list_hosts()?;
+    let local_ids: std::collections::HashSet<&str> =
+        local_hosts.iter().map(|h| h.id.as_str()).collect();
+    let kept: Vec<String> = state
+        .host_ids
+        .iter()
+        .filter(|id| {
+            let ok = local_ids.contains(id.as_str());
+            if !ok {
+                skipped.push(SyncSkipped {
+                    category: "monitor".into(),
+                    name: (*id).clone(),
+                    reason: "本地无此主机，监控项已剔除".into(),
+                });
+            }
+            ok
+        })
+        .cloned()
+        .collect();
+    crate::services::monitor_state::monitor_save_state(kept.clone(), state.auto_start)?;
+    Ok(kept.len())
+}
+
 /// 恢复设置子集：合并到当前内存配置 + config.toml（仅覆盖非空段落，
 /// 保留 cloud/server_key 等云端自身凭据）。同时更新内存态，使恢复立即生效。
 fn restore_settings(
@@ -627,6 +821,15 @@ fn restore_settings(
     if let Ok(advanced) = serde_json::from_value(settings.advanced.clone()) {
         config.advanced = advanced;
     }
+    if let Ok(ai) = serde_json::from_value(settings.ai.clone()) {
+        config.ai = ai;
+    }
+    if let Ok(context_menu) = serde_json::from_value(settings.context_menu.clone()) {
+        config.context_menu = context_menu;
+    }
+    if let Ok(monitor_alerts) = serde_json::from_value(settings.monitor_alerts.clone()) {
+        config.monitor_alerts = monitor_alerts;
+    }
 
     // 写回内存态 + 落盘
     {
@@ -644,14 +847,17 @@ fn restore_settings(
     Ok(())
 }
 
-/// 将数据包恢复到本地 DB + 密钥链。返回各类目恢复条数。
+/// 将数据包恢复到本地 DB + 密钥链。返回各类目恢复条数 + 跳过明细。
+/// 双向合并语义：download 方向同样只做「云端有、本地无则新增；同 id 以云端为准」，
+/// 已知主机与监控引用做存在性校验（见 restore_known_hosts / restore_monitor_state）。
 fn apply_packet(
     config_state: &tauri::State<'_, crate::config::global_config::GlobaConfig>,
     packet: &CloudPacket,
     cloud: &crate::models::config::Cloud,
-) -> Result<HashMap<String, usize>, String> {
+) -> Result<(HashMap<String, usize>, Vec<SyncSkipped>), String> {
     let conn = sqlite::open_connection()?;
     let mut counts = HashMap::new();
+    let mut skipped = Vec::new();
 
     if cloud.sync_hosts {
         counts.insert("hosts".into(), restore_hosts(&conn, &packet.hosts)?);
@@ -664,6 +870,20 @@ fn apply_packet(
             "portForwardings".into(),
             restore_port_forwardings(&conn, &packet.port_forwardings)?,
         );
+        counts.insert(
+            "remoteConns".into(),
+            restore_remote_conns(&conn, &packet.remote_conns)?,
+        );
+        counts.insert(
+            "knownHosts".into(),
+            restore_known_hosts(&conn, &packet.known_hosts, &mut skipped)?,
+        );
+        if let Some(monitor) = &packet.monitor_state {
+            counts.insert(
+                "monitor".into(),
+                restore_monitor_state(monitor, &mut skipped)?,
+            );
+        }
     }
     if cloud.sync_keys {
         counts.insert("keys".into(), restore_keys(&conn, &packet.keys)?);
@@ -682,7 +902,7 @@ fn apply_packet(
         counts.insert("settings".into(), 1);
     }
 
-    Ok(counts)
+    Ok((counts, skipped))
 }
 
 // ==================== HTTP 传输 ====================
@@ -770,13 +990,21 @@ async fn upload_packet(
     }
 }
 
-/// 下载加密数据包。
-async fn download_packet(cloud: &crate::models::config::Cloud) -> Result<String, String> {
+/// 下载加密数据包（附带服务端元信息：版本/更新时间/大小，供双向合并判断）。
+async fn download_packet(cloud: &crate::models::config::Cloud) -> Result<(String, CloudMeta), String> {
     let url = build_base_url(cloud)?;
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| e.to_string())?;
+    // 先读元信息（HEAD /meta），服务端不支持时降级为空元信息
+    let meta = client
+        .get(format!("{url}/meta"))
+        .send()
+        .await
+        .ok()
+        .filter(|r| r.status().is_success())
+        .map(|_| CloudMeta::default());
     let resp = client
         .get(&url)
         .send()
@@ -787,14 +1015,113 @@ async fn download_packet(cloud: &crate::models::config::Cloud) -> Result<String,
     if !status.is_success() {
         return Err(format!("下载失败：服务器返回 HTTP {}", status.as_u16()));
     }
-    resp.text()
+    let text = resp
+        .text()
         .await
-        .map_err(|e| format!("读取响应失败: {e}"))
+        .map_err(|e| format!("读取响应失败: {e}"))?;
+    let meta = match meta {
+        Some(_) => fetch_meta(&client, url).await.unwrap_or_default(),
+        None => CloudMeta::default(),
+    };
+    Ok((text, meta))
+}
+
+/// 服务端元信息（/meta 返回）：版本号 + 更新时间 + 字节数。
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct CloudMeta {
+    #[serde(default)]
+    version: u64,
+    #[serde(default)]
+    updated_at: String,
+    #[serde(default)]
+    size: u64,
+}
+
+async fn fetch_meta(client: &reqwest::Client, url: String) -> Result<CloudMeta, String> {
+    let resp = client
+        .get(format!("{url}/meta"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Ok(CloudMeta::default());
+    }
+    resp.json::<CloudMeta>().await.map_err(|e| e.to_string())
+}
+
+/// 测试服务器连通性：GET /healthz 期望 200 + {"ok":true}。
+#[tauri::command]
+pub async fn cloud_test_connection(
+    config_state: tauri::State<'_, crate::config::global_config::GlobaConfig>,
+) -> Result<CloudMeta, String> {
+    let cloud = read_cloud_config(&config_state)?;
+    if cloud.server_host.trim().is_empty() {
+        return Err("未配置服务器地址".to_string());
+    }
+    let url = build_base_url(&cloud)?;
+    // 去掉末尾的 /{key} 得到根，再拼 /healthz
+    let root = url.rsplit('/').collect::<Vec<_>>();
+    let root = if root.len() > 1 {
+        url.trim_end_matches(&format!("/{}", root[0]))
+    } else {
+        url.as_str()
+    };
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .get(format!("{}/healthz", root.trim_end_matches('/')))
+        .send()
+        .await
+        .map_err(|e| format!("连接失败: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("服务器返回 HTTP {}", resp.status().as_u16()));
+    }
+    let meta = fetch_meta(&client, url).await.unwrap_or_default();
+    Ok(meta)
 }
 
 // ==================== 对外命令 ====================
 
-/// 立即执行一次同步。`direction`：`"upload"` 上传本地数据；`"download"` 从云端恢复。
+// ==================== 同步状态持久化 ====================
+
+/// 同步状态文件（data 目录）：记录上次同步时间/方向/云端版本，供双向合并与 UI 展示。
+const SYNC_STATE_FILE: &str = "cloud-sync-state.json";
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SyncStateFile {
+    last_sync_at: String,
+    last_direction: String,
+    last_cloud_updated_at: String,
+    last_cloud_version: u64,
+}
+
+fn read_sync_state() -> SyncStateFile {
+    let path = crate::utils::path::app_data_dir().join(SYNC_STATE_FILE);
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn write_sync_state(state: &SyncStateFile) {
+    let path = crate::utils::path::app_data_dir().join(SYNC_STATE_FILE);
+    if let Ok(text) = serde_json::to_string_pretty(state) {
+        let _ = std::fs::write(path, text);
+    }
+}
+
+/// 读取同步状态（前端展示上次同步时间）。
+#[tauri::command]
+pub fn cloud_sync_state() -> Result<SyncStateFile, String> {
+    Ok(read_sync_state())
+}
+
+/// 立即执行一次同步。`direction`：`"upload"` 上传本地数据；`"download"` 从云端恢复；
+/// `"bidirectional"` 双向合并：先下载云端包与本地按 id 合并（云端新条目写入本地），
+/// 再把合并结果上传，实现两端最终一致。
 /// 下载恢复 settings 类目后会直接更新内存态（无需重启），并 emit 事件通知前端刷新。
 #[tauri::command]
 pub async fn cloud_sync_now(
@@ -824,6 +1151,8 @@ pub async fn cloud_sync_now(
                 ("accounts".to_string(), packet.accounts.len()),
                 ("sftpConnections".to_string(), packet.sftp_connections.len()),
                 ("portForwardings".to_string(), packet.port_forwardings.len()),
+                ("remoteConns".to_string(), packet.remote_conns.len()),
+                ("knownHosts".to_string(), packet.known_hosts.len()),
                 ("keys".to_string(), packet.keys.len()),
                 ("certificates".to_string(), packet.certificates.len()),
                 ("snippets".to_string(), packet.snippets.len()),
@@ -832,26 +1161,33 @@ pub async fn cloud_sync_now(
             .collect();
 
             append_log_i18n(&conn, "info", "logMessages.cloudUploaded", None, Some("cloud"))?;
+            write_sync_state(&SyncStateFile {
+                last_sync_at: sqlite::now_iso(),
+                last_direction: "upload".into(),
+                last_cloud_updated_at: String::new(),
+                last_cloud_version: 0,
+            });
             Ok(SyncReport {
                 direction: "upload".into(),
                 counts,
                 timestamp: sqlite::now_iso(),
+                skipped: Vec::new(),
             })
         }
         "download" => {
-            let encrypted = download_packet(&cloud).await?;
+            let (encrypted, meta) = download_packet(&cloud).await?;
             let json = crypto::decrypt(&cloud.server_key, &encrypted)?;
             let packet: CloudPacket = serde_json::from_slice(&json).map_err(|e| {
                 format!("云端数据解析失败（版本不兼容或密钥不匹配）: {e}")
             })?;
-            if packet.version != PACKET_VERSION {
+            if packet.version < MIN_READABLE_VERSION || packet.version > PACKET_VERSION {
                 return Err(format!(
-                    "云端数据版本不兼容：期望 v{}，实际 v{}",
-                    PACKET_VERSION, packet.version
+                    "云端数据版本不兼容：本地支持 v{}-v{}，云端 v{}",
+                    MIN_READABLE_VERSION, PACKET_VERSION, packet.version
                 ));
             }
 
-            let counts = apply_packet(&config_state, &packet, &cloud)?;
+            let (counts, skipped) = apply_packet(&config_state, &packet, &cloud)?;
             append_log_i18n(&conn, "info", "logMessages.cloudRestored", None, Some("cloud"))?;
 
             // 若恢复了 settings 类目，通知前端刷新（内存态已同步更新，事件用于驱动 UI 重读）
@@ -859,14 +1195,249 @@ pub async fn cloud_sync_now(
                 let _ = app.emit("cloud-config-changed", serde_json::json!({}));
             }
 
+            write_sync_state(&SyncStateFile {
+                last_sync_at: sqlite::now_iso(),
+                last_direction: "download".into(),
+                last_cloud_updated_at: meta.updated_at,
+                last_cloud_version: meta.version,
+            });
             Ok(SyncReport {
                 direction: "download".into(),
                 counts,
                 timestamp: sqlite::now_iso(),
+                skipped,
+            })
+        }
+        "bidirectional" => {
+            // 双向合并：云端包先落本地（新增优先，同 id 以云端 updated 语义为准——
+            // 本地无 updated 字段，保守策略：云端有、本地无则新增；同 id 已存在则保留本地
+            // 并计入跳过，避免覆盖用户在本机的最新修改），再把合并后全量上传。
+            let (encrypted, meta) = download_packet(&cloud).await?;
+            let json = crypto::decrypt(&cloud.server_key, &encrypted)?;
+            let packet: CloudPacket = serde_json::from_slice(&json).map_err(|e| {
+                format!("云端数据解析失败（版本不兼容或密钥不匹配）: {e}")
+            })?;
+            if packet.version < MIN_READABLE_VERSION || packet.version > PACKET_VERSION {
+                return Err(format!(
+                    "云端数据版本不兼容：本地支持 v{}-v{}，云端 v{}",
+                    MIN_READABLE_VERSION, PACKET_VERSION, packet.version
+                ));
+            }
+            let (mut counts, mut skipped) = merge_packet_new_only(&packet, &cloud)?;
+            if cloud.sync_settings {
+                if let Some(settings) = &packet.settings {
+                    restore_settings(&config_state, settings)?;
+                }
+                counts.insert("settings".into(), 1);
+            }
+            append_log_i18n(&conn, "info", "logMessages.cloudMerged", None, Some("cloud"))?;
+
+            // 合并后再全量上传，使云端与本地一致
+            let merged = collect_packet(&config_state, &cloud)?;
+            let json = serde_json::to_vec(&merged).map_err(|e| e.to_string())?;
+            let encrypted = crypto::encrypt(&cloud.server_key, &json)?;
+            upload_packet(&cloud, &encrypted).await?;
+
+            if cloud.sync_settings && packet.settings.is_some() {
+                let _ = app.emit("cloud-config-changed", serde_json::json!({}));
+            }
+            write_sync_state(&SyncStateFile {
+                last_sync_at: sqlite::now_iso(),
+                last_direction: "bidirectional".into(),
+                last_cloud_updated_at: meta.updated_at,
+                last_cloud_version: meta.version,
+            });
+            // 合并方向的计数含义：本次从云端新增到本地的条数
+            let _ = &mut skipped;
+            Ok(SyncReport {
+                direction: "bidirectional".into(),
+                counts,
+                timestamp: sqlite::now_iso(),
+                skipped,
             })
         }
         other => Err(format!("不支持的同步方向：{other}")),
     }
+}
+
+/// 双向合并的下载半程：只新增本地没有的条目（同 id 保留本地，计入跳过）。
+fn merge_packet_new_only(
+    packet: &CloudPacket,
+    cloud: &crate::models::config::Cloud,
+) -> Result<(HashMap<String, usize>, Vec<SyncSkipped>), String> {
+    let conn = sqlite::open_connection()?;
+    let mut counts = HashMap::new();
+    let mut skipped: Vec<SyncSkipped> = Vec::new();
+    // 双向合并的跳过记录：闭包借用冲突，改为收集 (category, id, name) 三元组后统一转换
+    let mut dupes: Vec<(String, String, String)> = Vec::new();
+    let mut push_dupe = |category: &str, id: &str, name: &str| {
+        dupes.push((category.into(), id.into(), name.into()));
+    };
+
+    if cloud.sync_hosts {
+        counts.insert("hosts".into(), merge_hosts_new_only(&conn, &packet.hosts, &mut push_dupe)?);
+        counts.insert("accounts".into(), merge_accounts_new_only(&conn, &packet.accounts, &mut push_dupe)?);
+        counts.insert("sftpConnections".into(), merge_sftp_new_only(&conn, &packet.sftp_connections, &mut push_dupe)?);
+        counts.insert("portForwardings".into(), merge_forwardings_new_only(&conn, &packet.port_forwardings, &mut push_dupe)?);
+        counts.insert("remoteConns".into(), merge_remotes_new_only(&conn, &packet.remote_conns, &mut push_dupe)?);
+        counts.insert("knownHosts".into(), restore_known_hosts(&conn, &packet.known_hosts, &mut skipped)?);
+        if let Some(monitor) = &packet.monitor_state {
+            counts.insert("monitor".into(), restore_monitor_state(monitor, &mut skipped)?);
+        }
+    }
+    if cloud.sync_keys {
+        counts.insert("keys".into(), merge_keys_new_only(&conn, &packet.keys, &mut push_dupe)?);
+        counts.insert("certificates".into(), merge_certs_new_only(&conn, &packet.certificates, &mut push_dupe)?);
+    }
+    if cloud.sync_snippets {
+        counts.insert("snippets".into(), merge_snippets_new_only(&conn, &packet.snippets, &mut push_dupe)?);
+    }
+    for (category, id, name) in dupes {
+        skipped.push(SyncSkipped {
+            category,
+            name,
+            reason: format!("本地已存在（id {id}），保留本地版本"),
+        });
+    }
+    Ok((counts, skipped))
+}
+
+fn existing_ids(conn: &rusqlite::Connection, table: &str) -> std::collections::HashSet<String> {
+    conn.prepare(&format!("SELECT id FROM {table}"))
+        .and_then(|mut s| {
+            s.query_map([], |row| row.get(0))
+                .and_then(|rows| rows.collect::<Result<Vec<String>, _>>())
+        })
+        .map(|v| v.into_iter().collect())
+        .unwrap_or_default()
+}
+
+fn merge_hosts_new_only(
+    conn: &rusqlite::Connection,
+    items: &[Host],
+    skip: &mut impl FnMut(&str, &str, &str),
+) -> Result<usize, String> {
+    let existing = existing_ids(conn, "hosts");
+    let fresh: Vec<Host> = items.iter().filter(|h| {
+        let is_new = !existing.contains(&h.id);
+        if !is_new {
+            skip("hosts", &h.id, &h.name);
+        }
+        is_new
+    }).cloned().collect();
+    restore_hosts(conn, &fresh)
+}
+
+fn merge_accounts_new_only(
+    conn: &rusqlite::Connection,
+    items: &[Account],
+    skip: &mut impl FnMut(&str, &str, &str),
+) -> Result<usize, String> {
+    let existing = existing_ids(conn, "accounts");
+    let fresh: Vec<Account> = items.iter().filter(|a| {
+        let is_new = !existing.contains(&a.id);
+        if !is_new {
+            skip("accounts", &a.id, &a.name);
+        }
+        is_new
+    }).cloned().collect();
+    restore_accounts(conn, &fresh)
+}
+
+fn merge_sftp_new_only(
+    conn: &rusqlite::Connection,
+    items: &[SftpConnection],
+    skip: &mut impl FnMut(&str, &str, &str),
+) -> Result<usize, String> {
+    let existing = existing_ids(conn, "sftp_connections");
+    let fresh: Vec<SftpConnection> = items.iter().filter(|c| {
+        let is_new = !existing.contains(&c.id);
+        if !is_new {
+            skip("sftpConnections", &c.id, &c.name);
+        }
+        is_new
+    }).cloned().collect();
+    restore_sftp_connections(conn, &fresh)
+}
+
+fn merge_forwardings_new_only(
+    conn: &rusqlite::Connection,
+    items: &[PortForwarding],
+    skip: &mut impl FnMut(&str, &str, &str),
+) -> Result<usize, String> {
+    let existing = existing_ids(conn, "port_forwardings");
+    let fresh: Vec<PortForwarding> = items.iter().filter(|r| {
+        let is_new = !existing.contains(&r.id);
+        if !is_new {
+            skip("portForwardings", &r.id, &r.name);
+        }
+        is_new
+    }).cloned().collect();
+    restore_port_forwardings(conn, &fresh)
+}
+
+fn merge_remotes_new_only(
+    conn: &rusqlite::Connection,
+    items: &[crate::services::remotes::RemoteConn],
+    skip: &mut impl FnMut(&str, &str, &str),
+) -> Result<usize, String> {
+    let existing = existing_ids(conn, "remote_conns");
+    let fresh: Vec<crate::services::remotes::RemoteConn> = items.iter().filter(|r| {
+        let is_new = !existing.contains(&r.id);
+        if !is_new {
+            skip("remoteConns", &r.id, &r.name);
+        }
+        is_new
+    }).cloned().collect();
+    restore_remote_conns(conn, &fresh)
+}
+
+fn merge_keys_new_only(
+    conn: &rusqlite::Connection,
+    items: &[SyncedKey],
+    skip: &mut impl FnMut(&str, &str, &str),
+) -> Result<usize, String> {
+    let existing = existing_ids(conn, "keys");
+    let fresh: Vec<SyncedKey> = items.iter().filter(|k| {
+        let is_new = !existing.contains(&k.record.id);
+        if !is_new {
+            skip("keys", &k.record.id, &k.record.name);
+        }
+        is_new
+    }).cloned().collect();
+    restore_keys(conn, &fresh)
+}
+
+fn merge_certs_new_only(
+    conn: &rusqlite::Connection,
+    items: &[SyncedCert],
+    skip: &mut impl FnMut(&str, &str, &str),
+) -> Result<usize, String> {
+    let existing = existing_ids(conn, "certificates");
+    let fresh: Vec<SyncedCert> = items.iter().filter(|c| {
+        let is_new = !existing.contains(&c.record.id);
+        if !is_new {
+            skip("certificates", &c.record.id, &c.record.name);
+        }
+        is_new
+    }).cloned().collect();
+    restore_certificates(conn, &fresh)
+}
+
+fn merge_snippets_new_only(
+    conn: &rusqlite::Connection,
+    items: &[Snippet],
+    skip: &mut impl FnMut(&str, &str, &str),
+) -> Result<usize, String> {
+    let existing = existing_ids(conn, "snippets");
+    let fresh: Vec<Snippet> = items.iter().filter(|s| {
+        let is_new = !existing.contains(&s.id);
+        if !is_new {
+            skip("snippets", &s.id, &s.name);
+        }
+        is_new
+    }).cloned().collect();
+    restore_snippets(conn, &fresh)
 }
 
 #[cfg(test)]

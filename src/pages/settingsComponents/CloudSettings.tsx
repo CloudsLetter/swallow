@@ -1,22 +1,27 @@
-import { Upload as IconUpload, Download as IconDownload, Eye as IconEye, EyeOff as IconEyeOff, Loader2 as IconLoader } from 'lucide-react';
+import { Upload as IconUpload, Download as IconDownload, Eye as IconEye, EyeOff as IconEyeOff, Loader2 as IconLoader, ArrowLeftRight as IconBidirectional, PlugZap as IconTest, CircleCheck as IconOk, CircleAlert as IconWarn } from 'lucide-react';
 import { useConfigStore } from '../../store/config';
 import { useTranslation } from 'react-i18next';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { ask } from '@tauri-apps/plugin-dialog';
 import { Switch } from '../../components/ui/switch';
 import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { SectionTitle } from './shared';
-import { cloudSyncNow } from '../../services/dataService';
+import { cloudSyncNow, cloudSyncState, cloudTestConnection, type SyncReport } from '../../services/dataService';
 import type { Cloud } from '../../types/config';
 
 export function CloudSettings() {
   const { t } = useTranslation();
   const [showServerKey, setShowServerKey] = useState(false);
-  const [syncing, setSyncing] = useState<'upload' | 'download' | null>(null);
+  const [syncing, setSyncing] = useState<'upload' | 'download' | 'bidirectional' | null>(null);
   const [lastSync, setLastSync] = useState<string | null>(null);
+  const [lastReport, setLastReport] = useState<SyncReport | null>(null);
+  const [serverStatus, setServerStatus] = useState<'unknown' | 'ok' | 'error'>('unknown');
+  const [serverDetail, setServerDetail] = useState('');
+  const [testing, setTesting] = useState(false);
   const config = useConfigStore((state) => state.config);
   const updateConfig = useConfigStore((state) => state.updateConfig);
 
@@ -34,17 +39,26 @@ export function CloudSettings() {
     });
   };
 
-  const runSync = async (direction: 'upload' | 'download') => {
+  const runSync = async (direction: 'upload' | 'download' | 'bidirectional') => {
     if (syncingRef.current) return;
+    // 下载/双向会覆盖本地数据，二次确认
+    if (direction !== 'upload') {
+      const confirmed = await ask(t('settings.cloudConfirmDownload'), {
+        title: t('settings.cloudConfirmTitle'),
+        kind: 'warning',
+      });
+      if (!confirmed) return;
+    }
     syncingRef.current = true;
     setSyncing(direction);
     try {
       const report = await cloudSyncNow(direction);
       setLastSync(new Date(report.timestamp).toLocaleString());
+      setLastReport(report);
+      const total = Object.values(report.counts).reduce((a, b) => a + b, 0);
+      const skipped = (report.skipped ?? []).length;
       toast.success(
-        direction === 'upload'
-          ? t('settings.cloudSyncUploaded')
-          : t('settings.cloudSyncRestored'),
+        t('settings.cloudSyncDone', { count: total, skipped }),
       );
     } catch (e) {
       toast.error(String(e));
@@ -54,14 +68,44 @@ export function CloudSettings() {
     }
   };
 
+  const runTest = async () => {
+    setTesting(true);
+    setServerStatus('unknown');
+    setServerDetail('');
+    try {
+      const meta = await cloudTestConnection();
+      setServerStatus('ok');
+      setServerDetail(
+        meta.updatedAt
+          ? t('settings.cloudServerOkMeta', { version: meta.version, updated: new Date(meta.updatedAt).toLocaleString(), size: meta.size })
+          : t('settings.cloudServerOk'),
+      );
+    } catch (e) {
+      setServerStatus('error');
+      setServerDetail(String(e));
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  // 进入本页时读回持久化的同步状态（上次同步时间）
+  useEffect(() => {
+    void cloudSyncState()
+      .then((s) => {
+        if (s.lastSyncAt) setLastSync(new Date(s.lastSyncAt).toLocaleString());
+      })
+      .catch(() => {});
+  }, []);
+
   // 定时自动同步：enabled 且 sync_policy 非「手动」，且 sync_interval >= 5 分钟时生效。
-  // 按 sync_policy 决定方向：仅上传=upload、仅下载=download、双向/其它=upload。
+  // 按 sync_policy 决定方向：仅上传=upload、仅下载=download、双向=bidirectional。
   useEffect(() => {
     if (!config) return;
     const { enabled, sync_interval, sync_policy } = config.cloud;
     if (!enabled || sync_policy === 3 || !sync_interval || sync_interval < 5) return;
 
-    const direction: 'upload' | 'download' = sync_policy === 1 ? 'download' : 'upload';
+    const direction: 'upload' | 'download' | 'bidirectional' =
+      sync_policy === 1 ? 'download' : sync_policy === 2 ? 'bidirectional' : 'upload';
     const timer = window.setInterval(() => {
       void runSync(direction);
     }, sync_interval * 60 * 1000);
@@ -200,7 +244,7 @@ export function CloudSettings() {
 
       {/* 操作 */}
       <div className="rounded-lg border border-border bg-card p-4">
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <Button
             disabled={syncing !== null || !config.cloud.enabled}
             onClick={() => void runSync('upload')}
@@ -216,13 +260,60 @@ export function CloudSettings() {
             {syncing === 'download' ? <IconLoader size={16} className="animate-spin" /> : <IconDownload size={16} />}
             {t('settings.restoreFromCloud')}
           </Button>
+          <Button
+            variant="secondary"
+            disabled={syncing !== null || !config.cloud.enabled}
+            onClick={() => void runSync('bidirectional')}
+            title={t('settings.syncBidirectionalDesc')}
+          >
+            {syncing === 'bidirectional' ? <IconLoader size={16} className="animate-spin" /> : <IconBidirectional size={16} />}
+            {t('settings.syncBidirectional')}
+          </Button>
+          <Button
+            variant="outline"
+            disabled={testing || syncing !== null}
+            onClick={() => void runTest()}
+          >
+            {testing ? <IconLoader size={16} className="animate-spin" /> : <IconTest size={16} />}
+            {t('settings.cloudTest')}
+          </Button>
         </div>
+        {(serverStatus !== 'unknown' || serverDetail) && (
+          <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+            {serverStatus === 'ok' ? <IconOk size={14} className="text-success" /> : serverStatus === 'error' ? <IconWarn size={14} className="text-destructive" /> : null}
+            <span className="break-all">{serverDetail || t('settings.cloudServerUnknown')}</span>
+          </p>
+        )}
         <p className="mt-2 text-xs text-muted-foreground">
           {t('settings.lastSync')}: {lastSync ?? t('settings.never')}
           {config.cloud.enabled && config.cloud.sync_policy !== 3 && config.cloud.sync_interval >= 5
             ? ` | ${t('settings.nextSync')}: ${config.cloud.sync_interval} ${t('settings.minutes')} ${t('settings.after')}`
             : ''}
         </p>
+        {lastReport && (
+          <div className="mt-3 rounded-md bg-muted/50 p-2.5 text-xs">
+            <div className="mb-1 font-medium">
+              {t('settings.cloudReportTitle', { direction: t(`settings.cloudDirection_${lastReport.direction}`) })}
+            </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-muted-foreground">
+              {Object.entries(lastReport.counts).map(([k, v]) => (
+                <span key={k}>
+                  {t(`settings.cloudCategory_${k}`, { defaultValue: k })}: <span className="tabular-nums text-foreground">{v}</span>
+                </span>
+              ))}
+            </div>
+            {(lastReport.skipped ?? []).length > 0 && (
+              <div className="mt-1.5 space-y-0.5">
+                <div className="text-warning">{t('settings.cloudSkipped', { count: (lastReport.skipped ?? []).length })}</div>
+                {(lastReport.skipped ?? []).slice(0, 8).map((s, i) => (
+                  <div key={i} className="truncate text-muted-foreground" title={s.reason}>
+                    {s.name} · {s.reason}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

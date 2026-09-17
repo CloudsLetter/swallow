@@ -512,17 +512,51 @@ export async function listActivePortForwards(): Promise<string[]> {
 
 /** 云同步结果统计。 */
 export interface SyncReport {
-  /** 本次同步动作：upload | download */
-  direction: 'upload' | 'download';
+  /** 本次同步动作：upload | download | bidirectional */
+  direction: 'upload' | 'download' | 'bidirectional';
   /** 各类目同步条数（key 为类目名，如 hosts/accounts/keys/snippets） */
   counts: Record<string, number>;
   /** 同步时间（RFC3339） */
   timestamp: string;
+  /** 本次跳过的条目（冲突/校验失败等） */
+  skipped?: SyncSkipped[];
 }
 
-/** 立即执行一次云同步。direction: "upload" 上传本地数据；"download" 从云端恢复。 */
-export async function cloudSyncNow(direction: 'upload' | 'download'): Promise<SyncReport> {
+/** 同步跳过条目。 */
+export interface SyncSkipped {
+  category: string;
+  name: string;
+  reason: string;
+}
+
+/** 服务端元信息（/meta）。 */
+export interface CloudMeta {
+  version: number;
+  updatedAt: string;
+  size: number;
+}
+
+/** 同步状态文件（上次同步时间/方向/云端版本）。 */
+export interface SyncStateFile {
+  lastSyncAt: string;
+  lastDirection: string;
+  lastCloudUpdatedAt: string;
+  lastCloudVersion: number;
+}
+
+/** 立即执行一次云同步。direction: "upload" 上传本地数据；"download" 从云端恢复；"bidirectional" 双向合并。 */
+export async function cloudSyncNow(direction: 'upload' | 'download' | 'bidirectional'): Promise<SyncReport> {
   return invoke<SyncReport>('cloud_sync_now', { direction });
+}
+
+/** 读取同步状态（上次同步时间等）。 */
+export async function cloudSyncState(): Promise<SyncStateFile> {
+  return invoke<SyncStateFile>('cloud_sync_state');
+}
+
+/** 测试服务器连通性（GET /healthz），返回服务端元信息。 */
+export async function cloudTestConnection(): Promise<CloudMeta> {
+  return invoke<CloudMeta>('cloud_test_connection');
 }
 
 // ==================== 应用配置备份 ====================

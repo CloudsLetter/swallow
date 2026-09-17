@@ -221,6 +221,8 @@ pub fn run() {
             services::known_hosts::export_known_hosts,
             services::known_hosts::export_known_hosts_to,
             services::cloud_sync::cloud_sync_now,
+            services::cloud_sync::cloud_sync_state,
+            services::cloud_sync::cloud_test_connection,
             services::sessions::save_open_sessions,
             services::sessions::load_open_sessions,
             services::session_log::session_log_start,
