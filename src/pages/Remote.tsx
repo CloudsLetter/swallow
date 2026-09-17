@@ -23,6 +23,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '../components/ui/sheet';
 import { ask, message } from '@tauri-apps/plugin-dialog';
 import { cn } from '@/lib/utils';
+import {
+  EmptyState,
+  ManageCard,
+  ManageCardIcon,
+  PageHeader,
+} from '../components/PageHeader';
 
 /** VNC/RDP 会话簿：把远程桌面存成可复用条目，点连接即开标签。 */
 export function Remote() {
@@ -194,64 +200,70 @@ export function Remote() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* 页头 */}
-      <div className="flex min-h-11 shrink-0 items-center justify-between border-b border-border px-4">
-        <h2 className="text-[15px] font-semibold tracking-tight text-foreground">{t('menu.desktop')}</h2>
-        <Button size="sm" onClick={openNew}>
-          <IconPlus size={16} strokeWidth={2} />
-          {t('remote.add')}
-        </Button>
-      </div>
+      <PageHeader
+        title={t('menu.desktop')}
+        subtitle={items.length > 0 ? t('remote.count', { count: items.length }) : undefined}
+        actions={
+          <Button size="sm" onClick={openNew}>
+            <IconPlus size={15} strokeWidth={2} aria-hidden="true" />
+            {t('remote.add')}
+          </Button>
+        }
+      />
 
       {/* 列表 */}
       <div className="flex-1 overflow-y-auto p-4">
         {loading ? (
           <div className="space-y-2">
             {[0, 1, 2].map((i) => (
-              <Skeleton key={i} className="h-14 w-full" />
+              <Skeleton key={i} className="h-14 w-full rounded-xl" />
             ))}
           </div>
         ) : items.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <IconMonitor size={28} strokeWidth={1.5} className="mb-3 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">{t('remote.empty')}</p>
-          </div>
+          <EmptyState
+            icon={<IconMonitor size={24} strokeWidth={1.5} aria-hidden="true" />}
+            title={t('remote.emptyTitle')}
+            description={t('remote.empty')}
+            action={
+              <Button onClick={openNew}>
+                <IconPlus size={15} strokeWidth={2} aria-hidden="true" />
+                {t('remote.add')}
+              </Button>
+            }
+          />
         ) : (
-          <div className="space-y-2">
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(264px, 1fr))' }}>
             {items.map((item) => {
               const vnc = item.protocol === 'vnc';
               return (
-                <div
-                  key={item.id}
-                  className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5 transition-colors hover:bg-accent/40"
-                >
-                  <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                    {vnc ? <IconMonitor size={15} strokeWidth={2} /> : <IconScreenShare size={15} strokeWidth={2} />}
-                  </span>
+                <ManageCard key={item.id}>
+                  <ManageCardIcon>
+                    {vnc ? <IconMonitor size={15} strokeWidth={2} aria-hidden="true" /> : <IconScreenShare size={15} strokeWidth={2} aria-hidden="true" />}
+                  </ManageCardIcon>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       <span className="truncate text-sm font-medium">{item.name}</span>
                       <Badge variant="outline" className="shrink-0 font-normal text-muted-foreground">
                         {vnc ? 'VNC' : 'RDP'}
                       </Badge>
                     </div>
-                    <p className="truncate font-mono text-xs text-muted-foreground">
+                    <p className="truncate font-mono text-xs tabular-nums text-muted-foreground">
                       {item.host}:{item.port}
                       {!vnc && item.username ? `  ${item.username}` : ''}
                       {vnc && item.jumpHostId ? `  via ${jumpName(item.jumpHostId) ?? ''}` : ''}
                     </p>
                   </div>
-                  <Button size="sm" onClick={() => void connect(item)}>
-                    <IconPlay size={14} strokeWidth={2} />
+                  <Button size="sm" onClick={() => void connect(item)} aria-label={`${t('remote.connect')} ${item.name}`}>
+                    <IconPlay size={14} strokeWidth={2} aria-hidden="true" />
                     {t('remote.connect')}
                   </Button>
-                  <Button variant="ghost" size="icon" onClick={() => openEdit(item)} title={t('common.edit')} aria-label={t('common.edit')}>
-                    <IconPencil size={15} strokeWidth={2} />
+                  <Button variant="ghost" size="icon" className="size-8" onClick={() => openEdit(item)} title={`${t('common.edit')} ${item.name}`} aria-label={`${t('common.edit')} ${item.name}`}>
+                    <IconPencil size={14} strokeWidth={2} aria-hidden="true" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="text-destructive" onClick={() => void remove(item)} title={t('common.delete')} aria-label={t('common.delete')}>
-                    <IconTrash size={15} strokeWidth={2} />
+                  <Button variant="ghost" size="icon" className="size-8 text-destructive hover:text-destructive" onClick={() => void remove(item)} title={`${t('common.delete')} ${item.name}`} aria-label={`${t('common.delete')} ${item.name}`}>
+                    <IconTrash size={14} strokeWidth={2} aria-hidden="true" />
                   </Button>
-                </div>
+                </ManageCard>
               );
             })}
           </div>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import i18n from '../i18n/i18n';
-import { Pencil, Plus, Tag, Trash2, User, LayoutGrid, List, Search, RefreshCw, MoreHorizontal as IconMore } from 'lucide-react';
+import { Pencil, Plus, Tag, Trash2, User, LayoutGrid, List, RefreshCw, MoreHorizontal as IconMore } from 'lucide-react';
 import { getAccounts, addAccount, removeAccount, updateAccount, getKeys, getCertificates, getHosts, type Account, type Key, type Certificate } from '../services/dataService';
 import { AuthTypeIcon } from '../components/AuthTypeIcon';
 import { Button } from '../components/ui/button';
@@ -22,6 +22,13 @@ import {
 } from '../components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { message, ask } from '@tauri-apps/plugin-dialog';
+import {
+  EmptyState,
+  ManageCard,
+  ManageCardIcon,
+  PageHeader,
+  ViewToggle,
+} from '../components/PageHeader';
 
 type ViewMode = 'grid' | 'list';
 
@@ -258,42 +265,33 @@ export function AccountPage() {
     );
 
   const renderEmpty = () => (
-    <div className="flex flex-col items-center justify-center py-14 text-center">
-      <div className="mb-3.5 flex size-14 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-        <User size={24} strokeWidth={1.5} />
-      </div>
-      <h3 className="text-sm font-semibold tracking-tight">{searchQuery ? t('account.emptySearch') : t('account.emptyNone')}</h3>
-      <p className="mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">
-        {searchQuery
-          ? t('account.emptySearchDesc', { query: searchQuery })
-          : t('account.emptyNoneDesc')}
-      </p>
-      {!searchQuery && (
-        <div className="mt-5 flex items-center gap-2">
+    <EmptyState
+      icon={<User size={24} strokeWidth={1.5} aria-hidden="true" />}
+      title={searchQuery ? t('account.emptySearch') : t('account.emptyNone')}
+      description={searchQuery ? t('account.emptySearchDesc', { query: searchQuery }) : t('account.emptyNoneDesc')}
+      action={
+        !searchQuery ? (
           <Button onClick={openCreate}>
-            <Plus size={16} /> {t('account.createAccount')}
+            <Plus size={15} aria-hidden="true" /> {t('account.createAccount')}
           </Button>
-        </div>
-      )}
-    </div>
+        ) : undefined
+      }
+    />
   );
 
   const renderAccountCard = (account: Account) => {
     return (
-      <div
-        key={account.id}
-        className="group flex items-center gap-2.5 rounded-lg bg-card p-3 transition-all duration-200 hover:-translate-y-0.5 hover:bg-accent/50 hover:shadow-md"
-      >
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-accent">
-          <User size={15} strokeWidth={2} />
-        </div>
+      <ManageCard key={account.id}>
+        <ManageCardIcon>
+          <User size={15} strokeWidth={2} aria-hidden="true" />
+        </ManageCardIcon>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span className="truncate text-sm font-medium text-foreground">{account.name}</span>
             <AuthTypeIcon authType={account.authType} title={getAuthTypeText(account.authType)} />
             {account.tags && account.tags.length > 0 && (
               <Badge variant="secondary" className="max-w-24 shrink-0 gap-1 px-1.5 py-0 text-[10px] font-normal">
-                <Tag size={10} />
+                <Tag size={10} aria-hidden="true" />
                 <span className="truncate">{account.tags[0]}</span>
                 {account.tags.length > 1 && `+${account.tags.length - 1}`}
               </Badge>
@@ -307,9 +305,9 @@ export function AccountPage() {
             className="size-8"
             onClick={() => openEdit(account)}
             title={t('account.edit')}
-            aria-label={t('account.edit')}
+            aria-label={`${t('account.edit')} ${account.name}`}
           >
-            <Pencil size={14} strokeWidth={2} />
+            <Pencil size={14} strokeWidth={2} aria-hidden="true" />
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -317,79 +315,53 @@ export function AccountPage() {
                 variant="secondary"
                 size="icon"
                 className="size-8"
-                aria-label={t('common.moreActions')}
+                aria-label={`${t('common.moreActions')} ${account.name}`}
               >
-                <IconMore size={14} />
+                <IconMore size={14} aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => handleRemove(account)}>
-                <Trash2 size={15} className="mr-2" /> {t('common.delete')}
+                <Trash2 size={15} className="mr-2" aria-hidden="true" /> {t('common.delete')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-      </div>
+      </ManageCard>
     );
   };
 
   return (
     <div className="flex h-full flex-col">
-      {/* ===== 页头 ===== */}
-      <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <h2 className="shrink-0 text-[15px] font-semibold tracking-tight text-foreground">{t('account.title')}</h2>
-          <p className="truncate text-xs text-muted-foreground">{t('account.accountCount', { count: filteredAccounts.length })}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-0 max-w-[360px] flex-1">
-            <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              ref={searchRef}
-              type="text"
-              placeholder={t('account.searchPlaceholder')}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-lg pl-8"
+      <PageHeader
+        title={t('account.title')}
+        subtitle={t('account.accountCount', { count: filteredAccounts.length })}
+        search={{
+          value: searchQuery,
+          onChange: setSearchQuery,
+          placeholder: t('account.searchPlaceholder'),
+          inputRef: searchRef,
+        }}
+        actions={
+          <>
+            <ViewToggle
+              mode={viewMode}
+              onChange={setViewMode}
+              gridLabel={t('common.gridView')}
+              listLabel={t('common.listView')}
+              GridIcon={LayoutGrid}
+              ListIcon={List}
             />
-          </div>
-          <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                'size-7',
-                viewMode === 'grid' && 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
-              )}
-              onClick={() => setViewMode('grid')}
-              aria-label={t('common.gridView')}
-              title={t('common.gridView')}
-            >
-              <LayoutGrid size={15} />
+            <Button variant="ghost" size="icon" onClick={loadAccounts} aria-label={t('common.refresh')} title={t('common.refresh')}>
+              <RefreshCw size={15} aria-hidden="true" />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                'size-7',
-                viewMode === 'list' && 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
-              )}
-              onClick={() => setViewMode('list')}
-              aria-label={t('common.listView')}
-              title={t('common.listView')}
-            >
-              <List size={15} />
+            <Button onClick={openCreate} title={t('account.createAccount')}>
+              <Plus size={15} strokeWidth={2} aria-hidden="true" />
+              {t('account.add')}
             </Button>
-          </div>
-          <Button variant="ghost" size="icon" onClick={loadAccounts} aria-label={t('common.refresh')} title={t('common.refresh')}>
-            <RefreshCw size={16} />
-          </Button>
-          <Button onClick={openCreate} title={t('account.createAccount')}>
-            <Plus size={16} strokeWidth={2} />
-            {t('account.add')}
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* ===== 内容区域 ===== */}
       <div className="flex-1 overflow-auto p-4">
@@ -398,11 +370,11 @@ export function AccountPage() {
         ) : filteredAccounts.length === 0 ? (
           renderEmpty()
         ) : viewMode === 'grid' ? (
-          <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(256px, 1fr))' }}>
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(264px, 1fr))' }}>
             {filteredAccounts.map((account) => renderAccountCard(account))}
           </div>
         ) : (
-          <div className="overflow-hidden rounded-lg bg-card ring-1 ring-border/60">
+          <div className="overflow-hidden rounded-xl bg-card ring-1 ring-border">
             <Table>
               <TableHeader className="[&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground">
                 <TableRow className="bg-muted/40 hover:bg-muted/40">
@@ -415,14 +387,14 @@ export function AccountPage() {
               </TableHeader>
               <TableBody>
                 {filteredAccounts.map((account) => (
-                  <TableRow key={account.id} className="group transition-colors hover:bg-accent/40 focus-within:bg-accent/40">
+                  <TableRow key={account.id} className="transition-colors hover:bg-accent/40 focus-within:bg-accent/40">
                     <TableCell className="min-w-0">
                       <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                          <User size={16} strokeWidth={2} />
-                        </div>
+                        <ManageCardIcon>
+                          <User size={15} strokeWidth={2} aria-hidden="true" />
+                        </ManageCardIcon>
                         <div className="min-w-0">
-                          <div className="truncate font-medium text-foreground">{account.name}</div>
+                          <div className="truncate text-sm font-medium text-foreground">{account.name}</div>
                           <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{account.username}</div>
                         </div>
                       </div>
@@ -436,12 +408,12 @@ export function AccountPage() {
                         <div className="flex flex-wrap gap-1">
                           {account.tags.slice(0, 2).map((tag, tagIndex) => (
                             <Badge key={tagIndex} variant="secondary" className="gap-1">
-                              <Tag size={12} />
+                              <Tag size={11} aria-hidden="true" />
                               {tag}
                             </Badge>
                           ))}
                           {account.tags.length > 2 && (
-                            <span className="text-xs text-muted-foreground">+{account.tags.length - 2}</span>
+                            <span className="text-xs tabular-nums text-muted-foreground">+{account.tags.length - 2}</span>
                           )}
                         </div>
                       ) : (
@@ -453,10 +425,10 @@ export function AccountPage() {
                         <Button
                           variant="secondary"
                           size="sm"
-                          className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                           onClick={() => openEdit(account)}
+                          aria-label={`${t('account.edit')} ${account.name}`}
                         >
-                          <Pencil size={16} strokeWidth={2} />
+                          <Pencil size={14} strokeWidth={2} aria-hidden="true" />
                           {t('account.edit')}
                         </Button>
                         <DropdownMenu>
@@ -464,15 +436,15 @@ export function AccountPage() {
                             <Button
                               variant="secondary"
                               size="icon"
-                              className="size-7 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-                              aria-label={t('common.moreActions')}
+                              className="size-7"
+                              aria-label={`${t('common.moreActions')} ${account.name}`}
                             >
-                              <IconMore size={15} />
+                              <IconMore size={15} aria-hidden="true" />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-44">
                             <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => handleRemove(account)}>
-                              <Trash2 size={15} className="mr-2" /> {t('common.delete')}
+                              <Trash2 size={15} className="mr-2" aria-hidden="true" /> {t('common.delete')}
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>

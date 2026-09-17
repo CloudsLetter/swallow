@@ -22,7 +22,6 @@ import {
   Trash2 as IconTrash,
   LayoutGrid as IconLayoutGrid,
   List as IconList,
-  Search as IconSearch,
   RefreshCw as IconRefresh,
   AlertTriangle as IconAlert,
   MoreHorizontal as IconMore,
@@ -52,6 +51,16 @@ import { cn } from '@/lib/utils';
 import { ask } from '@tauri-apps/plugin-dialog';
 import { dedupeHostKeyConfirm } from '../lib/hostKeyConfirm';
 import { toast } from 'sonner';
+import {
+  EmptyState,
+  ErrorState,
+  FilterChip,
+  ManageCard,
+  ManageCardIcon,
+  PageHeader,
+  SectionHeading,
+  ViewToggle,
+} from '../components/PageHeader';
 
 type ViewMode = 'grid' | 'list';
 type RuleType = PortForwarding['type'];
@@ -560,14 +569,11 @@ export function PortForwarding() {
 
   const renderRuleCard = (rule: PortForwarding) => {
     return (
-      <div
-        key={rule.id}
-        className="group flex items-center gap-2.5 rounded-lg bg-card p-3 transition-all duration-200 hover:-translate-y-0.5 hover:bg-accent/50 hover:shadow-md"
-      >
+      <ManageCard key={rule.id}>
         <div className="relative shrink-0">
-          <div className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-accent">
-            <IconCable size={15} strokeWidth={2} />
-          </div>
+          <ManageCardIcon>
+            <IconCable size={15} strokeWidth={2} aria-hidden="true" />
+          </ManageCardIcon>
           <span
             className={cn(
               'absolute -right-0.5 -top-0.5 size-2 rounded-full ring-2 ring-card',
@@ -642,37 +648,37 @@ export function PortForwarding() {
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="secondary" size="icon" className="size-8" aria-label={t('common.moreActions')}>
-                <IconMore size={14} />
+              <Button variant="secondary" size="icon" className="size-8" aria-label={`${t('common.moreActions')} ${rule.name}`}>
+                <IconMore size={14} aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-40">
               <DropdownMenuItem onClick={() => openEdit(rule)}>
-                <IconEdit size={15} className="mr-2" /> {t('portForwarding.edit')}
+                <IconEdit size={15} className="mr-2" aria-hidden="true" /> {t('portForwarding.edit')}
               </DropdownMenuItem>
               {rule.type === 'remote' && (
                 <DropdownMenuItem onClick={() => void handleTest(rule)} disabled={testingId === rule.id}>
-                  <IconZap size={15} className="mr-2" /> {t('portForwarding.testTarget')}
+                  <IconZap size={15} className="mr-2" aria-hidden="true" /> {t('portForwarding.testTarget')}
                 </DropdownMenuItem>
               )}
               <DropdownMenuSeparator />
               <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => void handleRemove(rule)}>
-                <IconTrash size={15} className="mr-2" /> {t('common.delete')}
+                <IconTrash size={15} className="mr-2" aria-hidden="true" /> {t('common.delete')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-      </div>
+      </ManageCard>
     );
   };
 
   const renderRuleRow = (rule: PortForwarding) => (
-    <TableRow key={rule.id} className="group transition-colors hover:bg-accent/40 focus-within:bg-accent/40">
+    <TableRow key={rule.id} className="transition-colors hover:bg-accent/40 focus-within:bg-accent/40">
       <TableCell className="min-w-0">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-accent">
-            <IconCable size={15} strokeWidth={2} />
-          </div>
+          <ManageCardIcon>
+            <IconCable size={15} strokeWidth={2} aria-hidden="true" />
+          </ManageCardIcon>
           <div className="min-w-0">
             <span className="block truncate text-sm font-medium text-foreground">{rule.name}</span>
             {rule.description && (
@@ -682,10 +688,10 @@ export function PortForwarding() {
         </div>
       </TableCell>
       <TableCell className="whitespace-nowrap">{typeBadge(rule.type)}</TableCell>
-      <TableCell className="whitespace-nowrap font-mono text-sm text-muted-foreground">
+      <TableCell className="whitespace-nowrap font-mono text-sm tabular-nums text-muted-foreground">
         {rule.listenHost}:{rule.listenPort}
       </TableCell>
-      <TableCell className="max-w-0 whitespace-nowrap font-mono text-sm text-muted-foreground">
+      <TableCell className="max-w-0 whitespace-nowrap font-mono text-sm tabular-nums text-muted-foreground">
         {rule.type === 'dynamic' ? 'SOCKS5' : `${rule.targetHost || '-'}:${rule.targetPort}`}
       </TableCell>
       <TableCell className="max-w-0 truncate text-sm text-muted-foreground">{hostName(rule.hostId)}</TableCell>
@@ -712,24 +718,24 @@ export function PortForwarding() {
               <Button
                 variant="secondary"
                 size="icon"
-                className="size-7 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-                aria-label={t('common.moreActions')}
+                className="size-7"
+                aria-label={`${t('common.moreActions')} ${rule.name}`}
               >
-                <IconMore size={15} />
+                <IconMore size={15} aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-40">
               <DropdownMenuItem onClick={() => openEdit(rule)}>
-                <IconEdit size={15} className="mr-2" /> {t('portForwarding.edit')}
+                <IconEdit size={15} className="mr-2" aria-hidden="true" /> {t('portForwarding.edit')}
               </DropdownMenuItem>
               {rule.type === 'remote' && (
                 <DropdownMenuItem onClick={() => void handleTest(rule)} disabled={testingId === rule.id}>
-                  <IconZap size={15} className="mr-2" /> {t('portForwarding.testTarget')}
+                  <IconZap size={15} className="mr-2" aria-hidden="true" /> {t('portForwarding.testTarget')}
                 </DropdownMenuItem>
               )}
               <DropdownMenuSeparator />
               <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => void handleRemove(rule)}>
-                <IconTrash size={15} className="mr-2" /> {t('common.delete')}
+                <IconTrash size={15} className="mr-2" aria-hidden="true" /> {t('common.delete')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -758,118 +764,76 @@ export function PortForwarding() {
       />
     );
 
+  const hasFilter = searchQuery !== '' || typeFilter !== 'all';
   const renderEmpty = () => (
-    <div className="flex flex-col items-center justify-center py-14 text-center">
-      <div className="mb-3.5 flex size-14 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-        <IconCable size={24} strokeWidth={1.5} />
-      </div>
-      <h3 className="text-sm font-semibold tracking-tight">
-        {searchQuery || typeFilter !== 'all' ? t('portForwarding.emptySearch') : t('portForwarding.emptyNone')}
-      </h3>
-      <p className="mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">
-        {searchQuery || typeFilter !== 'all'
+    <EmptyState
+      icon={<IconCable size={24} strokeWidth={1.5} aria-hidden="true" />}
+      title={hasFilter ? t('portForwarding.emptySearch') : t('portForwarding.emptyNone')}
+      description={
+        hasFilter
           ? t('portForwarding.emptySearchDesc', { query: searchQuery || t('common.currentFilter') })
-          : t('portForwarding.emptyNoneDesc')}
-      </p>
-      {!(searchQuery || typeFilter !== 'all') && (
-        <div className="mt-5 flex items-center gap-2">
+          : t('portForwarding.emptyNoneDesc')
+      }
+      action={
+        !hasFilter ? (
           <Button onClick={openCreate}>
-            <IconPlus size={16} /> {t('portForwarding.createRule')}
+            <IconPlus size={15} aria-hidden="true" /> {t('portForwarding.createRule')}
           </Button>
-        </div>
-      )}
-    </div>
+        ) : undefined
+      }
+    />
   );
 
   const renderError = () => (
-    <div className="flex flex-col items-center justify-center py-14 text-center">
-      <div className="mb-3.5 flex size-14 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
-        <IconAlert size={24} strokeWidth={1.5} />
-      </div>
-      <h3 className="text-sm font-semibold tracking-tight">{t('common.loadFailed')}</h3>
-      <p className="mt-1.5 text-sm text-muted-foreground">{error || t('portForwarding.loadFailedDesc')}</p>
-      <Button variant="secondary" className="mt-5" onClick={() => void refresh()}>
-        <IconRefresh size={16} /> {t('common.retry')}
-      </Button>
-    </div>
+    <ErrorState
+      icon={<IconAlert size={24} strokeWidth={1.5} aria-hidden="true" />}
+      title={t('common.loadFailed')}
+      description={error || t('portForwarding.loadFailedDesc')}
+      retryLabel={t('common.retry')}
+      onRetry={() => void refresh()}
+    />
   );
 
   return (
     <div className="flex h-full flex-col">
-      {/* ===== 页头 ===== */}
-      <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <h2 className="shrink-0 text-[15px] font-semibold tracking-tight text-foreground">{t('portForwarding.title')}</h2>
-          <p className="truncate text-xs text-muted-foreground">{t('portForwarding.ruleCount', { count: filteredRules.length })}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-0 max-w-[360px] flex-1">
-            <IconSearch size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              ref={searchRef}
-              type="text"
-              placeholder={t('portForwarding.searchPlaceholder')}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-lg pl-8"
+      <PageHeader
+        title={t('portForwarding.title')}
+        subtitle={t('portForwarding.ruleCount', { count: filteredRules.length })}
+        search={{
+          value: searchQuery,
+          onChange: setSearchQuery,
+          placeholder: t('portForwarding.searchPlaceholder'),
+          inputRef: searchRef,
+        }}
+        actions={
+          <>
+            <ViewToggle
+              mode={viewMode}
+              onChange={setViewMode}
+              gridLabel={t('common.gridView')}
+              listLabel={t('common.listView')}
+              GridIcon={IconLayoutGrid}
+              ListIcon={IconList}
             />
-          </div>
-          <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                'size-7',
-                viewMode === 'grid' && 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
-              )}
-              onClick={() => setViewMode('grid')}
-              aria-label={t('common.gridView')}
-              title={t('common.gridView')}
-            >
-              <IconLayoutGrid size={15} />
+            <Button variant="ghost" size="icon" onClick={() => void refresh()} aria-label={t('common.refresh')} title={t('common.refresh')}>
+              <IconRefresh size={15} aria-hidden="true" />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                'size-7',
-                viewMode === 'list' && 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
-              )}
-              onClick={() => setViewMode('list')}
-              aria-label={t('common.listView')}
-              title={t('common.listView')}
-            >
-              <IconList size={15} />
+            <Button onClick={openCreate} title={t('portForwarding.createRule')}>
+              <IconPlus size={15} strokeWidth={2} aria-hidden="true" />
+              {t('portForwarding.add')}
             </Button>
-          </div>
-          <Button variant="ghost" size="icon" onClick={() => void refresh()} aria-label={t('common.refresh')} title={t('common.refresh')}>
-            <IconRefresh size={16} />
-          </Button>
-          <Button onClick={openCreate} title={t('portForwarding.createRule')}>
-            <IconPlus size={16} strokeWidth={2} />
-            {t('portForwarding.add')}
-          </Button>
-        </div>
-      </div>
-
-      {/* ===== 筛选 chips ===== */}
-      <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-4 py-2">
-        {filterChips.map((chip) => (
-          <button
-            key={chip.key}
-            type="button"
-            onClick={() => setTypeFilter(chip.key)}
-            className={cn(
-              'rounded-full px-3 py-1 text-xs font-medium transition-colors',
-              typeFilter === chip.key
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-            )}
-          >
-            {t(chip.label)}
-          </button>
-        ))}
-      </div>
+          </>
+        }
+        filters={
+          <>
+            {filterChips.map((chip) => (
+              <FilterChip key={chip.key} active={typeFilter === chip.key} onClick={() => setTypeFilter(chip.key)}>
+                {t(chip.label)}
+              </FilterChip>
+            ))}
+          </>
+        }
+      />
 
       {/* ===== 内容区域 ===== */}
       <div className="flex-1 overflow-auto p-4">
@@ -880,21 +844,16 @@ export function PortForwarding() {
         ) : filteredRules.length === 0 ? (
           renderEmpty()
         ) : (
-          <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-5">
             {groups.map((group) => (
               <section key={group.key} className="flex flex-col gap-2.5">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-xs font-medium tracking-wide text-muted-foreground">{group.label}</h3>
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                    {group.items.length}
-                  </span>
-                </div>
+                <SectionHeading tone="muted" label={group.label} count={group.items.length} />
                 {viewMode === 'grid' ? (
-                  <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(256px, 1fr))' }}>
+                  <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(264px, 1fr))' }}>
                     {group.items.map((rule) => renderRuleCard(rule))}
                   </div>
                 ) : (
-                  <div className="overflow-hidden rounded-lg bg-card ring-1 ring-border/60">
+                  <div className="overflow-hidden rounded-xl bg-card ring-1 ring-border">
                     <Table>
                       <TableHeader className="[&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground">
                         <TableRow className="bg-muted/40 hover:bg-muted/40">

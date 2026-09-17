@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import i18n from '../i18n/i18n';
-import { FileBadge, Search, RefreshCw, Trash2, Upload as Export, Download as Import, LayoutGrid, List, Eye, EyeOff, MoreHorizontal as IconMore } from 'lucide-react';
+import { FileBadge, RefreshCw, Trash2, Upload as Export, Download as Import, LayoutGrid, List, Eye, EyeOff, MoreHorizontal as IconMore } from 'lucide-react';
 import {
   getCertificates,
   importCertificate,
@@ -31,6 +31,13 @@ import {
 } from '../components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { message, ask, save } from '@tauri-apps/plugin-dialog';
+import {
+  EmptyState,
+  ManageCard,
+  ManageCardIcon,
+  PageHeader,
+  ViewToggle,
+} from '../components/PageHeader';
 
 type ViewMode = 'grid' | 'list';
 
@@ -247,36 +254,31 @@ export function Certificates() {
     );
 
   const renderEmpty = () => (
-    <div className="flex flex-col items-center justify-center py-14 text-center">
-      <div className="mb-3.5 flex size-14 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-        <FileBadge size={24} strokeWidth={1.5} />
-      </div>
-      <h3 className="text-sm font-semibold tracking-tight">{searchQuery ? t('certificates.emptySearch') : t('certificates.emptyNone')}</h3>
-      <p className="mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">
-        {searchQuery
+    <EmptyState
+      icon={<FileBadge size={24} strokeWidth={1.5} aria-hidden="true" />}
+      title={searchQuery ? t('certificates.emptySearch') : t('certificates.emptyNone')}
+      description={
+        searchQuery
           ? t('certificates.emptySearchDesc', { query: searchQuery })
-          : t('certificates.emptyNoneDesc')}
-      </p>
-      {!searchQuery && (
-        <div className="mt-6">
+          : t('certificates.emptyNoneDesc')
+      }
+      action={
+        !searchQuery ? (
           <Button onClick={openImport}>
-            <Import size={16} /> {t('certificates.importCert')}
+            <Import size={15} aria-hidden="true" /> {t('certificates.importCert')}
           </Button>
-        </div>
-      )}
-    </div>
+        ) : undefined
+      }
+    />
   );
 
   const renderCertCard = (cert: Certificate) => {
     const expired = isExpired(cert);
     return (
-      <div
-        key={cert.id}
-        className="group flex items-center gap-2.5 rounded-lg bg-card p-3 transition-all duration-200 hover:-translate-y-0.5 hover:bg-accent/50 hover:shadow-md"
-      >
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-accent">
-          <FileBadge size={15} strokeWidth={2} />
-        </div>
+      <ManageCard key={cert.id}>
+        <ManageCardIcon>
+          <FileBadge size={15} strokeWidth={2} aria-hidden="true" />
+        </ManageCardIcon>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span className="truncate text-sm font-medium text-foreground">{cert.name}</span>
@@ -297,88 +299,62 @@ export function Certificates() {
             className="size-8"
             onClick={() => void openDetail(cert)}
             title={t('certificates.viewDetails')}
-            aria-label={t('certificates.view')}
+            aria-label={`${t('certificates.view')} ${cert.name}`}
           >
-            <Eye size={14} strokeWidth={2} />
+            <Eye size={14} strokeWidth={2} aria-hidden="true" />
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="secondary" size="icon" className="size-8" aria-label={t('common.moreActions')}>
-                <IconMore size={14} />
+              <Button variant="secondary" size="icon" className="size-8" aria-label={`${t('common.moreActions')} ${cert.name}`}>
+                <IconMore size={14} aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem onClick={() => handleExport(cert)} disabled={expired}>
-                <Export size={15} className="mr-2" /> {t('certificates.exportCertFile')}
+                <Export size={15} className="mr-2" aria-hidden="true" /> {t('certificates.exportCertFile')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => handleRemove(cert.id)}>
-                <Trash2 size={15} className="mr-2" /> {t('common.delete')}
+                <Trash2 size={15} className="mr-2" aria-hidden="true" /> {t('common.delete')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-      </div>
+      </ManageCard>
     );
   };
 
   return (
     <div className="flex h-full flex-col">
-      {/* ===== 页头 ===== */}
-      <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <h2 className="shrink-0 text-[15px] font-semibold tracking-tight text-foreground">{t('certificates.title')}</h2>
-          <p className="truncate text-xs text-muted-foreground">{t('certificates.certCount', { count: filteredCerts.length })}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-0 max-w-[360px] flex-1">
-            <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              ref={searchRef}
-              type="text"
-              placeholder={t('certificates.searchPlaceholder')}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-lg pl-8"
+      <PageHeader
+        title={t('certificates.title')}
+        subtitle={t('certificates.certCount', { count: filteredCerts.length })}
+        search={{
+          value: searchQuery,
+          onChange: setSearchQuery,
+          placeholder: t('certificates.searchPlaceholder'),
+          inputRef: searchRef,
+        }}
+        actions={
+          <>
+            <ViewToggle
+              mode={viewMode}
+              onChange={setViewMode}
+              gridLabel={t('common.gridView')}
+              listLabel={t('common.listView')}
+              GridIcon={LayoutGrid}
+              ListIcon={List}
             />
-          </div>
-          <Button variant="ghost" size="icon" onClick={loadCertificates} aria-label={t('common.refresh')} title={t('common.refresh')}>
-            <RefreshCw size={16} />
-          </Button>
-          <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                'size-7',
-                viewMode === 'grid' && 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
-              )}
-              onClick={() => setViewMode('grid')}
-              aria-label={t('common.gridView')}
-              title={t('common.gridView')}
-            >
-              <LayoutGrid size={15} />
+            <Button variant="ghost" size="icon" onClick={loadCertificates} aria-label={t('common.refresh')} title={t('common.refresh')}>
+              <RefreshCw size={15} aria-hidden="true" />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                'size-7',
-                viewMode === 'list' && 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
-              )}
-              onClick={() => setViewMode('list')}
-              aria-label={t('common.listView')}
-              title={t('common.listView')}
-            >
-              <List size={15} />
+            <Button onClick={openImport} title={t('certificates.importCert')}>
+              <Import size={15} strokeWidth={2} aria-hidden="true" />
+              {t('certificates.importCert')}
             </Button>
-          </div>
-          <Button onClick={openImport} title={t('certificates.importCert')}>
-            <Import size={16} strokeWidth={2} />
-            {t('certificates.importCert')}
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* ===== 内容区域 ===== */}
       <div className="flex-1 overflow-auto p-4">
@@ -387,11 +363,11 @@ export function Certificates() {
         ) : filteredCerts.length === 0 ? (
           renderEmpty()
         ) : viewMode === 'grid' ? (
-          <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(256px, 1fr))' }}>
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(264px, 1fr))' }}>
             {filteredCerts.map((cert) => renderCertCard(cert))}
           </div>
         ) : (
-          <div className="overflow-hidden rounded-lg bg-card ring-1 ring-border/60">
+          <div className="overflow-hidden rounded-xl bg-card ring-1 ring-border">
             <Table>
               <TableHeader className="[&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground">
                 <TableRow className="bg-muted/40 hover:bg-muted/40">
@@ -404,14 +380,14 @@ export function Certificates() {
               </TableHeader>
               <TableBody>
                 {filteredCerts.map((cert) => (
-                  <TableRow key={cert.id} className="group transition-colors hover:bg-accent/40 focus-within:bg-accent/40">
+                  <TableRow key={cert.id} className="transition-colors hover:bg-accent/40 focus-within:bg-accent/40">
                     <TableCell className="min-w-0">
                       <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                          <FileBadge size={16} strokeWidth={2} />
-                        </div>
+                        <ManageCardIcon>
+                          <FileBadge size={15} strokeWidth={2} aria-hidden="true" />
+                        </ManageCardIcon>
                         <div className="min-w-0">
-                          <div className="truncate font-medium text-foreground">{cert.name}</div>
+                          <div className="truncate text-sm font-medium text-foreground">{cert.name}</div>
                           <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{cert.fingerprint}</div>
                         </div>
                       </div>
@@ -446,11 +422,11 @@ export function Certificates() {
                       <div className="flex justify-end gap-1">
                         <Button
                           size="sm"
-                          className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                           onClick={() => void openDetail(cert)}
                           title={t('certificates.viewDetails')}
+                          aria-label={`${t('certificates.view')} ${cert.name}`}
                         >
-                          <Eye size={14} strokeWidth={2} />
+                          <Eye size={14} strokeWidth={2} aria-hidden="true" />
                           {t('certificates.view')}
                         </Button>
                         <DropdownMenu>
@@ -458,19 +434,19 @@ export function Certificates() {
                             <Button
                               variant="secondary"
                               size="icon"
-                              className="size-7 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-                              aria-label={t('common.moreActions')}
+                              className="size-7"
+                              aria-label={`${t('common.moreActions')} ${cert.name}`}
                             >
-                              <IconMore size={15} />
+                              <IconMore size={15} aria-hidden="true" />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-44">
                             <DropdownMenuItem onClick={() => handleExport(cert)} disabled={isExpired(cert)}>
-                              <Export size={15} className="mr-2" /> {t('certificates.exportCertFile')}
+                              <Export size={15} className="mr-2" aria-hidden="true" /> {t('certificates.exportCertFile')}
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => handleRemove(cert.id)}>
-                              <Trash2 size={15} className="mr-2" /> {t('common.delete')}
+                              <Trash2 size={15} className="mr-2" aria-hidden="true" /> {t('common.delete')}
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>

@@ -25,7 +25,6 @@ import {
   Trash2 as IconTrash,
   LayoutGrid as IconLayoutGrid,
   List as IconList,
-  Search as IconSearch,
   Copy as IconCopy,
   Check as IconCheck,
   AlertTriangle as IconAlert,
@@ -71,6 +70,16 @@ import {
 import { cn } from '@/lib/utils';
 import { message, ask, save } from '@tauri-apps/plugin-dialog';
 import { toast } from 'sonner';
+import {
+  EmptyState,
+  ErrorState,
+  FilterChip,
+  ManageCard,
+  ManageCardIcon,
+  PageHeader,
+  SectionHeading,
+  ViewToggle,
+} from '../components/PageHeader';
 import { resolveHostSshAuth } from '../services/sshAuthResolver';
 import { setQuickConnectIntent } from '../services/quickConnectIntent';
 
@@ -969,19 +978,16 @@ export function Hosts() {  const { t } = useTranslation();
 
   const renderHostCard = (host: Host) => {
     return (
-      <div
-        key={host.id}
-        className="group flex items-center gap-2.5 rounded-lg bg-card p-3 ring-1 ring-foreground/[0.06] transition-all duration-200 hover:-translate-y-0.5 hover:bg-accent/50 hover:shadow-md"
-      >
+      <ManageCard key={host.id}>
         {/* 图标块 + 状态角标 */}
         <div className="relative shrink-0">
-          <div className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-accent">
+          <ManageCardIcon>
             {host.icon ? (
-              <HostIcon icon={host.icon} size={17} />
+              <HostIcon icon={host.icon} size={16} aria-hidden="true" />
             ) : (
-              <IconServer size={15} strokeWidth={2} />
+              <IconServer size={15} strokeWidth={2} aria-hidden="true" />
             )}
-          </div>
+          </ManageCardIcon>
           {statusCornerBadge(liveHostStatus(host))}
         </div>
 
@@ -1030,9 +1036,9 @@ export function Hosts() {  const { t } = useTranslation();
             className="size-8"
             onClick={() => void handleConnect(host)}
             title={t('hosts.connect')}
-            aria-label={t('hosts.connect')}
+            aria-label={`${t('hosts.connect')} ${host.name}`}
           >
-            <IconTerminal size={14} strokeWidth={2} />
+            <IconTerminal size={14} strokeWidth={2} aria-hidden="true" />
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -1040,59 +1046,68 @@ export function Hosts() {  const { t } = useTranslation();
                 variant="secondary"
                 size="icon"
                 className="size-8"
-                aria-label={t('hosts.moreActions')}
+                aria-label={`${t('hosts.moreActions')} ${host.name}`}
               >
-                <IconMore size={14} />
+                <IconMore size={14} aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem onClick={() => void handleToggleFavorite(host)}>
-                <IconStar size={15} className="mr-2" /> {host.favorite ? t('hosts.unfavorite') : t('hosts.favorite')}
+                <IconStar size={15} className="mr-2" aria-hidden="true" /> {host.favorite ? t('hosts.unfavorite') : t('hosts.favorite')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleSftpConnect(host)}>
-                <IconFolderOpen size={15} className="mr-2" /> {t('hosts.openSftp')}
+                <IconFolderOpen size={15} className="mr-2" aria-hidden="true" /> {t('hosts.openSftp')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => openVncDialog(host)}>
-                <IconMonitor size={15} className="mr-2" /> {t('hosts.openVnc')}
+                <IconMonitor size={15} className="mr-2" aria-hidden="true" /> {t('hosts.openVnc')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleMoshConnect(host)}>
-                <IconRadio size={15} className="mr-2" /> {t('hosts.openMosh')}
+                <IconRadio size={15} className="mr-2" aria-hidden="true" /> {t('hosts.openMosh')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void openEdit(host)}>
-                <IconEdit size={15} className="mr-2" /> {t('common.edit')}
+                <IconEdit size={15} className="mr-2" aria-hidden="true" /> {t('common.edit')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void handleCopyCommand(host)}>
-                {copiedId === host.id ? <IconCheck size={15} className="mr-2 text-success" /> : <IconCopy size={15} className="mr-2" />}
+                {copiedId === host.id ? <IconCheck size={15} className="mr-2 text-success" aria-hidden="true" /> : <IconCopy size={15} className="mr-2" aria-hidden="true" />}
                 {copiedId === host.id ? t('hosts.copiedCommand') : t('hosts.copySshCommand')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => void handleRemove(host.id)}>
-                <IconTrash size={15} className="mr-2" /> {t('common.delete')}
+                <IconTrash size={15} className="mr-2" aria-hidden="true" /> {t('common.delete')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-      </div>
+      </ManageCard>
     );
   };
 
   const renderHostRow = (host: Host) => {
     const authType = resolveHostAuthType(host);
     return (
-      <TableRow key={host.id} className="group transition-colors hover:bg-accent/40 focus-within:bg-accent/40">
+      <TableRow key={host.id} className="transition-colors hover:bg-accent/40 focus-within:bg-accent/40">
         <TableCell className="min-w-0">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-accent">
+            <ManageCardIcon>
               {host.icon ? (
-                <HostIcon icon={host.icon} size={17} />
+                <HostIcon icon={host.icon} size={16} aria-hidden="true" />
               ) : (
-                <IconServer size={15} strokeWidth={2} />
+                <IconServer size={15} strokeWidth={2} aria-hidden="true" />
               )}
-            </div>
+            </ManageCardIcon>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => void handleToggleFavorite(host)}
+                  title={host.favorite ? t('hosts.unfavorite') : t('hosts.favorite')}
+                  aria-label={`${host.favorite ? t('hosts.unfavorite') : t('hosts.favorite')} ${host.name}`}
+                  className={host.favorite ? 'shrink-0 text-warning' : 'shrink-0 text-muted-foreground/40 hover:text-warning'}
+                >
+                  <IconStar size={12} strokeWidth={2} fill={host.favorite ? 'currentColor' : 'none'} aria-hidden="true" />
+                </button>
                 <span className="truncate text-sm font-medium text-foreground">{host.name}</span>
-                {host.useProxy && <IconServer size={12} className="shrink-0 text-warning" />}
+                {host.useProxy && <IconServer size={12} className="shrink-0 text-warning" aria-hidden="true" />}
               </div>
               <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
                 {resolveHostUsername(host)}@{host.host}
@@ -1101,14 +1116,14 @@ export function Hosts() {  const { t } = useTranslation();
           </div>
         </TableCell>
         <TableCell className="whitespace-nowrap">
-          <span className="font-mono text-sm text-muted-foreground">{host.port}</span>
+          <span className="font-mono text-sm tabular-nums text-muted-foreground">{host.port}</span>
         </TableCell>
         <TableCell>
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             {authBadge(authType)}
             {host.useProxy && (
               <Badge variant="outline" className="gap-1 font-normal text-warning">
-                <IconServer size={11} /> {t('hosts.jump')}
+                <IconServer size={11} aria-hidden="true" /> {t('hosts.jump')}
               </Badge>
             )}
             {resolveHostAccountName(host) && (
@@ -1117,52 +1132,56 @@ export function Hosts() {  const { t } = useTranslation();
           </div>
         </TableCell>
         <TableCell>{statusIcon(liveHostStatus(host))}</TableCell>
-        <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">
+        <TableCell className="whitespace-nowrap font-mono text-xs tabular-nums text-muted-foreground">
           {formatLastConnected(host.lastConnected)}
         </TableCell>
         <TableCell className="text-right">
           <div className="flex items-center justify-end gap-1">
-            <Button size="sm" onClick={() => void handleConnect(host)}>
-              <IconTerminal size={14} strokeWidth={2} />
+            <Button size="sm" onClick={() => void handleConnect(host)} aria-label={`${t('hosts.connect')} ${host.name}`}>
+              <IconTerminal size={14} strokeWidth={2} aria-hidden="true" />
               {t('hosts.connect')}
             </Button>
             <Button
               variant="secondary"
               size="icon"
-              className="size-7 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+              className="size-7"
               onClick={() => handleSftpConnect(host)}
               title={t('hosts.openSftp')}
+              aria-label={`${t('hosts.openSftp')} ${host.name}`}
             >
-              <IconFolderOpen size={14} strokeWidth={2} />
+              <IconFolderOpen size={14} strokeWidth={2} aria-hidden="true" />
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="secondary"
                   size="icon"
-                  className="size-7 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-                  aria-label={t('hosts.moreActions')}
+                  className="size-7"
+                  aria-label={`${t('hosts.moreActions')} ${host.name}`}
                 >
-                  <IconMore size={15} />
+                  <IconMore size={15} aria-hidden="true" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onClick={() => void handleToggleFavorite(host)}>
+                  <IconStar size={15} className="mr-2" aria-hidden="true" /> {host.favorite ? t('hosts.unfavorite') : t('hosts.favorite')}
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => openVncDialog(host)}>
-                  <IconMonitor size={15} className="mr-2" /> {t('hosts.openVnc')}
+                  <IconMonitor size={15} className="mr-2" aria-hidden="true" /> {t('hosts.openVnc')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => handleMoshConnect(host)}>
-                  <IconRadio size={15} className="mr-2" /> {t('hosts.openMosh')}
+                  <IconRadio size={15} className="mr-2" aria-hidden="true" /> {t('hosts.openMosh')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => void openEdit(host)}>
-                  <IconEdit size={15} className="mr-2" /> {t('common.edit')}
+                  <IconEdit size={15} className="mr-2" aria-hidden="true" /> {t('common.edit')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => void handleCopyCommand(host)}>
-                  {copiedId === host.id ? <IconCheck size={15} className="mr-2 text-success" /> : <IconCopy size={15} className="mr-2" />}
+                  {copiedId === host.id ? <IconCheck size={15} className="mr-2 text-success" aria-hidden="true" /> : <IconCopy size={15} className="mr-2" aria-hidden="true" />}
                   {copiedId === host.id ? t('hosts.copiedCommand') : t('hosts.copySshCommand')}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => void handleRemove(host.id)}>
-                  <IconTrash size={15} className="mr-2" /> {t('common.delete')}
+                  <IconTrash size={15} className="mr-2" aria-hidden="true" /> {t('common.delete')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1174,7 +1193,7 @@ export function Hosts() {  const { t } = useTranslation();
 
   const renderLoading = () => {
     const cardSkeleton = (i: number) => (
-      <div key={i} className="flex items-center gap-2.5 rounded-lg bg-card p-3">
+      <ManageCard key={i}>
         <div className="relative shrink-0">
           <Skeleton className="size-8 rounded-lg" />
           <span className="absolute -right-1 -top-1 size-3 rounded-full bg-muted-foreground/10" />
@@ -1184,10 +1203,10 @@ export function Hosts() {  const { t } = useTranslation();
           <Skeleton className="h-3 w-3/5" />
         </div>
         <div className="flex shrink-0 gap-1">
-          <Skeleton className="size-8 rounded-lg" />
-          <Skeleton className="size-8 rounded-lg" />
+          <Skeleton className="size-8 rounded-full" />
+          <Skeleton className="size-8 rounded-full" />
         </div>
-      </div>
+      </ManageCard>
     );
     const rowSkeleton = (i: number) => (
       <TableRow key={i}>
@@ -1257,158 +1276,117 @@ export function Hosts() {  const { t } = useTranslation();
     );
   };
 
+  const hasFilter = !!(searchQuery || authFilter !== 'all' || groupFilter !== 'all' || favOnly);
   const renderEmpty = () => (
-    <div className="flex flex-col items-center justify-center py-14 text-center">
-      <div className="mb-3.5 flex size-14 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-        <IconServer size={24} strokeWidth={1.5} />
-      </div>
-      <h3 className="text-sm font-semibold tracking-tight">{searchQuery || authFilter !== 'all' ? t('hosts.emptySearch') : t('hosts.emptyNone')}</h3>
-      <p className="mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">
-        {searchQuery || authFilter !== 'all'
+    <EmptyState
+      icon={<IconServer size={24} strokeWidth={1.5} aria-hidden="true" />}
+      title={hasFilter ? t('hosts.emptySearch') : t('hosts.emptyNone')}
+      description={
+        hasFilter
           ? t('hosts.emptySearchDesc', { query: searchQuery || t('common.currentFilter') })
-          : t('hosts.emptyNoneDesc')}
-      </p>
-      {!(searchQuery || authFilter !== 'all') && (
-        <div className="mt-5 flex items-center gap-2">
+          : t('hosts.emptyNoneDesc')
+      }
+      action={
+        !hasFilter ? (
           <Button onClick={() => void openCreate()}>
-            <IconPlus size={16} /> {t('hosts.createHost')}
+            <IconPlus size={15} aria-hidden="true" /> {t('hosts.createHost')}
           </Button>
-        </div>
-      )}
-    </div>
+        ) : undefined
+      }
+    />
   );
 
   const renderError = () => (
-    <div className="flex flex-col items-center justify-center py-14 text-center">
-      <div className="mb-3.5 flex size-14 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
-        <IconAlert size={24} strokeWidth={1.5} />
-      </div>
-      <h3 className="text-sm font-semibold tracking-tight">{t('common.loadFailed')}</h3>
-      <p className="mt-1.5 text-sm text-muted-foreground">{error || t('hosts.loadFailed')}</p>
-      <Button variant="secondary" className="mt-5" onClick={refresh}>
-        <IconRefresh size={16} /> {t('common.retry')}
-      </Button>
-    </div>
+    <ErrorState
+      icon={<IconAlert size={24} strokeWidth={1.5} aria-hidden="true" />}
+      title={t('common.loadFailed')}
+      description={error || t('hosts.loadFailed')}
+      retryLabel={t('common.retry')}
+      onRetry={refresh}
+    />
   );
 
   return (
     <div className="flex h-full flex-col">
-      {/* ===== 页头 ===== */}
-      <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <h2 className="shrink-0 text-[15px] font-semibold tracking-tight text-foreground">{t('hosts.title')}</h2>
-          <p className="truncate text-xs text-muted-foreground">
-            {t('hosts.hostCount', { count: filteredHosts.length })}
-            {connectedCount > 0 && t('hosts.connectedCountSuffix', { count: connectedCount })}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-0 max-w-[360px] flex-1">
-            <IconSearch size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              ref={searchRef}
-              type="text"
-              placeholder={t('hosts.searchPlaceholder')}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8"
+      <PageHeader
+        title={t('hosts.title')}
+        subtitle={`${t('hosts.hostCount', { count: filteredHosts.length })}${connectedCount > 0 ? t('hosts.connectedCountSuffix', { count: connectedCount }) : ''}`}
+        search={{
+          value: searchQuery,
+          onChange: setSearchQuery,
+          placeholder: t('hosts.searchPlaceholder'),
+          inputRef: searchRef,
+        }}
+        actions={
+          <>
+            <ViewToggle
+              mode={viewMode}
+              onChange={setViewMode}
+              gridLabel={t('common.gridView')}
+              listLabel={t('common.listView')}
+              GridIcon={IconLayoutGrid}
+              ListIcon={IconList}
             />
-          </div>
-          <div className="flex items-center gap-1 rounded-lg bg-muted/60 p-0.5">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                'size-7',
-                viewMode === 'grid' && 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
-              )}
-              onClick={() => setViewMode('grid')}
-              aria-label={t('common.gridView')}
-              title={t('common.gridView')}
-            >
-              <IconLayoutGrid size={15} />
+            <Button variant="ghost" size="icon" onClick={refresh} aria-label={t('common.refresh')} title={t('common.refresh')}>
+              <IconRefresh size={15} aria-hidden="true" />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                'size-7',
-                viewMode === 'list' && 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
-              )}
-              onClick={() => setViewMode('list')}
-              aria-label={t('common.listView')}
-              title={t('common.listView')}
-            >
-              <IconList size={15} />
+            <Button variant="ghost" size="icon" onClick={() => void handleExport()} aria-label={t('hosts.exportTitle')} title={t('hosts.exportTitle')}>
+              <IconDownload size={15} aria-hidden="true" />
             </Button>
-          </div>
-          <Button variant="ghost" size="icon" onClick={refresh} aria-label={t('common.refresh')} title={t('common.refresh')}>
-            <IconRefresh size={16} />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => void handleExport()} aria-label={t('hosts.exportTitle')} title={t('hosts.exportTitle')}>
-            <IconDownload size={16} />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => void handleImportFile()} aria-label={t('hosts.importTitle')} title={t('hosts.importTitle')}>
-            <IconUpload size={16} />
-          </Button>
-          <Button variant="ghost" onClick={handleSerialQuickConnect} title={t('hosts.serialTerminal')}>
-            <IconUsb size={15} strokeWidth={2} />
-            {t('hosts.serialTerminal')}
-          </Button>
-          <Button onClick={() => void openCreate()} title={t('hosts.createHost')}>
-            <IconPlus size={16} strokeWidth={2} />
-            {t('hosts.add')}
-          </Button>
-        </div>
-      </div>
-
-      {/* ===== 筛选 chips ===== */}
-      <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-4 py-2">
-        {filterChips.map((chip) => (
-          <button
-            key={chip.key}
-            type="button"
-            onClick={() => setAuthFilter(chip.key)}
-            className={cn(
-              'rounded-full px-3 py-1 text-xs font-medium transition-colors',
-              authFilter === chip.key
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-            )}
-          >
-            {t(chip.label)}
-          </button>
-        ))}
-        {allGroups.length > 0 && (
-          <select
-            value={groupFilter}
-            onChange={(e) => setGroupFilter(e.target.value)}
-            className="h-7 rounded-full bg-muted px-3 text-xs font-medium text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground"
-            title={t('hosts.groupFilter')}
-          >
-            <option value="all">{t('hosts.groupAll')}</option>
-            {allGroups.map((g) => (
-              <option key={g} value={g}>
-                {g}
-              </option>
+            <Button variant="ghost" size="icon" onClick={() => void handleImportFile()} aria-label={t('hosts.importTitle')} title={t('hosts.importTitle')}>
+              <IconUpload size={15} aria-hidden="true" />
+            </Button>
+            <Button variant="ghost" onClick={handleSerialQuickConnect} title={t('hosts.serialTerminal')}>
+              <IconUsb size={15} strokeWidth={2} aria-hidden="true" />
+              {t('hosts.serialTerminal')}
+            </Button>
+            <Button onClick={() => void openCreate()} title={t('hosts.createHost')}>
+              <IconPlus size={15} strokeWidth={2} aria-hidden="true" />
+              {t('hosts.add')}
+            </Button>
+          </>
+        }
+        filters={
+          <>
+            {filterChips.map((chip) => (
+              <FilterChip key={chip.key} active={authFilter === chip.key} onClick={() => setAuthFilter(chip.key)}>
+                {t(chip.label)}
+              </FilterChip>
             ))}
-          </select>
-        )}
-        <button
-          type="button"
-          onClick={() => setFavOnly((v) => !v)}
-          className={cn(
-            'flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors',
-            favOnly
-              ? 'bg-warning/20 text-warning'
-              : 'bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-          )}
-          title={t('hosts.favOnly')}
-        >
-          <IconStar size={11} strokeWidth={2} fill={favOnly ? 'currentColor' : 'none'} />
-          {t('hosts.favOnly')}
-        </button>
-      </div>
+            {allGroups.length > 0 && (
+              <select
+                value={groupFilter}
+                onChange={(e) => setGroupFilter(e.target.value)}
+                className="h-7 rounded-full bg-muted px-3 text-xs font-medium text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground"
+                title={t('hosts.groupFilter')}
+                aria-label={t('hosts.groupFilter')}
+              >
+                <option value="all">{t('hosts.groupAll')}</option>
+                {allGroups.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button
+              type="button"
+              onClick={() => setFavOnly((v) => !v)}
+              aria-pressed={favOnly}
+              className={cn(
+                'flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors duration-150',
+                favOnly
+                  ? 'bg-warning/20 text-warning'
+                  : 'bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+              )}
+              title={t('hosts.favOnly')}
+            >
+              <IconStar size={11} strokeWidth={2} fill={favOnly ? 'currentColor' : 'none'} aria-hidden="true" />
+              {t('hosts.favOnly')}
+            </button>
+          </>
+        }
+      />
 
       {/* ===== 内容区域 ===== */}
       <div className="flex-1 overflow-auto p-4">
@@ -1419,34 +1397,23 @@ export function Hosts() {  const { t } = useTranslation();
         ) : filteredHosts.length === 0 ? (
           renderEmpty()
         ) : (
-          <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-5">
             {groups.map((group) => (
               <section key={group.key} className="flex flex-col gap-2.5">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={cn(
-                      'size-1.5 rounded-full',
-                      group.key === 'connected'
-                        ? 'bg-success'
-                        : group.key === 'error'
-                          ? 'bg-destructive'
-                          : 'bg-muted-foreground/40',
-                    )}
-                  />
-                  <h3 className="text-xs font-medium tracking-wide text-muted-foreground">{t(group.label)}</h3>
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                    {group.items.length}
-                  </span>
-                </div>
+                <SectionHeading
+                  tone={group.key === 'connected' ? 'success' : group.key === 'error' ? 'error' : 'muted'}
+                  label={t(group.label)}
+                  count={group.items.length}
+                />
                 {viewMode === 'grid' ? (
                   <div
-                    className="grid gap-2.5"
-                    style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(256px, 1fr))' }}
+                    className="grid gap-3"
+                    style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(264px, 1fr))' }}
                   >
                     {group.items.map((host) => renderHostCard(host))}
                   </div>
                 ) : (
-                  <div className="overflow-hidden rounded-lg bg-card ring-1 ring-border/60">
+                  <div className="overflow-hidden rounded-xl bg-card ring-1 ring-border">
                     <Table>
                       <TableHeader className="[&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground">
                         <TableRow className="bg-muted/40 hover:bg-muted/40">

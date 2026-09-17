@@ -5,15 +5,20 @@ import { getLogs, clearLogs, type LogEntry } from '../services/dataService';
 import { readSessionReplay } from '../services/sessionReplay';
 import { useTabStore } from '../store/tabStore';
 import { SessionLogFiles } from '../components/SessionLogFiles';
-import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Skeleton } from '../components/ui/skeleton';
-import { Search as IconSearch, RefreshCw as IconRefresh, Trash2 as IconTrash, ScrollText as IconScrollText, AlertTriangle as IconAlert } from 'lucide-react';
+import { RefreshCw as IconRefresh, Trash2 as IconTrash, ScrollText as IconScrollText, AlertTriangle as IconAlert } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { message, ask, open as dialogOpen } from '@tauri-apps/plugin-dialog';
+import {
+  EmptyState,
+  ErrorState,
+  FilterChip,
+  PageHeader,
+} from '../components/PageHeader';
 
 type LevelFilter = 'all' | LogEntry['level'];
 
@@ -200,86 +205,61 @@ export function Logs() {
   );
 
   const renderEmpty = () => (
-    <div className="flex flex-col items-center justify-center py-14 text-center">
-      <div className="mb-3.5 flex size-14 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-        <IconScrollText size={24} strokeWidth={1.5} />
-      </div>
-      <h3 className="text-sm font-semibold tracking-tight">
-        {searchQuery || levelFilter !== 'all' ? t('logs.emptySearch') : t('logs.emptyNone')}
-      </h3>
-      <p className="mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">
-        {searchQuery || levelFilter !== 'all'
-          ? t('logs.emptySearchDesc')
-          : t('logs.emptyNoneDesc')}
-      </p>
-    </div>
+    <EmptyState
+      icon={<IconScrollText size={24} strokeWidth={1.5} aria-hidden="true" />}
+      title={searchQuery || levelFilter !== 'all' ? t('logs.emptySearch') : t('logs.emptyNone')}
+      description={
+        searchQuery || levelFilter !== 'all' ? t('logs.emptySearchDesc') : t('logs.emptyNoneDesc')
+      }
+    />
   );
 
   const renderError = () => (
-    <div className="flex flex-col items-center justify-center py-14 text-center">
-      <div className="mb-3.5 flex size-14 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
-        <IconAlert size={24} strokeWidth={1.5} />
-      </div>
-      <h3 className="text-sm font-semibold tracking-tight">{t('common.loadFailed')}</h3>
-      <p className="mt-1.5 text-sm text-muted-foreground">{error || t('logs.loadFailedDesc')}</p>
-      <Button variant="secondary" className="mt-5" onClick={() => void loadLogs()}>
-        <IconRefresh size={16} /> {t('common.retry')}
-      </Button>
-    </div>
+    <ErrorState
+      icon={<IconAlert size={24} strokeWidth={1.5} aria-hidden="true" />}
+      title={t('common.loadFailed')}
+      description={error || t('logs.loadFailedDesc')}
+      retryLabel={t('common.retry')}
+      onRetry={() => void loadLogs()}
+    />
   );
 
   return (
     <div className="flex h-full flex-col">
-      {/* ===== 页头 ===== */}
-      <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <h2 className="shrink-0 text-[15px] font-semibold tracking-tight text-foreground">{t('logs.title')}</h2>
-          <p className="truncate text-xs text-muted-foreground">{t('logs.recordCount', { count: logs.length })}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-0 max-w-[360px] flex-1">
-            <IconSearch size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              ref={searchRef}
-              type="text"
-              placeholder={t('logs.searchPlaceholder')}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-lg pl-8"
-            />
-          </div>
-          <Button variant="secondary" onClick={() => void handleOpenReplay()} title={t('logs.openReplay')}>
-            <IconScrollText size={16} />
-            {t('logs.openReplay')}
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => void loadLogs()} aria-label={t('common.refresh')} title={t('common.refresh')}>
-            <IconRefresh size={16} />
-          </Button>
-          <Button variant="destructive" onClick={() => void handleClear()} disabled={logs.length === 0} title={t('logs.clearTitle')}>
-            <IconTrash size={16} strokeWidth={2} />
-            {t('logs.clear')}
-          </Button>
-        </div>
-      </div>
-
-      {/* ===== 级别筛选 chips ===== */}
-      <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-4 py-2">
-        {filterChips.map((chip) => (
-          <button
-            key={chip.key}
-            type="button"
-            onClick={() => setLevelFilter(chip.key)}
-            className={cn(
-              'rounded-full px-3 py-1 text-xs font-medium transition-colors',
-              levelFilter === chip.key
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-            )}
-          >
-            {t(chip.label)}
-          </button>
-        ))}
-      </div>
+      <PageHeader
+        title={t('logs.title')}
+        subtitle={t('logs.recordCount', { count: logs.length })}
+        search={{
+          value: searchQuery,
+          onChange: setSearchQuery,
+          placeholder: t('logs.searchPlaceholder'),
+          inputRef: searchRef,
+        }}
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => void handleOpenReplay()} title={t('logs.openReplay')}>
+              <IconScrollText size={15} aria-hidden="true" />
+              {t('logs.openReplay')}
+            </Button>
+            <Button variant="ghost" size="icon" onClick={() => void loadLogs()} aria-label={t('common.refresh')} title={t('common.refresh')}>
+              <IconRefresh size={15} aria-hidden="true" />
+            </Button>
+            <Button variant="destructive" onClick={() => void handleClear()} disabled={logs.length === 0} title={t('logs.clearTitle')}>
+              <IconTrash size={15} strokeWidth={2} aria-hidden="true" />
+              {t('logs.clear')}
+            </Button>
+          </>
+        }
+        filters={
+          <>
+            {filterChips.map((chip) => (
+              <FilterChip key={chip.key} active={levelFilter === chip.key} onClick={() => setLevelFilter(chip.key)}>
+                {t(chip.label)}
+              </FilterChip>
+            ))}
+          </>
+        }
+      />
 
       {/* ===== 内容区域 ===== */}
       <div className="flex-1 space-y-4 overflow-auto p-4">

@@ -19,7 +19,6 @@ import {
   Tag as IconTag,
   LayoutGrid as IconLayoutGrid,
   List as IconList,
-  Search as IconSearch,
   RefreshCw as IconRefresh,
   AlertTriangle as IconAlert,
   MoreHorizontal as IconMore,
@@ -41,6 +40,15 @@ import {
 } from '../components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { message, ask } from '@tauri-apps/plugin-dialog';
+import {
+  EmptyState,
+  ErrorState,
+  ManageCard,
+  ManageCardIcon,
+  PageHeader,
+  SectionHeading,
+  ViewToggle,
+} from '../components/PageHeader';
 
 type ViewMode = 'grid' | 'list';
 
@@ -231,13 +239,10 @@ export function Snippets() {
 
   const renderSnippetCard = (snippet: Snippet) => {
     return (
-      <div
-        key={snippet.id}
-        className="group flex items-center gap-2.5 rounded-lg bg-card p-3 transition-all duration-200 hover:-translate-y-0.5 hover:bg-accent/50 hover:shadow-md"
-      >
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-accent">
-          <IconTerminal size={15} strokeWidth={2} />
-        </div>
+      <ManageCard key={snippet.id}>
+        <ManageCardIcon>
+          <IconTerminal size={15} strokeWidth={2} aria-hidden="true" />
+        </ManageCardIcon>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span className="truncate text-sm font-medium text-foreground">{snippet.name}</span>
@@ -247,7 +252,7 @@ export function Snippets() {
             className="mt-0.5 truncate font-mono text-xs text-muted-foreground"
             title={snippet.command}
           >
-            <span className="select-none text-muted-foreground/60">$ </span>
+            <span className="select-none text-muted-foreground/60" aria-hidden="true">$ </span>
             {snippet.command}
           </div>
         </div>
@@ -257,43 +262,43 @@ export function Snippets() {
             className="size-8"
             onClick={() => void handleCopy(snippet)}
             title={t('snippets.copyCommand')}
-            aria-label={t('snippets.copyCommand')}
+            aria-label={`${t('snippets.copyCommand')} ${snippet.name}`}
           >
-            {copiedId === snippet.id ? <IconCheck size={14} strokeWidth={2} /> : <IconCopy size={14} strokeWidth={2} />}
+            {copiedId === snippet.id ? <IconCheck size={14} strokeWidth={2} aria-hidden="true" /> : <IconCopy size={14} strokeWidth={2} aria-hidden="true" />}
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="secondary" size="icon" className="size-8" aria-label={t('common.moreActions')}>
-                <IconMore size={14} />
+              <Button variant="secondary" size="icon" className="size-8" aria-label={`${t('common.moreActions')} ${snippet.name}`}>
+                <IconMore size={14} aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem onClick={() => openEdit(snippet)}>
-                <IconEdit size={15} className="mr-2" /> {t('common.edit')}
+                <IconEdit size={15} className="mr-2" aria-hidden="true" /> {t('common.edit')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => void handleRemove(snippet)}>
-                <IconTrash size={15} className="mr-2" /> {t('common.delete')}
+                <IconTrash size={15} className="mr-2" aria-hidden="true" /> {t('common.delete')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-      </div>
+      </ManageCard>
     );
   };
 
   const renderSnippetRow = (snippet: Snippet) => (
-    <TableRow key={snippet.id} className="group transition-colors hover:bg-accent/40">
+    <TableRow key={snippet.id} className="transition-colors hover:bg-accent/40">
       <TableCell className="min-w-0">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-accent">
-            <IconTerminal size={15} strokeWidth={2} />
-          </div>
+          <ManageCardIcon>
+            <IconTerminal size={15} strokeWidth={2} aria-hidden="true" />
+          </ManageCardIcon>
           <div className="min-w-0">
             <span className="block truncate text-sm font-medium text-foreground">{snippet.name}</span>
             {snippet.tags && snippet.tags.length > 0 && (
               <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                <IconTag size={11} />
+                <IconTag size={11} aria-hidden="true" />
                 {snippet.tags.slice(0, 3).join(', ')}
               </div>
             )}
@@ -306,7 +311,7 @@ export function Snippets() {
           {snippet.command}
         </code>
       </TableCell>
-      <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+      <TableCell className="whitespace-nowrap text-sm tabular-nums text-muted-foreground">
         {snippet.lastUsed ? new Date(snippet.lastUsed).toLocaleString('zh-CN') : t('snippets.neverUsed')}
       </TableCell>
       <TableCell className="text-right">
@@ -314,11 +319,11 @@ export function Snippets() {
           <Button
             variant="secondary"
             size="sm"
-            className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
             onClick={() => void handleCopy(snippet)}
             title={t('snippets.copyCommand')}
+            aria-label={`${t('snippets.copyCommand')} ${snippet.name}`}
           >
-            {copiedId === snippet.id ? <IconCheck size={14} /> : <IconCopy size={14} />}
+            {copiedId === snippet.id ? <IconCheck size={14} aria-hidden="true" /> : <IconCopy size={14} aria-hidden="true" />}
             {copiedId === snippet.id ? t('common.copied') : t('common.copy')}
           </Button>
           <DropdownMenu>
@@ -326,19 +331,19 @@ export function Snippets() {
               <Button
                 variant="secondary"
                 size="icon"
-                className="size-7 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-                aria-label={t('common.moreActions')}
+                className="size-7"
+                aria-label={`${t('common.moreActions')} ${snippet.name}`}
               >
-                <IconMore size={15} />
+                <IconMore size={15} aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem onClick={() => openEdit(snippet)}>
-                <IconEdit size={15} className="mr-2" /> {t('common.edit')}
+                <IconEdit size={15} className="mr-2" aria-hidden="true" /> {t('common.edit')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => void handleRemove(snippet)}>
-                <IconTrash size={15} className="mr-2" /> {t('common.delete')}
+                <IconTrash size={15} className="mr-2" aria-hidden="true" /> {t('common.delete')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -365,95 +370,65 @@ export function Snippets() {
       />
     );
 
+  const hasFilter = searchQuery !== '';
   const renderEmpty = () => (
-    <div className="flex flex-col items-center justify-center py-14 text-center">
-      <div className="mb-3.5 flex size-14 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-        <IconTerminal size={24} strokeWidth={1.5} />
-      </div>
-      <h3 className="text-sm font-semibold tracking-tight">{searchQuery ? t('snippets.emptySearch') : t('snippets.emptyNone')}</h3>
-      <p className="mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">
-        {searchQuery
-          ? t('snippets.emptySearchDesc', { query: searchQuery })
-          : t('snippets.emptyNoneDesc')}
-      </p>
-      {!searchQuery && (
-        <Button className="mt-6" onClick={openCreate}>
-          <IconPlus size={16} /> {t('snippets.createSnippet')}
-        </Button>
-      )}
-    </div>
+    <EmptyState
+      icon={<IconTerminal size={24} strokeWidth={1.5} aria-hidden="true" />}
+      title={hasFilter ? t('snippets.emptySearch') : t('snippets.emptyNone')}
+      description={
+        hasFilter ? t('snippets.emptySearchDesc', { query: searchQuery }) : t('snippets.emptyNoneDesc')
+      }
+      action={
+        !hasFilter ? (
+          <Button onClick={openCreate}>
+            <IconPlus size={15} aria-hidden="true" /> {t('snippets.createSnippet')}
+          </Button>
+        ) : undefined
+      }
+    />
   );
 
   const renderError = () => (
-    <div className="flex flex-col items-center justify-center py-14 text-center">
-      <div className="mb-3.5 flex size-14 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
-        <IconAlert size={24} strokeWidth={1.5} />
-      </div>
-      <h3 className="text-sm font-semibold tracking-tight">{t('common.loadFailed')}</h3>
-      <p className="mt-1.5 text-sm text-muted-foreground">{error || t('snippets.loadFailedDesc')}</p>
-      <Button variant="secondary" className="mt-5" onClick={() => void loadSnippets()}>
-        <IconRefresh size={16} /> {t('common.retry')}
-      </Button>
-    </div>
+    <ErrorState
+      icon={<IconAlert size={24} strokeWidth={1.5} aria-hidden="true" />}
+      title={t('common.loadFailed')}
+      description={error || t('snippets.loadFailedDesc')}
+      retryLabel={t('common.retry')}
+      onRetry={() => void loadSnippets()}
+    />
   );
 
   return (
     <div className="flex h-full flex-col">
-      {/* ===== 页头 ===== */}
-      <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <h2 className="shrink-0 text-[15px] font-semibold tracking-tight text-foreground">{t('snippets.title')}</h2>
-          <p className="truncate text-xs text-muted-foreground">{t('snippets.snippetCount', { count: filteredSnippets.length })}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-0 max-w-[360px] flex-1">
-            <IconSearch size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              ref={searchRef}
-              type="text"
-              placeholder={t('snippets.searchPlaceholder')}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-lg pl-8"
+      <PageHeader
+        title={t('snippets.title')}
+        subtitle={t('snippets.snippetCount', { count: filteredSnippets.length })}
+        search={{
+          value: searchQuery,
+          onChange: setSearchQuery,
+          placeholder: t('snippets.searchPlaceholder'),
+          inputRef: searchRef,
+        }}
+        actions={
+          <>
+            <ViewToggle
+              mode={viewMode}
+              onChange={setViewMode}
+              gridLabel={t('common.gridView')}
+              listLabel={t('common.listView')}
+              GridIcon={IconLayoutGrid}
+              ListIcon={IconList}
             />
-          </div>
-          <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                'size-7',
-                viewMode === 'grid' && 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
-              )}
-              onClick={() => setViewMode('grid')}
-              aria-label={t('common.gridView')}
-              title={t('common.gridView')}
-            >
-              <IconLayoutGrid size={15} />
+            <Button variant="ghost" size="icon" onClick={() => void loadSnippets()} aria-label={t('common.refresh')} title={t('common.refresh')}>
+              <IconRefresh size={15} aria-hidden="true" />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                'size-7',
-                viewMode === 'list' && 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
-              )}
-              onClick={() => setViewMode('list')}
-              aria-label={t('common.listView')}
-              title={t('common.listView')}
-            >
-              <IconList size={15} />
+            <Button onClick={openCreate} title={t('snippets.createSnippet')}>
+              <IconPlus size={15} strokeWidth={2} aria-hidden="true" />
+              {t('snippets.add')}
             </Button>
-          </div>
-          <Button variant="ghost" size="icon" onClick={() => void loadSnippets()} aria-label={t('common.refresh')} title={t('common.refresh')}>
-            <IconRefresh size={16} />
-          </Button>
-          <Button onClick={openCreate} title={t('snippets.createSnippet')}>
-            <IconPlus size={16} strokeWidth={2} />
-            {t('snippets.add')}
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* ===== 内容区域 ===== */}
       <div className="flex-1 overflow-auto p-4">
@@ -464,21 +439,16 @@ export function Snippets() {
         ) : filteredSnippets.length === 0 ? (
           renderEmpty()
         ) : (
-          <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-5">
             {groups.map((group) => (
               <section key={group.key} className="flex flex-col gap-2.5">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-xs font-medium tracking-wide text-muted-foreground">{group.label}</h3>
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                    {group.items.length}
-                  </span>
-                </div>
+                <SectionHeading tone="muted" label={group.label} count={group.items.length} />
                 {viewMode === 'grid' ? (
-                  <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(256px, 1fr))' }}>
+                  <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(264px, 1fr))' }}>
                     {group.items.map((snippet) => renderSnippetCard(snippet))}
                   </div>
                 ) : (
-                  <div className="overflow-hidden rounded-lg bg-card ring-1 ring-border/60">
+                  <div className="overflow-hidden rounded-xl bg-card ring-1 ring-border">
                     <Table>
                       <TableHeader className="[&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground">
                         <TableRow className="bg-muted/40 hover:bg-muted/40">
