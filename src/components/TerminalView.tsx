@@ -257,6 +257,7 @@ export interface TerminalTelnetConfig {
 export interface TerminalLocalConfig {
   shell: string;
   wslDistro?: string;
+  exePath?: string;
 }
 
 export interface TerminalSerialConfig {
@@ -729,7 +730,7 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
               // 本地 shell 无认证、无主机密钥确认
               connectResult = await localShellConnect(
                 sessionId,
-                { shell: localConfig!.shell, wslDistro: localConfig!.wslDistro },
+                { shell: localConfig!.shell, wslDistro: localConfig!.wslDistro, exePath: localConfig!.exePath },
                 cols,
                 rows,
               );

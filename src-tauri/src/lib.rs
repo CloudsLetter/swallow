@@ -115,6 +115,7 @@ pub fn run() {
             commands::local::local_shell_resize,
             commands::local::local_shell_disconnect,
             commands::local::local_shell_list_sessions,
+            commands::local::local_shell_list_profiles,
             commands::ssh::accept_host_key,
             commands::monitor::monitor_start,
             commands::monitor::monitor_collect,

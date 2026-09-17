@@ -206,7 +206,7 @@ export function AdvancedSettings() {
         <SectionTitle>{t('settings.about')}</SectionTitle>
         <div className="flex flex-col gap-2 text-sm">
           <p>
-            <span className="font-medium">{t('settings.version')}:</span> 0.1.0
+            <span className="font-medium">{t('settings.version')}:</span> 0.3.0
           </p>
           <p>
             <span className="font-medium">{t('settings.techStack')}:</span> Tauri 2 + React 19 + TypeScript

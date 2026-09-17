@@ -149,3 +149,9 @@ pub async fn local_shell_list_sessions(state: State<'_, AppState>) -> Result<Vec
     Ok(manager.list_sessions())
 }
 
+/// 探测本机可用 shell 画像（QuickConnect 动态入口用；纯文件存在性检查，无进程启动）。
+#[tauri::command]
+pub fn local_shell_list_profiles() -> Result<Vec<crate::local::LocalShellProfile>, String> {
+    Ok(crate::local::list_shell_profiles())
+}
+

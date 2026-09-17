@@ -98,6 +98,23 @@ export function telnetDisconnect(sessionId: string): Promise<void> {
 export interface LocalShellConfig {
   shell: string;
   wslDistro?: string;
+  /** 真实可执行文件绝对路径（探测下发，优先于按名解析） */
+  exePath?: string;
+}
+
+/** 本机可用 shell 画像（后端探测，不可用的不下发）。 */
+export interface LocalShellProfile {
+  shell: string;
+  label: string;
+  wslDistro?: string;
+  /** 真实可执行文件绝对路径（启动时优先使用） */
+  exePath?: string;
+  available: boolean;
+}
+
+/** 探测本机可用 shell 画像（存在性检查，不启动进程）。 */
+export function localShellListProfiles(): Promise<LocalShellProfile[]> {
+  return invoke<LocalShellProfile[]>('local_shell_list_profiles');
 }
 
 /** 建立本地 shell 会话（cmd/powershell/pwsh/wsl/bash，PTY 伪终端）。 */

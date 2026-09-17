@@ -56,6 +56,7 @@ export interface SerialTabConfig {
 export interface LocalTabConfig {
   shell: string;
   wslDistro?: string;
+  exePath?: string;
 }
 
 export interface SftpTabConfig {
