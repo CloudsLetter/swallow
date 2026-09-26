@@ -14,6 +14,7 @@ import { getHosts, getAccounts, getKeys, getCertificates, type Host, type Accoun
 import { resolveHostSshAuth } from '../services/sshAuthResolver';
 import { listRemoteConns, saveRemoteConn, deleteRemoteConn, type RemoteConn } from '../services/remoteConns';
 import { Button } from '../components/ui/button';
+import { CategoryTransferButtons } from '../components/CategoryTransfer';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
@@ -204,10 +205,19 @@ export function Remote() {
         title={t('menu.desktop')}
         subtitle={items.length > 0 ? t('remote.count', { count: items.length }) : undefined}
         actions={
-          <Button size="sm" onClick={openNew}>
-            <IconPlus size={15} strokeWidth={2} aria-hidden="true" />
-            {t('remote.add')}
-          </Button>
+          <>
+            <CategoryTransferButtons
+              category="remoteConns"
+              label={t('menu.desktop')}
+              defaultFileName="swallow-desktop-connections.json"
+              hasSecrets
+              onImported={load}
+            />
+            <Button size="sm" onClick={openNew}>
+              <IconPlus size={15} strokeWidth={2} aria-hidden="true" />
+              {t('remote.add')}
+            </Button>
+          </>
         }
       />
 

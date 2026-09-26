@@ -3,6 +3,7 @@ use rusqlite::{params, OptionalExtension};
 use crate::models::data::Snippet;
 use crate::services::common::{parse_tags, to_tags_json};
 use crate::services::logs::append_log;
+use crate::services::transfer;
 use crate::utils::sqlite;
 
 #[tauri::command]
@@ -30,6 +31,37 @@ pub fn list_snippets() -> Result<Vec<Snippet>, String> {
         })
         .map_err(|e| e.to_string())?;
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+const EXPORT_CATEGORY: &str = "snippets";
+
+/// 片段没有秘密字段，`include_secrets` 参数保留纯粹是为了与其它类目契约一致
+/// （前端各列表页共用同一套导入导出交互，不必为片段特判）。
+#[tauri::command]
+pub fn export_snippets(include_secrets: bool) -> Result<String, String> {
+    let items = list_snippets()?;
+    transfer::build(EXPORT_CATEGORY, include_secrets, items)
+}
+
+#[tauri::command]
+pub fn export_snippets_to(target_path: String, include_secrets: bool) -> Result<usize, String> {
+    let items = list_snippets()?;
+    let count = items.len();
+    let content = transfer::build(EXPORT_CATEGORY, include_secrets, items)?;
+    transfer::write_to(&target_path, &content, count)
+}
+
+/// 导入片段：追加语义（清空 id 后逐条新建），失败整批报错。
+#[tauri::command]
+pub fn import_snippets_text(text: String) -> Result<usize, String> {
+    let (items, _) = transfer::parse::<Snippet>(EXPORT_CATEGORY, &text)?;
+    let mut count = 0usize;
+    for mut item in items {
+        item.id = String::new();
+        save_snippet(item)?;
+        count += 1;
+    }
+    Ok(count)
 }
 
 

@@ -3,6 +3,7 @@ use rusqlite::{params, OptionalExtension};
 use crate::models::data::Host;
 use crate::services::common::{parse_tags, resolve_secret, store_secret_or_clear, to_tags_json};
 use crate::services::logs::append_log_i18n;
+use crate::services::transfer;
 use crate::utils::secrets;
 use crate::utils::sqlite;
 
@@ -230,21 +231,37 @@ pub fn touch_host_last_connected(host: String, port: u16) -> Result<(), String> 
     Ok(())
 }
 
-/// 导出全部主机为 JSON（含凭据明文：调用前已弹确认，文件只写用户选定的目标路径）。
+/// 导出信封里的类别标识，导入时用于校验文件类别是否匹配。
+const EXPORT_CATEGORY: &str = "hosts";
+
+/// 收集主机用于导出，按需脱敏（连接密码与代理密码都算秘密）。
+fn export_items(include_secrets: bool) -> Result<Vec<Host>, String> {
+    let mut items = list_hosts()?;
+    if !include_secrets {
+        for item in &mut items {
+            transfer::scrub(&mut item.password);
+            transfer::scrub(&mut item.proxy_password);
+        }
+    }
+    Ok(items)
+}
+
+/// 导出主机为 JSON 文本。
+///
+/// ⚠️ 默认**不含密码**：`list_hosts` 返回的是已从密钥链解析出来的明文，
+/// 直接落盘等于把凭据写成文件。需要连密码一起迁移时显式传 `include_secrets = true`。
 #[tauri::command]
-pub fn export_hosts() -> Result<String, String> {
-    let hosts = list_hosts()?;
-    serde_json::to_string_pretty(&hosts).map_err(|e| e.to_string())
+pub fn export_hosts(include_secrets: bool) -> Result<String, String> {
+    let items = export_items(include_secrets)?;
+    transfer::build(EXPORT_CATEGORY, include_secrets, items)
 }
 
 #[tauri::command]
-pub fn export_hosts_to(target_path: String) -> Result<usize, String> {
-    let content = export_hosts()?;
-    let count: usize = serde_json::from_str::<Vec<Host>>(&content)
-        .map(|v| v.len())
-        .unwrap_or(0);
-    std::fs::write(&target_path, content).map_err(|e| e.to_string())?;
-    Ok(count)
+pub fn export_hosts_to(target_path: String, include_secrets: bool) -> Result<usize, String> {
+    let items = export_items(include_secrets)?;
+    let count = items.len();
+    let content = transfer::build(EXPORT_CATEGORY, include_secrets, items)?;
+    transfer::write_to(&target_path, &content, count)
 }
 
 #[tauri::command]
@@ -261,7 +278,7 @@ pub fn toggle_host_favorite(id: String) -> Result<Host, String> {
         .ok_or_else(|| "主机不存在".to_string())
 }
 
-/// 从 JSON 导入主机：解析 Swallow 导出格式或 ~/.ssh/config 文本（二者其一）。
+/// 导入主机：认 Swallow 导出（新信封 / 老版裸数组 / 单对象）或 `~/.ssh/config` 文本。
 /// 返回成功导入条数；失败整批报错、不写半截数据。
 #[tauri::command]
 pub fn import_hosts_text(text: String) -> Result<usize, String> {
@@ -269,11 +286,11 @@ pub fn import_hosts_text(text: String) -> Result<usize, String> {
     if trimmed.is_empty() {
         return Err("导入内容为空".to_string());
     }
-    if let Ok(items) = serde_json::from_str::<Vec<Host>>(trimmed) {
+    // 以 JSON 起手就必须按 JSON 解析：失败要如实报错，不能悄悄退化成
+    // 「把 JSON 逐行当 ssh_config 解析」，那样只会产出一堆垃圾主机。
+    if trimmed.starts_with('{') || trimmed.starts_with('[') {
+        let (items, _) = transfer::parse::<Host>(EXPORT_CATEGORY, trimmed)?;
         return import_host_records(items);
-    }
-    if let Ok(item) = serde_json::from_str::<Host>(trimmed) {
-        return import_host_records(vec![item]);
     }
     let parsed = parse_ssh_config(trimmed);
     if parsed.is_empty() {

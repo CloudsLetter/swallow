@@ -10,18 +10,17 @@ import {
   AlertTriangle as IconAlert,
   Copy as IconCopy,
   Check as IconCheck,
-  Upload as IconExport,
   MoreHorizontal as IconMore,
 } from 'lucide-react';
 import {
   clearKnownHosts,
-  exportKnownHostsTo,
   getKnownHosts,
   refreshKnownHosts,
   removeKnownHost,
   type KnownHost,
 } from '../services/dataService';
 import { Button } from '../components/ui/button';
+import { CategoryTransferButtons } from '../components/CategoryTransfer';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Skeleton } from '../components/ui/skeleton';
 import { CardGridSkeleton, ListTableSkeleton } from '../components/ui/listSkeleton';
@@ -41,7 +40,7 @@ import {
   SectionHeading,
   ViewToggle,
 } from '../components/PageHeader';
-import { message, ask, save } from '@tauri-apps/plugin-dialog';
+import { message, ask } from '@tauri-apps/plugin-dialog';
 
 type ViewMode = 'grid' | 'list';
 
@@ -145,19 +144,7 @@ export function KnownHosts() {
     }
   };
 
-  const handleExport = async () => {
-    try {
-      const target = await save({
-        title: t('knownHosts.exportTitle'),
-        defaultPath: 'known_hosts',
-      });
-      if (!target) return;
-      await exportKnownHostsTo(target);
-    } catch (exportError) {
-      console.error('Failed to export known hosts:', exportError);
-      await message(t('knownHosts.exportFailed'), { title: t('common.error'), kind: 'error' });
-    }
-  };
+  // 导出（OpenSSH 文本）与导入统一由 <CategoryTransferButtons> 承担
 
   const handleRefreshFile = async () => {
     setLoading(true);
@@ -390,10 +377,12 @@ export function KnownHosts() {
             <Button variant="ghost" size="icon" onClick={() => void handleRefreshFile()} aria-label={t('common.refresh')} title={t('knownHosts.refreshFileTitle')}>
               <IconRefresh size={15} aria-hidden="true" />
             </Button>
-            <Button variant="secondary" onClick={() => void handleExport()} disabled={hosts.length === 0} title={t('knownHosts.exportFileTitle')}>
-              <IconExport size={15} strokeWidth={2} aria-hidden="true" />
-              {t('knownHosts.export')}
-            </Button>
+            <CategoryTransferButtons
+              category="knownHosts"
+              label={t('menu.knownHosts')}
+              defaultFileName="known_hosts"
+              onImported={loadKnownHosts}
+            />
             <Button variant="destructive" onClick={() => void handleDeleteAll()} disabled={hosts.length === 0} title={t('knownHosts.clearAllTitle')}>
               <IconTrash size={15} strokeWidth={2} aria-hidden="true" />
               {t('knownHosts.clear')}

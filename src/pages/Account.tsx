@@ -5,6 +5,7 @@ import { Pencil, Plus, Tag, Trash2, User, LayoutGrid, List, RefreshCw, MoreHoriz
 import { getAccounts, addAccount, removeAccount, updateAccount, getKeys, getCertificates, getHosts, type Account, type Key, type Certificate } from '../services/dataService';
 import { AuthTypeIcon } from '../components/AuthTypeIcon';
 import { Button } from '../components/ui/button';
+import { CategoryTransferButtons } from '../components/CategoryTransfer';
 import { Input } from '../components/ui/input';
 import { PasswordInput } from '../components/ui/passwordInput';
 import { Textarea } from '../components/ui/textarea';
@@ -355,6 +356,13 @@ export function AccountPage() {
             <Button variant="ghost" size="icon" onClick={loadAccounts} aria-label={t('common.refresh')} title={t('common.refresh')}>
               <RefreshCw size={15} aria-hidden="true" />
             </Button>
+            <CategoryTransferButtons
+              category="accounts"
+              label={t('menu.account')}
+              defaultFileName="swallow-accounts.json"
+              hasSecrets
+              onImported={loadAccounts}
+            />
             <Button onClick={openCreate} title={t('account.createAccount')}>
               <Plus size={15} strokeWidth={2} aria-hidden="true" />
               {t('account.add')}

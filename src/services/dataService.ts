@@ -243,20 +243,9 @@ export async function toggleHostFavorite(id: string): Promise<Host> {
   return invoke<Host>('toggle_host_favorite', { id });
 }
 
-/** 导出全部主机 JSON（含凭据明文）。 */
-export async function exportHosts(): Promise<string> {
-  return invoke<string>('export_hosts');
-}
-
-/** 导出主机到用户选择的目标路径，返回条数。 */
-export async function exportHostsTo(targetPath: string): Promise<number> {
-  return invoke<number>('export_hosts_to', { targetPath });
-}
-
-/** 从文本导入主机（Swallow JSON 或 ~/.ssh/config），返回导入条数。 */
-export async function importHostsText(text: string): Promise<number> {
-  return invoke<number>('import_hosts_text', { text });
-}
+// 主机的导出 / 导入统一走 exportCategoryTo / importCategoryText（见「分类导入导出」）。
+// 原先这里另有 exportHosts / exportHostsTo / importHostsText 三个各自为政的封装，
+// 且导出签名不含 includeSecrets，已随新契约移除。
 
 export async function updateHost(id: string, updates: Partial<Host>): Promise<Host> {
   const current = await findById(getHosts, id, 'Host');
@@ -559,21 +548,65 @@ export async function cloudTestConnection(): Promise<CloudMeta> {
   return invoke<CloudMeta>('cloud_test_connection');
 }
 
-// ==================== 应用配置备份 ====================
+// ==================== 分类导入导出 ====================
+//
+// 每类实体各有独立的导出 / 导入接口，取代原先的「全量备份 JSON」——
+// 导出一类不会顺带带走其它类的秘密。导出**默认不含秘密字段**（密码、
+// 私钥口令等会写成 null），需要连凭据一起迁移时才把 includeSecrets 打开。
 
-/** 导出全部应用配置 JSON（含 config 全段 + DB 全表，密钥内容含明文）。 */
-export async function exportAppConfig(): Promise<string> {
-  return invoke<string>('export_app_config');
+/** 支持的导出类目（与后端信封里的 category 一一对应）。 */
+export type ExportCategory =
+  | 'hosts'
+  | 'accounts'
+  | 'sftpConnections'
+  | 'portForwardings'
+  | 'remoteConns'
+  | 'knownHosts'
+  | 'snippets'
+  | 'settings';
+
+interface ExportCommands {
+  /** 导出到用户选定路径，返回写入条数 */
+  to: string;
+  /** 从文本导入，返回新增条数 */
+  from: string;
+  /** 后端命令是否接受 includeSecrets 参数（known_hosts / settings 无秘密字段，故不接受） */
+  acceptsSecrets: boolean;
 }
 
-/** 导出应用配置到用户选择的目标路径。 */
-export async function exportAppConfigTo(targetPath: string): Promise<void> {
-  await invoke('export_app_config_to', { targetPath });
+const EXPORT_COMMANDS: Record<ExportCategory, ExportCommands> = {
+  hosts: { to: 'export_hosts_to', from: 'import_hosts_text', acceptsSecrets: true },
+  accounts: { to: 'export_accounts_to', from: 'import_accounts_text', acceptsSecrets: true },
+  sftpConnections: {
+    to: 'export_sftp_connections_to',
+    from: 'import_sftp_connections_text',
+    acceptsSecrets: true,
+  },
+  portForwardings: {
+    to: 'export_port_forwardings_to',
+    from: 'import_port_forwardings_text',
+    acceptsSecrets: true,
+  },
+  remoteConns: { to: 'export_remote_conns_to', from: 'import_remote_conns_text', acceptsSecrets: true },
+  knownHosts: { to: 'export_known_hosts_to', from: 'import_known_hosts_text', acceptsSecrets: false },
+  snippets: { to: 'export_snippets_to', from: 'import_snippets_text', acceptsSecrets: true },
+  settings: { to: 'export_settings_to', from: 'import_settings_text', acceptsSecrets: false },
+};
+
+/** 导出某类目到用户选择的路径，返回写入条数。 */
+export async function exportCategoryTo(
+  category: ExportCategory,
+  targetPath: string,
+  includeSecrets = false,
+): Promise<number> {
+  const commands = EXPORT_COMMANDS[category];
+  const args = commands.acceptsSecrets ? { targetPath, includeSecrets } : { targetPath };
+  return invoke<number>(commands.to, args);
 }
 
-/** 从备份 JSON 恢复（覆盖配置 + 全表新增导入），返回各类目条数。 */
-export async function importAppConfig(text: string): Promise<Record<string, number>> {
-  return invoke<Record<string, number>>('import_app_config', { text });
+/** 从导出文件的文本导入某类目，返回新增条数。 */
+export async function importCategoryText(category: ExportCategory, text: string): Promise<number> {
+  return invoke<number>(EXPORT_COMMANDS[category].from, { text });
 }
 
 /** 清缓存：删应用缓存目录 + 会话日志目录，返回清理说明。 */

@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { useTabStore } from '../store/tabStore';
 import { Button } from '../components/ui/button';
+import { CategoryTransferButtons } from '../components/CategoryTransfer';
 import { Input } from '../components/ui/input';
 import { PasswordInput } from '../components/ui/passwordInput';
 import { Label } from '../components/ui/label';
@@ -665,6 +666,13 @@ export function Sftp() {
             <Button variant="ghost" size="icon" onClick={() => void loadConnections()} aria-label={t('common.refresh')} title={t('common.refresh')}>
               <IconRefresh size={15} aria-hidden="true" />
             </Button>
+            <CategoryTransferButtons
+              category="sftpConnections"
+              label={t('menu.sftp')}
+              defaultFileName="swallow-sftp.json"
+              hasSecrets
+              onImported={loadConnections}
+            />
             <Button onClick={openCreate} title={t('sftp.createConnection')}>
               <IconPlus size={15} strokeWidth={2} aria-hidden="true" />
               {t('sftp.add')}

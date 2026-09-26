@@ -362,6 +362,7 @@ fn list_shell_profiles_unix() -> Vec<LocalShellProfile> {
                 shell: sh.clone(),
                 label,
                 wsl_distro: None,
+                exe_path: Some(sh.clone()),
                 available: true,
             });
         }
@@ -379,6 +380,7 @@ fn list_shell_profiles_unix() -> Vec<LocalShellProfile> {
                     shell: path.to_string(),
                     label,
                     wsl_distro: None,
+                    exe_path: Some(path.to_string()),
                     available: true,
                 });
             }
@@ -390,6 +392,7 @@ fn list_shell_profiles_unix() -> Vec<LocalShellProfile> {
             shell: "/bin/sh".into(),
             label: "sh".into(),
             wsl_distro: None,
+            exe_path: Some("/bin/sh".into()),
             available: true,
         });
     }

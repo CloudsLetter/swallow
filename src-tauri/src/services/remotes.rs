@@ -2,6 +2,7 @@ use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
 use crate::services::common::{resolve_secret, store_secret_or_clear};
+use crate::services::transfer;
 use crate::utils::sqlite;
 
 /// 桌面连接（VNC/RDP）会话簿条目。
@@ -71,6 +72,51 @@ pub fn list_remote_conns() -> Result<Vec<RemoteConn>, String> {
         .map_err(|e| e.to_string())?;
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
 }
+
+const EXPORT_CATEGORY: &str = "remoteConns";
+
+/// 收集桌面连接用于导出，按需脱敏。
+fn export_items(include_secrets: bool) -> Result<Vec<RemoteConn>, String> {
+    let mut items = list_remote_conns()?;
+    if !include_secrets {
+        for item in &mut items {
+            transfer::scrub(&mut item.password);
+        }
+    }
+    Ok(items)
+}
+
+#[tauri::command]
+pub fn export_remote_conns(include_secrets: bool) -> Result<String, String> {
+    let items = export_items(include_secrets)?;
+    transfer::build(EXPORT_CATEGORY, include_secrets, items)
+}
+
+#[tauri::command]
+pub fn export_remote_conns_to(target_path: String, include_secrets: bool) -> Result<usize, String> {
+    let items = export_items(include_secrets)?;
+    let count = items.len();
+    let content = transfer::build(EXPORT_CATEGORY, include_secrets, items)?;
+    transfer::write_to(&target_path, &content, count)
+}
+
+/// 导入桌面连接：追加语义（清空 id 后逐条新建）。
+///
+/// ⚠️ `jump_host_id` 指向该文件之外的主机条目。若宿主机库不匹配，
+/// 该字段会成为悬空引用（表现为「VNC 隧道跳板机不存在」）。导入时
+/// 按原值保留而不清空——先如实搬运，让用户在 UI 上看到并自行修正。
+#[tauri::command]
+pub fn import_remote_conns_text(text: String) -> Result<usize, String> {
+    let (items, _) = transfer::parse::<RemoteConn>(EXPORT_CATEGORY, &text)?;
+    let mut count = 0usize;
+    for mut item in items {
+        item.id = String::new();
+        save_remote_conn(item)?;
+        count += 1;
+    }
+    Ok(count)
+}
+
 
 #[tauri::command]
 pub fn save_remote_conn(mut conn_item: RemoteConn) -> Result<RemoteConn, String> {

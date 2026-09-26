@@ -3,6 +3,7 @@ use rusqlite::{params, OptionalExtension};
 use crate::models::data::Account;
 use crate::services::common::{parse_tags, resolve_secret, store_secret_or_clear, to_tags_json};
 use crate::services::logs::append_log_i18n;
+use crate::services::transfer;
 use crate::utils::secrets;
 use crate::utils::sqlite;
 
@@ -39,6 +40,46 @@ pub fn list_accounts() -> Result<Vec<Account>, String> {
         .map_err(|e| e.to_string())?;
 
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+const EXPORT_CATEGORY: &str = "accounts";
+
+/// 收集账号用于导出，按需脱敏（默认不含密码明文）。
+fn export_items(include_secrets: bool) -> Result<Vec<Account>, String> {
+    let mut items = list_accounts()?;
+    if !include_secrets {
+        for item in &mut items {
+            transfer::scrub(&mut item.password);
+        }
+    }
+    Ok(items)
+}
+
+#[tauri::command]
+pub fn export_accounts(include_secrets: bool) -> Result<String, String> {
+    let items = export_items(include_secrets)?;
+    transfer::build(EXPORT_CATEGORY, include_secrets, items)
+}
+
+#[tauri::command]
+pub fn export_accounts_to(target_path: String, include_secrets: bool) -> Result<usize, String> {
+    let items = export_items(include_secrets)?;
+    let count = items.len();
+    let content = transfer::build(EXPORT_CATEGORY, include_secrets, items)?;
+    transfer::write_to(&target_path, &content, count)
+}
+
+/// 导入账号：追加语义（清空 id 后逐条新建），失败整批报错。
+#[tauri::command]
+pub fn import_accounts_text(text: String) -> Result<usize, String> {
+    let (items, _) = transfer::parse::<Account>(EXPORT_CATEGORY, &text)?;
+    let mut count = 0usize;
+    for mut item in items {
+        item.id = String::new();
+        save_account(item)?;
+        count += 1;
+    }
+    Ok(count)
 }
 
 

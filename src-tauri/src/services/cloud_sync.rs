@@ -90,7 +90,7 @@ struct SyncedCert {
 /// context_menu/monitor_alerts），用 serde_json::Value 原样透传；cloud 段永不进包。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SyncedSettings {
+pub(crate) struct SyncedSettings {
     #[serde(default)]
     appearance: serde_json::Value,
     #[serde(default)]
@@ -261,7 +261,10 @@ fn collect_port_forwardings() -> Result<Vec<PortForwarding>, String> {
 }
 
 /// 收集设置子集：从内存态配置摘出需要同步的段落（cloud 段永不进包）。
-fn collect_settings(
+///
+/// `pub(crate)`：配置的分类导出（`export_settings`）复用同一份口径，
+/// 避免「云同步排除了 cloud 段、导出却没排除」这类两处规则漂移。
+pub(crate) fn collect_settings(
     config_state: &tauri::State<'_, crate::config::global_config::GlobaConfig>,
 ) -> Result<SyncedSettings, String> {
     let config = config_state
@@ -796,7 +799,10 @@ fn restore_monitor_state(
 
 /// 恢复设置子集：合并到当前内存配置 + config.toml（仅覆盖非空段落，
 /// 保留 cloud/server_key 等云端自身凭据）。同时更新内存态，使恢复立即生效。
-fn restore_settings(
+///
+/// `pub(crate)`：配置导入（`import_settings_text`）复用它，「cloud 段不覆盖」
+/// 这条安全属性因此对两条路径同时成立。
+pub(crate) fn restore_settings(
     config_state: &tauri::State<'_, crate::config::global_config::GlobaConfig>,
     settings: &SyncedSettings,
 ) -> Result<(), String> {

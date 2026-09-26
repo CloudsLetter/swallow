@@ -6,6 +6,7 @@ use crate::services::certificates::load_cert_content;
 use crate::services::common::{resolve_secret, store_secret_or_clear};
 use crate::services::keys::load_key_content;
 use crate::services::logs::append_log;
+use crate::services::transfer;
 use crate::ssh::session::SshConfig;
 use crate::utils::sqlite;
 
@@ -92,23 +93,16 @@ fn validate_port_forwarding(rule: &PortForwarding) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-pub async fn save_port_forwarding(
-    state: tauri::State<'_, AppState>,
-    mut rule: PortForwarding,
-) -> Result<PortForwarding, String> {
-    validate_port_forwarding(&rule)?;
+/// 落库一条转发规则（同步；不触碰运行中的隧道）。
+///
+/// 从 `save_port_forwarding` 抽出，供分类导入复用——导入的都是**未运行**的
+/// 规则，不需要「先停旧隧道」那一步（那是 `save` 对编辑运行中规则的处理）。
+/// 校验放在这里而不是只放在 `save` 里，是为了让导入路径也走同一道关。
+fn persist_port_forwarding(rule: &mut PortForwarding) -> Result<(), String> {
+    validate_port_forwarding(rule)?;
 
     let conn = sqlite::open_connection()?;
     let is_new = rule.id.trim().is_empty();
-    if !is_new {
-        // 编辑运行中的规则：先停止旧隧道，避免 DB 参数已更新但隧道仍按旧参数监听
-        let _ = state
-            .tunnels
-            .lock()
-            .map_err(|e| e.to_string())?
-            .stop(&rule.id);
-    }
     if is_new {
         rule.id = sqlite::new_id("pf");
         if rule.created_at.trim().is_empty() {
@@ -179,6 +173,72 @@ pub async fn save_port_forwarding(
         Some("portforwarding"),
     )?;
 
+    Ok(())
+}
+
+const EXPORT_CATEGORY: &str = "portForwardings";
+
+/// 收集规则用于导出，按需脱敏（SOCKS5 密码）。
+///
+/// 直接走 `query_all_port_forwardings`（同步、只读 DB），不经过
+/// `list_port_forwardings`——后者是 async 且需要 `AppState` 来派生隧道状态，
+/// 而导出关心的是**配置**而非运行状态。
+fn export_items(include_secrets: bool) -> Result<Vec<PortForwarding>, String> {
+    let mut items = query_all_port_forwardings()?;
+    if !include_secrets {
+        for item in &mut items {
+            transfer::scrub(&mut item.socks_password);
+        }
+    }
+    Ok(items)
+}
+
+#[tauri::command]
+pub fn export_port_forwardings(include_secrets: bool) -> Result<String, String> {
+    let items = export_items(include_secrets)?;
+    transfer::build(EXPORT_CATEGORY, include_secrets, items)
+}
+
+#[tauri::command]
+pub fn export_port_forwardings_to(target_path: String, include_secrets: bool) -> Result<usize, String> {
+    let items = export_items(include_secrets)?;
+    let count = items.len();
+    let content = transfer::build(EXPORT_CATEGORY, include_secrets, items)?;
+    transfer::write_to(&target_path, &content, count)
+}
+
+/// 导入转发规则：追加语义（清空 id 后逐条新建），失败整批报错。
+///
+/// ⚠️ `host_id` 指向该文件之外的主机条目：跨机器导入时可能悬空，
+/// 表现为隧道无法建立。导入按原值保留，让用户在 UI 上看到并自行修正。
+#[tauri::command]
+pub fn import_port_forwardings_text(text: String) -> Result<usize, String> {
+    let (items, _) = transfer::parse::<PortForwarding>(EXPORT_CATEGORY, &text)?;
+    let mut count = 0usize;
+    for mut item in items {
+        item.id = String::new();
+        persist_port_forwarding(&mut item)?;
+        count += 1;
+    }
+    Ok(count)
+}
+
+#[tauri::command]
+pub async fn save_port_forwarding(
+    state: tauri::State<'_, AppState>,
+    mut rule: PortForwarding,
+) -> Result<PortForwarding, String> {
+    // 先校验再停隧道：非法规则不该把正在跑的隧道停掉（persist 里还会再校验一次）
+    validate_port_forwarding(&rule)?;
+    if !rule.id.trim().is_empty() {
+        // 编辑运行中的规则：先停止旧隧道，避免 DB 参数已更新但隧道仍按旧参数监听
+        let _ = state
+            .tunnels
+            .lock()
+            .map_err(|e| e.to_string())?
+            .stop(&rule.id);
+    }
+    persist_port_forwarding(&mut rule)?;
     Ok(rule)
 }
 

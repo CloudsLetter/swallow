@@ -24,6 +24,7 @@ import {
   MoreHorizontal as IconMore,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { CategoryTransferButtons } from '../components/CategoryTransfer';
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 import { Label } from '../components/ui/label';
@@ -422,6 +423,12 @@ export function Snippets() {
             <Button variant="ghost" size="icon" onClick={() => void loadSnippets()} aria-label={t('common.refresh')} title={t('common.refresh')}>
               <IconRefresh size={15} aria-hidden="true" />
             </Button>
+            <CategoryTransferButtons
+              category="snippets"
+              label={t('menu.snippets')}
+              defaultFileName="swallow-snippets.json"
+              onImported={loadSnippets}
+            />
             <Button onClick={openCreate} title={t('snippets.createSnippet')}>
               <IconPlus size={15} strokeWidth={2} aria-hidden="true" />
               {t('snippets.add')}

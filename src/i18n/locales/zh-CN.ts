@@ -761,6 +761,21 @@ export default {
     activeCountSuffix: '（{{count}} 进行中）',
   },
 
+  importExport: {
+    exportTitle: '导出',
+    importTitle: '导入',
+    exportTitleWith: '导出{{label}}',
+    secretsQuestion: '是否在导出文件中包含密码等凭据？',
+    secretsDetail:
+      '不含凭据的文件可以安全地分享或存入版本库；含凭据的文件等同于一把钥匙，请妥善保管。',
+    includeSecrets: '包含凭据',
+    excludeSecrets: '不含凭据（推荐）',
+    exportDone: '已导出 {{count}} 条',
+    exportFailed: '导出失败：{{message}}',
+    importDone: '已导入 {{count}} 条',
+    importFailed: '导入失败：{{message}}',
+  },
+
   split: {
     moveOutToNewTab: '移出为新标签',
     closeSplit: '关闭分屏',

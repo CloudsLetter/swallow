@@ -139,187 +139,50 @@ pub fn read_text_file_for_import(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
-/// 导出全部应用配置为 JSON（含 config.toml 全段 + DB 全表，不含密钥链凭据明文）。
+/// 导出配置子集（外观 / 终端 / SSH / 安全 / 高级 / AI / 右键菜单 / 监控告警）。
+///
+/// ⚠️ `cloud` 段**永不导出**：它含 `server_key`（解密云端全部数据的根密钥）
+/// 与服务器地址，落进文件就等于把钥匙写成明文。这与云同步「cloud 段永不进包」
+/// 是同一条规则，且两侧共用 `collect_settings`，不会各自漂移。
 #[tauri::command]
-pub fn export_app_config(state: State<GlobaConfig>) -> Result<String, String> {
-    let config = state.config.read().map_err(|e| e.to_string())?.clone();
-    let conn = crate::utils::sqlite::open_connection()?;
-    let hosts = crate::services::hosts::list_hosts()?;
-    let accounts = crate::services::accounts::list_accounts()?;
-    let keys = crate::services::keys::list_keys()?;
-    let certs = crate::services::certificates::list_certificates()?;
-    let sftp = crate::services::sftp_connections::list_sftp_connections()?;
-    let snippets = crate::services::snippets::list_snippets()?;
-    let known_hosts: Vec<crate::models::data::KnownHostEntry> = conn
-        .prepare("SELECT id, host, key_type, fingerprint, last_used, added_date, raw_line FROM known_hosts")
-        .and_then(|mut s| {
-            s.query_map([], |row| {
-                Ok(crate::models::data::KnownHostEntry {
-                    id: row.get(0)?,
-                    host: row.get(1)?,
-                    key_type: row.get(2)?,
-                    fingerprint: row.get(3)?,
-                    last_used: row.get(4)?,
-                    added_date: row.get(5)?,
-                    raw_line: row.get(6)?,
-                })
-            })
-            .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
-        })
+pub fn export_settings(state: State<GlobaConfig>) -> Result<String, String> {
+    let settings = crate::services::cloud_sync::collect_settings(&state)?;
+    crate::services::transfer::build("settings", false, vec![settings])
+}
+
+#[tauri::command]
+pub fn export_settings_to(state: State<GlobaConfig>, target_path: String) -> Result<usize, String> {
+    let content = export_settings(state)?;
+    crate::services::transfer::write_to(&target_path, &content, 1)
+}
+
+/// 从导出文件恢复配置。只覆盖文件里出现的段落，且 `cloud` 段永不覆盖——
+/// 导入一份配置文件不会动到你当前的 `server_key`（复用 `restore_settings`，
+/// 该安全属性对云同步与导入两条路径同时成立）。
+#[tauri::command]
+pub fn import_settings_text(state: State<GlobaConfig>, text: String) -> Result<usize, String> {
+    let (items, _) =
+        crate::services::transfer::parse::<crate::services::cloud_sync::SyncedSettings>(
+            "settings", &text,
+        )?;
+    let settings = items
+        .into_iter()
+        .next()
+        .ok_or_else(|| "文件里没有配置内容".to_string())?;
+    crate::services::cloud_sync::restore_settings(&state, &settings)?;
+    // 日志条数上限来自 advanced 段，恢复后要同步给日志模块（与云同步路径一致）
+    let max_logs = state
+        .config
+        .read()
+        .map(|c| c.advanced.max_logs)
         .map_err(|e| e.to_string())?;
-    let packet = serde_json::json!({
-        "app": "swallow",
-        "version": 1,
-        "exportedAt": crate::utils::sqlite::now_iso(),
-        "config": config,
-        "hosts": hosts,
-        "accounts": accounts,
-        "keys": keys,
-        "certificates": certs,
-        "sftpConnections": sftp,
-        "snippets": snippets,
-        "knownHosts": known_hosts,
-    });
-    serde_json::to_string_pretty(&packet).map_err(|e| e.to_string())
+    crate::services::logs::set_max_logs(max_logs);
+    Ok(1)
 }
 
-#[tauri::command]
-pub fn export_app_config_to(state: State<GlobaConfig>, target_path: String) -> Result<(), String> {
-    let content = export_app_config(state)?;
-    std::fs::write(&target_path, content).map_err(|e| e.to_string())
-}
-
-/// 从备份 JSON 恢复：覆盖 config.toml + 全表 upsert（密钥链凭据按包内明文回写）。
-#[tauri::command]
-pub fn import_app_config(state: State<GlobaConfig>, text: String) -> Result<serde_json::Value, String> {
-    let v: serde_json::Value = serde_json::from_str(&text).map_err(|_| "无法识别：不是 Swallow 配置备份文件".to_string())?;
-    if v.get("app").and_then(|a| a.as_str()) != Some("swallow") {
-        return Err("无法识别：不是 Swallow 配置备份文件".to_string());
-    }
-    let mut counts = serde_json::Map::new();
-    if let Ok(config) = serde_json::from_value::<crate::models::config::Config>(v.get("config").cloned().unwrap_or_default()) {
-        {
-            let mut guard = state.config.write().map_err(|e| e.to_string())?;
-            *guard = config.clone();
-        }
-        let config_path = path::app_config_dir().join(global_config::CONFIG_FILE);
-        crate::utils::file::write_file_generic(&config_path, &config, global_enum::FileFormat::Toml)
-            .map_err(|e| e.to_string())?;
-        crate::services::logs::set_max_logs(config.advanced.max_logs);
-        counts.insert("settings".into(), serde_json::json!(1));
-    }
-    let conn = crate::utils::sqlite::open_connection()?;
-    let tables: &[(&str, &str)] = &[
-        ("hosts", "hosts"),
-        ("accounts", "accounts"),
-        ("keys", "keys"),
-        ("certificates", "certificates"),
-        ("sftpConnections", "sftpConnections"),
-        ("snippets", "snippets"),
-        ("knownHosts", "knownHosts"),
-    ];
-    for (json_key, label) in tables {
-        let arr = v.get(*json_key).and_then(|a| a.as_array()).cloned().unwrap_or_default();
-        if arr.is_empty() {
-            continue;
-        }
-        let n = restore_config_table(&conn, json_key, &arr)?;
-        counts.insert((*label).into(), serde_json::json!(n));
-    }
-    Ok(serde_json::Value::Object(counts))
-}
-
-/// 备份恢复的分表写入：复用各服务的 save_*（走密钥链 + 日志），id 清空后当新记录插入。
-fn restore_config_table(conn: &rusqlite::Connection, key: &str, arr: &[serde_json::Value]) -> Result<usize, String> {
-    use crate::services::common::store_secret_or_clear;
-    let mut n = 0;
-    for item in arr {
-        match key {
-            "hosts" => {
-                let mut h: crate::models::data::Host = serde_json::from_value(item.clone()).map_err(|e| e.to_string())?;
-                let password = std::mem::take(&mut h.password);
-                let proxy_password = std::mem::take(&mut h.proxy_password);
-                h.id = String::new();
-                let saved = crate::services::hosts::save_host(h)?;
-                store_secret_or_clear(&format!("hosts/{}/password", saved.id), password.as_deref())?;
-                store_secret_or_clear(&format!("hosts/{}/proxy_password", saved.id), proxy_password.as_deref())?;
-                n += 1;
-            }
-            "accounts" => {
-                let mut a: crate::models::data::Account = serde_json::from_value(item.clone()).map_err(|e| e.to_string())?;
-                let password = std::mem::take(&mut a.password);
-                a.id = String::new();
-                let saved = crate::services::accounts::save_account(a)?;
-                store_secret_or_clear(&format!("accounts/{}/password", saved.id), password.as_deref())?;
-                n += 1;
-            }
-            "keys" => {
-                let name = item.get("name").and_then(|x| x.as_str()).unwrap_or("restored").to_string();
-                let private = item.get("privateKey").or(item.get("private_key")).and_then(|x| x.as_str()).unwrap_or("").to_string();
-                let public = item.get("publicKey").or(item.get("public_key")).and_then(|x| x.as_str()).unwrap_or("").to_string();
-                if private.is_empty() && public.is_empty() {
-                    continue;
-                }
-                crate::services::keys::import_key_text(crate::models::data::ImportKeyTextRequest {
-                    name,
-                    private_key: if private.is_empty() { None } else { Some(private) },
-                    public_key: if public.is_empty() { None } else { Some(public) },
-                })?;
-                n += 1;
-            }
-            "certificates" => {
-                let name = item.get("name").and_then(|x| x.as_str()).unwrap_or("restored").to_string();
-                let cert = item.get("certContent").or(item.get("cert_content")).and_then(|x| x.as_str()).unwrap_or("").to_string();
-                if cert.is_empty() {
-                    continue;
-                }
-                let private = item.get("privateKeyContent").or(item.get("private_key_content")).and_then(|x| x.as_str()).map(|s| s.to_string());
-                let to_b64 = |s: &str| base64::Engine::encode(&base64::engine::general_purpose::STANDARD, s.as_bytes());
-                crate::services::certificates::import_certificate(crate::models::data::ImportCertRequest {
-                    name,
-                    cert_base64: to_b64(&cert),
-                    cert_file_name: None,
-                    private_key_base64: private.as_deref().map(to_b64),
-                    private_key_file_name: None,
-                })?;
-                n += 1;
-            }
-            "sftpConnections" => {
-                let mut c: crate::models::data::SftpConnection = serde_json::from_value(item.clone()).map_err(|e| e.to_string())?;
-                let password = std::mem::take(&mut c.password);
-                let passphrase = std::mem::take(&mut c.passphrase);
-                c.id = String::new();
-                let saved = crate::services::sftp_connections::save_sftp_connection(c)?;
-                store_secret_or_clear(&format!("sftp/{}/password", saved.id), password.as_deref())?;
-                store_secret_or_clear(&format!("sftp/{}/passphrase", saved.id), passphrase.as_deref())?;
-                n += 1;
-            }
-            "snippets" => {
-                let mut s: crate::models::data::Snippet = serde_json::from_value(item.clone()).map_err(|e| e.to_string())?;
-                s.id = String::new();
-                crate::services::snippets::save_snippet(s)?;
-                n += 1;
-            }
-            "knownHosts" => {
-                let host = item.get("host").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                let key_type = item.get("keyType").or(item.get("key_type")).and_then(|x| x.as_str()).unwrap_or("").to_string();
-                let fingerprint = item.get("fingerprint").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                let raw_line = item.get("rawLine").or(item.get("raw_line")).and_then(|x| x.as_str()).unwrap_or("").to_string();
-                if host.is_empty() || key_type.is_empty() {
-                    continue;
-                }
-                conn.execute(
-                    "INSERT INTO known_hosts (id, host, key_type, fingerprint, last_used, added_date, key_data, raw_line) VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', ?7)",
-                    rusqlite::params![crate::utils::sqlite::new_id("kh"), host, key_type, fingerprint, crate::utils::sqlite::now_iso(), crate::utils::sqlite::now_iso(), raw_line],
-                )
-                .map_err(|e| e.to_string())?;
-                n += 1;
-            }
-            _ => {}
-        }
-    }
-    Ok(n)
-}
+// 原 restore_config_table（全量备份的分表写入）随 export_app_config /
+// import_app_config 一并移除：各类目现在有自己的导入命令，凭据处理由各自的
+// save_* 负责（内部即写入密钥链并清空 DB 明文列），不再需要这层统一转发。
 
 /// 清缓存：删应用缓存目录 + 会话日志目录（保留 DB 与配置）。
 #[tauri::command]

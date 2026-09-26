@@ -31,6 +31,7 @@ import {
   Loader2 as IconLoader,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { CategoryTransferButtons } from '../components/CategoryTransfer';
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 import { Label } from '../components/ui/label';
@@ -818,6 +819,13 @@ export function PortForwarding() {
             <Button variant="ghost" size="icon" onClick={() => void refresh()} aria-label={t('common.refresh')} title={t('common.refresh')}>
               <IconRefresh size={15} aria-hidden="true" />
             </Button>
+            <CategoryTransferButtons
+              category="portForwardings"
+              label={t('menu.portForwarding')}
+              defaultFileName="swallow-port-forwardings.json"
+              hasSecrets
+              onImported={refresh}
+            />
             <Button onClick={openCreate} title={t('portForwarding.createRule')}>
               <IconPlus size={15} strokeWidth={2} aria-hidden="true" />
               {t('portForwarding.add')}

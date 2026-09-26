@@ -763,6 +763,21 @@ export default {
     activeCountSuffix: ' ({{count}} active)',
   },
 
+  importExport: {
+    exportTitle: 'Export',
+    importTitle: 'Import',
+    exportTitleWith: 'Export {{label}}',
+    secretsQuestion: 'Include passwords and other credentials in the export?',
+    secretsDetail:
+      'A file without credentials is safe to share or commit; a file with credentials is effectively a key, so keep it safe.',
+    includeSecrets: 'Include credentials',
+    excludeSecrets: 'No credentials (recommended)',
+    exportDone: 'Exported {{count}} item(s)',
+    exportFailed: 'Export failed: {{message}}',
+    importDone: 'Imported {{count}} item(s)',
+    importFailed: 'Import failed: {{message}}',
+  },
+
   split: {
     moveOutToNewTab: 'Move out to new tab',
     closeSplit: 'Close split',

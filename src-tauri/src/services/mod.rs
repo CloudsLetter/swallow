@@ -14,3 +14,4 @@ pub mod sessions;
 pub mod session_log;
 pub mod sftp_connections;
 pub mod snippets;
+pub mod transfer;

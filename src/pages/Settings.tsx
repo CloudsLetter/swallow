@@ -1,13 +1,6 @@
 import { useState } from 'react';
-import {
-  Download as IconDownload,
-  Upload as IconUpload,
-  RotateCw as IconReload,
-} from 'lucide-react';
+import { RotateCw as IconReload } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
-import { open, save } from '@tauri-apps/plugin-dialog';
-import { invoke } from '@tauri-apps/api/core';
 import {
   AppearanceSettings,
   TerminalSettings,
@@ -19,7 +12,7 @@ import {
 import { useConfigStore } from '../store/config';
 import { Button } from '../components/ui/button';
 import { cn } from '@/lib/utils';
-import { exportAppConfigTo, importAppConfig } from '../services/dataService';
+import { CategoryTransferButtons } from '../components/CategoryTransfer';
 
 type configTab = 'appearance' | 'terminal' | 'shortcuts' | 'cloud' | 'ai' | 'advanced';
 
@@ -29,33 +22,8 @@ export function SettingsPage() {
 
   const [activeTab, setActiveTab] = useState<configTab>('appearance');
 
-  const handleExport = async () => {
-    try {
-      const target = await save({ title: t('settings.exportTitle'), defaultPath: 'swallow-backup.json' });
-      if (!target) return;
-      await exportAppConfigTo(target);
-      toast.success(t('settings.exportDone'));
-    } catch (e) {
-      console.error('Failed to export config:', e);
-      toast.error(t('settings.exportFailed', { message: String(e) }));
-    }
-  };
-
-  const handleImport = async () => {
-    try {
-      const selected = await open({ multiple: false, directory: false });
-      const path = typeof selected === 'string' ? selected : null;
-      if (!path) return;
-      const text = await invoke<string>('read_text_file_for_import', { path });
-      const counts = await importAppConfig(text);
-      const total = Object.values(counts).reduce((a, b) => a + b, 0);
-      toast.success(t('settings.importDone', { count: total }));
-      await loadConfig();
-    } catch (e) {
-      console.error('Failed to import config:', e);
-      toast.error(t('settings.importFailed', { message: String(e) }));
-    }
-  };
+  // 配置的导入导出改由 <CategoryTransferButtons category="settings"> 承担：
+  // 复用云同步的 collect/restore 口径，cloud 段（含 server_key）永不进文件。
 
   const tabs: { id: configTab; label: string }[] = [
     { id: 'appearance', label: t('settings.appearance') },
@@ -94,14 +62,13 @@ export function SettingsPage() {
           <p className="truncate text-xs text-muted-foreground">{t('settings.subtitle')}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="secondary" onClick={() => void handleImport()} title={t('settings.importDesc')}>
-            <IconDownload size={16} />
-            {t('settings.import')}
-          </Button>
-          <Button variant="secondary" onClick={() => void handleExport()} title={t('settings.exportDesc')}>
-            <IconUpload size={16} />
-            {t('settings.export')}
-          </Button>
+          <CategoryTransferButtons
+            category="settings"
+            label={t('menu.settings')}
+            defaultFileName="swallow-settings.json"
+            appearance="button"
+            onImported={loadConfig}
+          />
           <Button variant="secondary" onClick={() => loadConfig()}>
             <IconReload size={16} />
             {t('settings.reload')}

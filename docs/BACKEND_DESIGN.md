@@ -17,7 +17,7 @@
 
 - 不做移动端（另有项目承载，见 `docs/mobile-porting.md`，本仓库忽略）。
 - 不做多窗口；会话以 `session_id` 为键，单进程内管理。
-- 云同步的 `cloud-server/server.cjs` 只是参考实现，不在本后端设计范围内（只定义协议）。
+- 云同步的 `cloud-server/server.cjs` 是参考实现（现已补全 `/healthz`、`/{key}/meta`、版本历史与回滚、条件请求、鉴权与限流），仍不在本后端设计范围内（本仓库后端只定义协议与客户端行为）。服务端细节见 [`docs/CLOUD_SERVER_IMPLEMENTATION.md`](./CLOUD_SERVER_IMPLEMENTATION.md)（实现对照）、[`docs/CLOUD_SYNC_DESIGN.md`](./CLOUD_SYNC_DESIGN.md) §5.2（协议）与 `cloud-server/README.md`（部署）。
 
 ---
 
@@ -255,6 +255,7 @@ pub enum SessionEvent {
 - 方向：`upload` / `download` / `bidirectional`。双向 = 云端新增条目落本地（同 id 保留本地并计入 `skipped`）→ settings 覆盖 → 全量回传。`SyncReport{counts, skipped, timestamp}` + 落盘 `cloud-sync-state.json`。
 - `known_hosts` 按 host+key_type 去重（保留本地信任）；`monitor_state` 剔除本地不存在的主机并计入跳过。
 - 命令：`cloud_sync_now` / `cloud_sync_state` / `cloud_test_connection`（`GET /healthz` + `/{key}/meta`）。
+- **详细设计**（packet 字段 / 方向语义对照 / 逐类目合并规则 / 安全分析 / 缺陷清单 / 演进路线）见 [`docs/CLOUD_SYNC_DESIGN.md`](./CLOUD_SYNC_DESIGN.md)。三层路线依次为 **§15 团队空间 / 用户组设想**（`server_key` 单空间 → 多空间 → 成员制空间的两条路线对比）、**§16 服务端协议规格**（成员制空间 15 个端点的完整契约、角色矩阵、公钥封装 DEK、邀请与 rekey 时序、老 `server_key` 迁移、验收用例）、**§17 身份 / 账户体系设想**（密钥对认证、三层身份模型、多设备与私钥存放、命名约定——云侧称「身份」以避开既有 SSH「账号」）。
 
 ---
 
@@ -338,7 +339,16 @@ russh client Config（`russh_backend.rs`）：`nodelay: true`、`keepalive_inter
 | VNC/RDP  | `vnc/*` + `rdp/*`                         | Rust 起本地 loopback 桥，前端经 WebSocket 收发；`generation` 代际防旧代误杀                    |
 | MOSH     | `mosh/*`                                  | SSH 引导（`mosh-server new`）+ UDP 数据面；认证链路与 ssh 共用                              |
 | AI       | `commands/ai.rs`                          | OpenAI 兼容协议透传，多 profile 在配置层                                                 |
-| 杂项       | `commands/misc.rs`                        | config 读写、图片 dataURL、备份导入导出、危险区（清缓存/重置/删全量）                                  |
+| 杂项       | `commands/misc.rs` + `services/transfer.rs`                          | config 读写、图片 dataURL、**分类导入导出（8 类目，默认脱敏）**、危险区（清缓存/重置/删全量） |
+
+### 14.1 各模块的实现陷阱（实证）
+
+- **监控**：`exec` 组合命令用 `==NAME==` 分段；⚠️ `section()` 以换行开头 → 解析必须**跳过空行**；CPU/网络/磁盘取两次采样差值；连败 3 次判离线。
+- **Telnet**：IAC 协商剥离 + SB 跳过 + NVT CRLF + UTF-8 增量解码。
+- **串口**：`disconnect` 靠句柄置 `None` + `read_timeout 100ms` 轮询唤醒（不是中断读）。
+- **本地 shell**：portable-pty 的 `CommandBuilder::arg()` 返回 `()`，**不能链式调用**；`take_writer()` 只能调一次；shell 画像由 `local_shell_list_profiles` 探测，**`exe_path` 优先于按名解析**（规避 `System32\bash.exe` 这类 WSL 存根）。
+- **VNC**：只绑 `127.0.0.1` + `session` + `token` 三重校验；WS 只收 Binary；⚠️ tungstenite 0.30 的握手 callback 是 `FnOnce`，`CloseCode` 需从 `frame::coding` 导入。
+- **分屏**：`SplitView` 必须透传 `isActive` —— 非激活面板 `display:none` 会让 fit 算出 0x0，破坏 PTY 尺寸。
 
 ---
 
@@ -390,5 +400,6 @@ russh client Config（`russh_backend.rs`）：`nodelay: true`、`keepalive_inter
 | DB 表/迁移   | `src/utils/sqlite.rs:init_database`                                      |
 | 密钥链       | `src/utils/secrets.rs`、`src/services/common.rs`                          |
 | 云同步       | `src/services/cloud_sync.rs`（packet v2/双向合并/skip）                        |
+| 云同步服务端    | `cloud-server/server.cjs`（665 行，v2）；实现对照说明见 `docs/CLOUD_SERVER_IMPLEMENTATION.md` |
 | 配置        | `src/models/config.rs`、`src/config/global_config.rs`                     |
 | 迁移史       | `docs/SSH_BACKEND_MIGRATION.md`（双后端决策背景）                                 |

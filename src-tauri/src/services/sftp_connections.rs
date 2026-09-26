@@ -6,6 +6,7 @@ use crate::models::data::SftpConnection;
 use crate::services::common::{resolve_secret, store_secret_or_clear};
 use crate::services::keys::load_key_content;
 use crate::services::logs::append_log;
+use crate::services::transfer;
 use crate::sftp::{SftpConfig, SftpSession};
 use crate::ssh::session::DEFAULT_CONNECTION_TIMEOUT_SECS;
 use crate::utils::secrets;
@@ -45,6 +46,47 @@ pub fn list_sftp_connections() -> Result<Vec<SftpConnection>, String> {
         })
         .map_err(|e| e.to_string())?;
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+const EXPORT_CATEGORY: &str = "sftpConnections";
+
+/// 收集 SFTP 连接用于导出，按需脱敏（密码与私钥口令都算秘密）。
+fn export_items(include_secrets: bool) -> Result<Vec<SftpConnection>, String> {
+    let mut items = list_sftp_connections()?;
+    if !include_secrets {
+        for item in &mut items {
+            transfer::scrub(&mut item.password);
+            transfer::scrub(&mut item.passphrase);
+        }
+    }
+    Ok(items)
+}
+
+#[tauri::command]
+pub fn export_sftp_connections(include_secrets: bool) -> Result<String, String> {
+    let items = export_items(include_secrets)?;
+    transfer::build(EXPORT_CATEGORY, include_secrets, items)
+}
+
+#[tauri::command]
+pub fn export_sftp_connections_to(target_path: String, include_secrets: bool) -> Result<usize, String> {
+    let items = export_items(include_secrets)?;
+    let count = items.len();
+    let content = transfer::build(EXPORT_CATEGORY, include_secrets, items)?;
+    transfer::write_to(&target_path, &content, count)
+}
+
+/// 导入 SFTP 连接：追加语义（清空 id 后逐条新建），失败整批报错。
+#[tauri::command]
+pub fn import_sftp_connections_text(text: String) -> Result<usize, String> {
+    let (items, _) = transfer::parse::<SftpConnection>(EXPORT_CATEGORY, &text)?;
+    let mut count = 0usize;
+    for mut item in items {
+        item.id = String::new();
+        save_sftp_connection(item)?;
+        count += 1;
+    }
+    Ok(count)
 }
 
 

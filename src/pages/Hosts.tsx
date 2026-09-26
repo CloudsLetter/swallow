@@ -7,8 +7,6 @@ import {
   removeHost,
   updateHost,
   toggleHostFavorite,
-  exportHostsTo,
-  importHostsText,
   getAccounts,
   getKeys,
   getCertificates,
@@ -43,12 +41,11 @@ import {
   Image as IconImage,
   RotateCw as IconRotateCw,
   Star as IconStar,
-  Download as IconDownload,
-  Upload as IconUpload,
 } from 'lucide-react';
 import { useTabStore } from '../store/tabStore';
 import { useActiveSshTargets } from '../hooks/useActiveSshTargets';
 import { Button } from '../components/ui/button';
+import { CategoryTransferButtons } from '../components/CategoryTransfer';
 import { Input } from '../components/ui/input';
 import { PasswordInput } from '../components/ui/passwordInput';
 import { Label } from '../components/ui/label';
@@ -68,7 +65,7 @@ import {
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { message, ask, save } from '@tauri-apps/plugin-dialog';
+import { message, ask } from '@tauri-apps/plugin-dialog';
 import { toast } from 'sonner';
 import {
   EmptyState,
@@ -405,39 +402,7 @@ export function Hosts() {  const { t } = useTranslation();
     }
   };
 
-  const handleExport = async () => {
-    const confirmed = await ask(t('hosts.exportConfirmBody', { count: hosts.length }), {
-      title: t('hosts.exportTitle'),
-      kind: 'warning',
-    });
-    if (!confirmed) return;
-    try {
-      const target = await save({ title: t('hosts.exportTitle'), defaultPath: 'swallow-hosts.json' });
-      if (!target) return;
-      const count = await exportHostsTo(target);
-      toast.success(t('hosts.exportDone', { count }));
-    } catch (e) {
-      console.error('Failed to export hosts:', e);
-      toast.error(t('hosts.exportFailed'));
-    }
-  };
-
-  const handleImportFile = async () => {
-    try {
-      const { open } = await import('@tauri-apps/plugin-dialog');
-      const selected = await open({ multiple: false, directory: false });
-      const path = typeof selected === 'string' ? selected : null;
-      if (!path) return;
-      const { invoke } = await import('@tauri-apps/api/core');
-      const text = await invoke<string>('read_text_file_for_import', { path });
-      const count = await importHostsText(text);
-      toast.success(t('hosts.importDone', { count }));
-      await loadHosts();
-    } catch (e) {
-      console.error('Failed to import hosts:', e);
-      toast.error(t('hosts.importFailed', { message: String(e) }));
-    }
-  };
+  // 导出 / 导入交给 <CategoryTransferButtons>（分类接口，导出前询问是否含凭据）
 
   const handleConnect = async (host: Host) => {
     const auth = resolveHostSshAuth(host, accounts, keys, certs);
@@ -1330,12 +1295,13 @@ export function Hosts() {  const { t } = useTranslation();
             <Button variant="ghost" size="icon" onClick={refresh} aria-label={t('common.refresh')} title={t('common.refresh')}>
               <IconRefresh size={15} aria-hidden="true" />
             </Button>
-            <Button variant="ghost" size="icon" onClick={() => void handleExport()} aria-label={t('hosts.exportTitle')} title={t('hosts.exportTitle')}>
-              <IconDownload size={15} aria-hidden="true" />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={() => void handleImportFile()} aria-label={t('hosts.importTitle')} title={t('hosts.importTitle')}>
-              <IconUpload size={15} aria-hidden="true" />
-            </Button>
+            <CategoryTransferButtons
+              category="hosts"
+              label={t('menu.hosts')}
+              defaultFileName="swallow-hosts.json"
+              hasSecrets
+              onImported={loadHosts}
+            />
             <Button variant="ghost" onClick={handleSerialQuickConnect} title={t('hosts.serialTerminal')}>
               <IconUsb size={15} strokeWidth={2} aria-hidden="true" />
               {t('hosts.serialTerminal')}
