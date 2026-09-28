@@ -128,20 +128,6 @@ pub async fn sftp_list_dir(state: State<'_, AppState>, session_id: String, path:
     result.map_err(|e| format!("Failed to list directory: {}", e))
 }
 
-#[tauri::command]
-pub async fn sftp_download_file(state: State<'_, AppState>, session_id: String, remote_path: String) -> Result<Vec<u8>, String> {
-    let session = {
-        let manager = state.sftp.lock().map_err(|e| e.to_string())?;
-        manager
-            .get_session(&session_id)
-            .ok_or_else(|| format!("SFTP session {} not found", session_id))?
-    };
-    let result = tauri::async_runtime::spawn_blocking(move || session.download_file(&remote_path))
-        .await
-        .map_err(|e| format!("Download task failed: {e}"))?;
-    result.map_err(|e| format!("Failed to download file: {}", e))
-}
-
 /// 直接下载到用户通过保存对话框选择的目标路径（Tauri 2 下
 /// `<a download>` 失效，改由后端落盘，避免整文件经 IPC 往返）。
 #[tauri::command]

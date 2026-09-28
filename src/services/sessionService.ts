@@ -165,11 +165,6 @@ export function sftpListDir(sessionId: string, path: string): Promise<FileItem[]
   return invoke<FileItem[]>('sftp_list_dir', { sessionId, path });
 }
 
-/** 下载 SFTP 远端文件（返回原始字节数组）。 */
-export function sftpDownloadFile(sessionId: string, remotePath: string): Promise<number[]> {
-  return invoke<number[]>('sftp_download_file', { sessionId, remotePath });
-}
-
 /** 下载 SFTP 远端文件并直接写入本地目标路径。 */
 export function sftpDownloadFileTo(
   sessionId: string,

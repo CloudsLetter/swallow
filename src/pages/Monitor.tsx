@@ -569,10 +569,20 @@ export function Monitor() {
       );
     };
     void tick();
-    const timer = setInterval(() => void tick(), 2000);
+    // 页面不可见（切标签/最小化）时暂停轮询：后台仍每 2s 向每台主机打一次
+    // SSH exec（采集要跑十来个 /proc 读取）纯属浪费；恢复可见立即补一拍
+    const onVisibility = () => {
+      if (!document.hidden) void tick();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    const timer = setInterval(() => {
+      if (document.hidden) return;
+      void tick();
+    }, 2000);
     return () => {
       stopped = true;
       clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [items.length]);
 

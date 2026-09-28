@@ -30,7 +30,6 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 use tauri::{Emitter, Manager};
 use std::thread;
-use std::time::Duration;
 use crate::config::global_config::GlobaConfig;
 
 /// 应用运行时状态：SSH/SFTP 会话管理器随 App 生命周期创建与销毁。
@@ -144,7 +143,7 @@ pub fn run() {
             commands::tunnel::list_active_port_forwards,
             commands::sftp::sftp_connect,
             commands::sftp::sftp_list_dir,
-            commands::sftp::sftp_download_file,
+            commands::sftp::sftp_download_file_to,
             commands::sftp::sftp_download_file_to,
             commands::sftp::sftp_upload_file,
             commands::sftp::sftp_delete_file,
@@ -338,27 +337,9 @@ pub fn run() {
                 if let Err(e) = utils::init::init() {
                     eprintln!("初始化失败: {}", e);
                 }
-                
-                // 模拟额外的初始化步骤
-                thread::sleep(Duration::from_millis(500));
-                
-                if let Some(splash_window) = app_handle.get_webview_window("splashscreen") {
-                    let _ = splash_window.emit("init-status", serde_json::json!({
-                        "message": "正在加载资源..."
-                    }));
-                }
-                
-                thread::sleep(Duration::from_millis(500));
-                
-                if let Some(splash_window) = app_handle.get_webview_window("splashscreen") {
-                    let _ = splash_window.emit("init-status", serde_json::json!({
-                        "message": "准备就绪"
-                    }));
-                }
-                
-                thread::sleep(Duration::from_millis(300));
-                
+
                 // 关闭 splash screen，显示主窗口
+                //（初始化本身是毫秒级：建目录 + 配置已加载；不人为 sleep 拖慢启动）
                 if let Some(splash_window) = app_handle.get_webview_window("splashscreen") {
                     let _ = splash_window.close();
                 }
