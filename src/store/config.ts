@@ -6,6 +6,26 @@ import type { Config } from "../types/config";
 // 避免并发 invoke 乱序导致旧配置覆盖新配置。
 let saveChain: Promise<void> = Promise.resolve();
 
+// 落盘去抖：滑条类设置（字号/透明度/模糊）拖动时每帧触发 updateConfig，
+// 逐次全量写 config.toml 是磁盘写放大——500ms 内合并为最后一次快照。
+// loadConfig/saveConfig 前先冲刷挂起的保存，避免读到旧盘状态后被覆盖。
+let saveDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+let pendingSave: Config | null = null;
+
+function flushPendingSave(): void {
+  if (saveDebounceTimer) {
+    clearTimeout(saveDebounceTimer);
+    saveDebounceTimer = undefined;
+  }
+  const snapshot = pendingSave;
+  pendingSave = null;
+  if (!snapshot) return;
+  saveChain = saveChain
+    .catch(() => undefined)
+    .then(() => invoke<void>("update_config", { config: snapshot }))
+    .catch((e) => console.error("Failed to save config:", e));
+}
+
 interface ConfigState {
   config: Config | null;
   loading: boolean;
@@ -29,7 +49,8 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     set({ loading: true, error: undefined });
 
     try {
-      // 等待尚未完成的保存落盘，避免重新加载读到旧状态后再被覆盖
+      // 冲刷挂起的去抖保存并等待落盘完成，避免重新加载读到旧状态后再被覆盖
+      flushPendingSave();
       await saveChain.catch(() => undefined);
 
       set({ config: null });
@@ -61,14 +82,11 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     const snapshot = get().config;
     if (!snapshot) return;
 
-    // 入队保存；每次保存入队时的快照，保证顺序
-    saveChain = saveChain
-      .catch(() => undefined)
-      .then(() => invoke<void>("update_config", { config: snapshot }))
-      .catch((e) => {
-        console.error("Failed to save config:", e);
-        set({ error: String(e) });
-      });
+    // 入队去抖保存：pendingSave 恒指向最新快照，500ms 无新变更才统一落盘
+    pendingSave = snapshot;
+    if (!saveDebounceTimer) {
+      saveDebounceTimer = setTimeout(flushPendingSave, 500);
+    }
   },
 
   /* =======================
@@ -78,12 +96,9 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     const config = get().config;
     if (!config) return;
 
-    saveChain = saveChain
-      .catch(() => undefined)
-      .then(() => invoke<void>("update_config", { config }))
-      .catch((e) => {
-        set({ error: String(e) });
-      });
-    await saveChain;
+    // 显式保存：冲刷挂起的去抖快照，再把当前内存态入队，最后等待链空
+    pendingSave = config;
+    flushPendingSave();
+    await saveChain.catch(() => undefined);
   },
 }));

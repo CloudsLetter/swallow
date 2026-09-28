@@ -36,7 +36,19 @@ function persist() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify((cache ?? []).slice(0, MAX_ENTRIES)));
   } catch {
     // 存储满等异常静默忽略
+  } finally {
+    persistTimer = undefined;
   }
+}
+
+let persistTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** 落盘去抖：粘贴含连续回车的脚本会逐条触发 record，逐条全量 JSON.stringify 写
+ *  localStorage 是同步主线程开销；1s 内合并为一次。代价是「记完即杀进程」的极端
+ *  场景可能丢最后一秒内的记录，可接受。 */
+function persistDebounced() {
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = setTimeout(persist, 1000);
 }
 
 /** 空白压缩 + 过滤无意义行（纯标点/单字符编辑键残留等） */
@@ -58,12 +70,16 @@ export function recordCommand(raw: string): void {
   if (idx >= 0) list.splice(idx, 1);
   list.unshift({ cmd, ts: Date.now() });
   if (list.length > MAX_ENTRIES) list.length = MAX_ENTRIES;
-  persist();
+  persistDebounced();
 }
 
 /** 清空命令历史（隐私：设置页可调用）。 */
 export function clearCommandHistory(): void {
   cache = [];
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = undefined;
+  }
   try {
     localStorage.removeItem(STORAGE_KEY);
   } catch {

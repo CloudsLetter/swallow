@@ -224,6 +224,7 @@ function App() {
 
   // 标签变化时持久化当前打开的会话（仅 terminal/sftp/vnc/rdp，密码/passphrase 不落盘）
   useEffect(() => {
+    let lastSaved = '';
     const persist = () => {
       // auto_save 关闭时不落盘：sessions.json 保留旧内容，开启 restore_sessions 后
       // 仍可恢复到上次自动保存的状态（文件从不主动删除）
@@ -251,7 +252,12 @@ function App() {
           rdpConfig: t.rdpConfig ? { ...t.rdpConfig, password: undefined } : undefined,
           moshConfig: t.moshConfig ? { ...t.moshConfig, password: undefined, passphrase: undefined } : undefined,
         }));
-      void saveOpenSessions(JSON.stringify(sessions)).catch(() => {});
+      // tab 切换只改 activeTabId（不参与序列化）：内容没变化就不写盘，
+      // 否则每次切标签都触发一次 sessions.json 全量写
+      const json = JSON.stringify(sessions);
+      if (json === lastSaved) return;
+      lastSaved = json;
+      void saveOpenSessions(json).catch(() => {});
     };
     return useTabStore.subscribe(persist);
   }, []);

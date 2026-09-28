@@ -82,6 +82,8 @@ type PoolItem = {
   // 输出缓冲：handlers 尚未注册时（挂载竞态/重挂载间隙）到达的会话输出先缓存，
   // registerEventHandlers 时回放，保证连接早期输出（Last login / motd）不丢失
   pendingOutputs?: string[];
+  // 缓存中已累计的字节数（避免逐条 join 求长的 O(n²)）
+  pendingOutputBytes?: number;
   // —— 输出背压水位（noteOutputQueued/noteOutputDrained 维护）——
   // write 已下发未解析完的字节数（write 回调触发即该块解析完成）
   outputInflight?: number;
@@ -618,8 +620,15 @@ export function deliverOutput(sessionId: string, data: string) {
   if (!handlers) {
     const itemRef = pool[sessionId];
     if (itemRef) {
-      const buf = itemRef.pendingOutputs ?? (itemRef.pendingOutputs = []);
-      if (buf.join('').length < 1024 * 1024) buf.push(data);
+      // 长度用计数器累计：join 全量求长在连接早期洪泛窗口是 O(n²)
+      if (itemRef.pendingOutputBytes === undefined) {
+        itemRef.pendingOutputs = [];
+        itemRef.pendingOutputBytes = 0;
+      }
+      if (itemRef.pendingOutputBytes + data.length <= 1024 * 1024) {
+        itemRef.pendingOutputs!.push(data);
+        itemRef.pendingOutputBytes += data.length;
+      }
     }
     return;
   }
@@ -731,6 +740,7 @@ export function registerEventHandlers(sessionId: string, handlers: TerminalEvent
   if (item.pendingOutputs && item.pendingOutputs.length > 0) {
     const pending = item.pendingOutputs;
     item.pendingOutputs = [];
+    item.pendingOutputBytes = 0;
     for (const chunk of pending) {
       queueOutput(item, chunk, (data) => {
         try {
