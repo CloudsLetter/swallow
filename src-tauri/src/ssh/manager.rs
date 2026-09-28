@@ -1,16 +1,18 @@
 use crate::ssh::session::SshSession;
 use anyhow::Result;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 pub struct SshManager {
-    sessions: Arc<Mutex<HashMap<String, Arc<SshSession>>>>,
+    // RwLock 而非 Mutex：读路径（每次击键/resize 的 get_session、list）远多于
+    // 写路径（连接/断开），读读并行避免高频击键在多标签下互相排队。
+    sessions: Arc<RwLock<HashMap<String, Arc<SshSession>>>>,
 }
 
 impl SshManager {
     pub fn new() -> Self {
         Self {
-            sessions: Arc::new(Mutex::new(HashMap::new())),
+            sessions: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -21,22 +23,22 @@ impl SshManager {
             let sessions = self.sessions.clone();
             let id = session_id.clone();
             session.set_disconnect_handler(Box::new(move || {
-                sessions.lock().unwrap().remove(&id);
+                sessions.write().unwrap().remove(&id);
             }));
         }
-        let mut sessions = self.sessions.lock().unwrap();
+        let mut sessions = self.sessions.write().unwrap();
         sessions.insert(session_id, Arc::new(session));
     }
-    
+
     pub fn get_session(&self, session_id: &str) -> Option<Arc<SshSession>> {
-        let sessions = self.sessions.lock().unwrap();
+        let sessions = self.sessions.read().unwrap();
         sessions.get(session_id).cloned()
     }
-    
+
     pub fn disconnect(&self, session_id: &str) -> Result<()> {
         // 移除在锁内（快），断开（网络 I/O）在锁外：避免慢断开阻塞其他 SSH 命令
         let session = {
-            let mut sessions = self.sessions.lock().unwrap();
+            let mut sessions = self.sessions.write().unwrap();
             sessions.remove(session_id)
         };
         if let Some(session) = session {
@@ -44,17 +46,17 @@ impl SshManager {
         }
         Ok(())
     }
-    
+
     /// 尽力断开所有会话（应用退出时调用）。
     pub fn disconnect_all(&self) {
-        let mut sessions = self.sessions.lock().unwrap();
+        let mut sessions = self.sessions.write().unwrap();
         for (_, session) in sessions.drain() {
             let _ = session.disconnect();
         }
     }
-    
+
     pub fn list_sessions(&self) -> Vec<String> {
-        let sessions = self.sessions.lock().unwrap();
+        let sessions = self.sessions.read().unwrap();
         sessions.keys().cloned().collect()
     }
 }
