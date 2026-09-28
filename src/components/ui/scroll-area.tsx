@@ -8,8 +8,16 @@ import { cn } from "@/lib/utils"
 function ScrollArea({
   className,
   children,
+  viewportRef,
+  viewportClassName,
   ...props
-}: React.ComponentProps<typeof ScrollAreaPrimitive.Root>) {
+}: React.ComponentProps<typeof ScrollAreaPrimitive.Root> & {
+  /** 暴露内部 Viewport 元素：虚拟滚动（@tanstack/react-virtual）需要真实滚动容器 */
+  viewportRef?: React.Ref<HTMLDivElement>;
+  /** 追加到 Viewport 的 className：虚拟滚动用 [&>div]:!block 修 radix 内容包裹层的
+   *  display:table 布局（绝对定位行的宽度/高度在该布局下不可靠） */
+  viewportClassName?: string;
+}) {
   return (
     <ScrollAreaPrimitive.Root
       data-slot="scroll-area"
@@ -18,8 +26,12 @@ function ScrollArea({
       {...props}
     >
       <ScrollAreaPrimitive.Viewport
+        ref={viewportRef}
         data-slot="scroll-area-viewport"
-        className="size-full rounded-[inherit] focus-visible:ring-ring/50 outline-none transition-[color,box-shadow] focus-visible:ring-[3px] focus-visible:outline-1"
+        className={cn(
+          "size-full rounded-[inherit] focus-visible:ring-ring/50 outline-none transition-[color,box-shadow] focus-visible:ring-[3px] focus-visible:outline-1",
+          viewportClassName,
+        )}
       >
         {children}
       </ScrollAreaPrimitive.Viewport>

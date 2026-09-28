@@ -92,6 +92,7 @@ import {
 } from './ui/dialog';
 import { ScrollArea } from './ui/scroll-area';
 import { LIST_COLS_FTP, LIST_COLS_PERM } from './sftpListColumns';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -1433,6 +1434,16 @@ const SftpPane = forwardRef<SftpPaneHandle, SftpPaneProps>(function SftpPane(
     return sortAsc ? cmp : -cmp;
   });
 
+  // 大目录虚拟滚动：只渲染视口内的行（10k 条目目录不再生成十万级 DOM 节点）。
+  // 行高固定 36px（min-h-9 + truncate 单行），measureElement 兜底精确测量。
+  const listViewportRef = useRef<HTMLDivElement | null>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: sortedFiles.length,
+    getScrollElement: () => listViewportRef.current,
+    estimateSize: () => 36,
+    overscan: 14,
+  });
+
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
       setSortAsc((prev) => !prev);
@@ -1703,7 +1714,11 @@ const SftpPane = forwardRef<SftpPaneHandle, SftpPaneProps>(function SftpPane(
                     </Button>
                   </div>
                 )}
-                <ScrollArea className="min-h-0 w-full flex-1">
+                <ScrollArea
+                  className="min-h-0 w-full flex-1"
+                  viewportRef={listViewportRef}
+                  viewportClassName="[&>div]:!block"
+                >
                 {loading && files.length === 0 ? (
                   <div className="flex h-full w-full items-center justify-center text-muted-foreground">{t('common.loading')}</div>
                 ) : files.length === 0 ? (
@@ -1749,11 +1764,19 @@ const SftpPane = forwardRef<SftpPaneHandle, SftpPaneProps>(function SftpPane(
                       )}
                       {!isFtp && <span className="truncate">{t('sftp.tablePermissions')}</span>}
                     </div>
-                      {sortedFiles.map((file) => {
+                      <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
+                      {rowVirtualizer.getVirtualItems().map((vi) => {
+                        const file = sortedFiles[vi.index];
                         const multiSelected = selectedFiles.has(file.name) && selectedFiles.size > 1;
                         const selected = selectedFiles.has(file.name);
                         return (
-                          <ContextMenu key={file.name}>
+                          <div
+                            key={file.name}
+                            ref={rowVirtualizer.measureElement}
+                            data-index={vi.index}
+                            style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}
+                          >
+                          <ContextMenu>
                             <ContextMenuTrigger asChild>
                             <div
                               draggable={file.type !== 'directory'}
@@ -1859,8 +1882,10 @@ const SftpPane = forwardRef<SftpPaneHandle, SftpPaneProps>(function SftpPane(
                               </ContextMenuItem>
                             </ContextMenuContent>
                           </ContextMenu>
+                          </div>
                         );
                       })}
+                      </div>
                   </div>
                 )}
                 </ScrollArea>

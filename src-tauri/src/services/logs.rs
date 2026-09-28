@@ -1,5 +1,6 @@
 use rusqlite::{params, Connection};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use crate::models::data::{LogEntry, LogFilter};
 use crate::utils::sqlite;
@@ -75,15 +76,51 @@ fn trim_logs(conn: &Connection) -> Result<(), String> {
 }
 
 
+/// 进程内缓存的日志写连接。write_log 每条日志一次（断线风暴/自动重连时高频），
+/// 不再每次 open_connection（文件 open + header 读取，~100µs/次）。
+/// Option 包一层：「清空数据/删除 DB 文件」等场景下可重置重建。
+static LOG_CONN: OnceLock<Mutex<Option<Connection>>> = OnceLock::new();
+/// 累计写入条数（trim 节流计数）。
+static LOG_WRITES: AtomicU32 = AtomicU32::new(0);
+
+/// trim 节流：原实现每条 INSERT 后跟一条全表 DELETE（写放大）；
+/// 改为每 N 条写入触发一次，日志表最多超出上限 N-1 条（上限千级，无碍）。
+const TRIM_EVERY: u32 = 500;
+
+/// 在缓存的日志连接上执行写操作；失败（DB 文件被删除等）时重建连接重试一次。
+fn with_log_conn(f: impl Fn(&Connection) -> Result<(), String>) -> Result<(), String> {
+    let slot = LOG_CONN.get_or_init(|| Mutex::new(None));
+    let mut guard = slot.lock().map_err(|e| e.to_string())?;
+    if guard.is_none() {
+        *guard = Some(sqlite::open_connection()?);
+    }
+    match f(guard.as_ref().unwrap()) {
+        Ok(()) => Ok(()),
+        Err(first) => {
+            let conn = sqlite::open_connection().map_err(|e| format!("{first}; reopen failed: {e}"))?;
+            *guard = Some(conn);
+            f(guard.as_ref().unwrap()).map_err(|e| format!("{first}; retry failed: {e}"))
+        }
+    }
+}
+
+/// 单条日志写入（含节流后的 trim）。
+fn append_with_trim(conn: &Connection, append: impl FnOnce(&Connection) -> Result<(), String>) -> Result<(), String> {
+    append(conn)?;
+    if LOG_WRITES.fetch_add(1, Ordering::Relaxed) % TRIM_EVERY == 0 {
+        trim_logs(conn)?;
+    }
+    Ok(())
+}
+
 pub fn write_log(level: &str, message: &str, source: Option<&str>) -> Result<(), String> {
-    let conn = sqlite::open_connection()?;
-    append_log(&conn, level, message, source)
+    with_log_conn(|conn| append_with_trim(conn, |c| append_log(c, level, message, source)))
 }
 
 #[allow(dead_code)] // i18n 日志入口（预留，当前统一走 write_log 落库后再做前端翻译）
 pub fn write_log_i18n(level: &str, key: &str, params: Option<serde_json::Value>, source: Option<&str>) -> Result<(), String> {
-    let conn = sqlite::open_connection()?;
-    append_log_i18n(&conn, level, key, params, source)
+    // Fn 闭包可能被「重建连接重试」调用两次，params 按 clone 传递（重试路径罕见，成本可忽略）
+    with_log_conn(|conn| append_with_trim(conn, |c| append_log_i18n(c, level, key, params.clone(), source)))
 }
 
 

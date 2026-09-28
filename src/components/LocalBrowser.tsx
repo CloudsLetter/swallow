@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { copyText } from '../lib/clipboard';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -121,6 +122,15 @@ export function LocalBrowser({
 
   const [path, setPath] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
+
+  // 大目录虚拟滚动：只渲染视口内的行（行高固定 36px：min-h-9 + truncate 单行）
+  const listViewportRef = useRef<HTMLDivElement | null>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => listViewportRef.current,
+    estimateSize: () => 36,
+    overscan: 14,
+  });
   const [parentPath, setParentPath] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -371,7 +381,7 @@ export function LocalBrowser({
             </span>
           </div>
         )}
-        <ScrollArea className="h-full w-full">
+        <ScrollArea className="h-full w-full" viewportRef={listViewportRef} viewportClassName="[&>div]:!block">
           {error ? (
             <div className="flex h-full w-full items-center justify-center px-4 text-center text-sm text-destructive">
               {error}
@@ -398,8 +408,17 @@ export function LocalBrowser({
                 <span className="truncate">{t('sftp.tableSize')}</span>
                 <span className="truncate">{t('sftp.tableModified')}</span>
               </div>
-              {rows.map((row) => (
-                <ContextMenu key={row.key}>
+              <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
+              {rowVirtualizer.getVirtualItems().map((vi) => {
+                const row = rows[vi.index];
+                return (
+                  <div
+                    key={row.key}
+                    ref={rowVirtualizer.measureElement}
+                    data-index={vi.index}
+                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}
+                  >
+                  <ContextMenu>
                   <ContextMenuTrigger asChild>
                 <div
                   draggable={!row.isDir}
@@ -453,7 +472,10 @@ export function LocalBrowser({
                     </ContextMenuItem>
                   </ContextMenuContent>
                 </ContextMenu>
-              ))}
+                  </div>
+                );
+              })}
+              </div>
             </div>
           )}
         </ScrollArea>
