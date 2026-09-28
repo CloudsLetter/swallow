@@ -64,3 +64,6 @@ cloud-server/data/
 /*.png
 /*.jpg
 /*.jpeg
+docs
+.commandcode
+.vscode

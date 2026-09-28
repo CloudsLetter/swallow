@@ -12,3 +12,6 @@
 - Comfortable rolling back experiments: will explicitly ask to undo/revert a change that didn't work ("撤销这次更改") before trying another approach. Confidence: 0.6
 - Treats mobile as out of scope for this project and wants mobile/porting suggestions ignored here (mobile is handled in a separate project). Confidence: 0.85
 - Prefers git commit messages in English (conventional-commit style, e.g. perf/feat/style) even though discussion and UI strings are in Chinese, and never includes a Co-authored-by trailer line. Confidence: 0.9
+- Measures terminal quality against mainstream competitors (e.g., Termius for real-time latency, Tabby for auto-detecting system/WSL/Docker shells) and expects parity. Confidence: 0.7
+- Prefers standardized, consistent UI and will call out UI that feels non-standard or ugly, expecting systematic polish via available UI/UX skills. Confidence: 0.65
+- When asked to publish a version, expects full release handling: bump versions in sync across package.json / Cargo.toml / tauri.conf.json (plus Cargo.lock), verify with tests/build, commit in English, create annotated tag, and push branch then tag to trigger release workflow. Confidence: 0.75
