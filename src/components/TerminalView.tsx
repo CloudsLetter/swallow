@@ -44,6 +44,12 @@ import {
   focusTerminal,
   serializeTerminalBuffer,
   setSessionType,
+  deliverOutput,
+  noteOutputQueued,
+  noteOutputDrained,
+  isOutputFlooded,
+  activateTerminalRenderer,
+  deactivateTerminalRenderer,
   type ConnectionStep,
 } from './terminalPool';
 import {
@@ -162,7 +168,11 @@ async function connectSshWithHostKeyApproval(
   rows: number,
   t: TFunction,
 ) {
-  let result = await sshConnect(sessionId, sshConfig, cols, rows);
+  // 输出走二进制 IPC 通道（Raw 字节 → ArrayBuffer），绕过 JSON 事件序列化；
+  // 后端批量器保证每条消息都是完整 UTF-8，TextDecoder 非流式解码安全
+  const utf8 = new TextDecoder();
+  const onOutputData = (chunk: ArrayBuffer) => deliverOutput(sessionId, utf8.decode(chunk));
+  let result = await sshConnect(sessionId, sshConfig, cols, rows, onOutputData);
   while (result.status === 'needsHostKeyApproval') {
     const fingerprint = result.fingerprint ?? '';
     const accepted = await dedupeHostKeyConfirm(
@@ -184,7 +194,7 @@ async function connectSshWithHostKeyApproval(
     await acceptHostKey(result.hostKeyToken!, fingerprint);
     // 换机/重装后重新信任：清自动 OS 占位，重连即重新探测新系统图标
     await resetAutoOsIconAfterTrust(sshConfig.host, sshConfig.port);
-    result = await sshConnect(sessionId, sshConfig, cols, rows);
+    result = await sshConnect(sessionId, sshConfig, cols, rows, onOutputData);
   }
   return result;
 }
@@ -544,6 +554,28 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在切到激活那次触发
   }, [isActive, sessionId]);
 
+  // WebGL context 预算管理：只有激活标签持 WebGL（浏览器 ~8-16 个 context 硬上限，
+  // 超限最老的被静默驱逐 → 黑屏）。切后台降级 DOM（不可见时零渲染成本），激活恢复。
+  useEffect(() => {
+    if (!sessionId) return;
+    if (isActive) activateTerminalRenderer(sessionId);
+    else deactivateTerminalRenderer(sessionId);
+  }, [isActive, sessionId]);
+
+  // 输出洪泛期间降级背景层：backdrop-filter 每帧强制重合成，洪泛时暂停（blur=0
+  // 不设置 filter，见 TerminalBackdrop 的注释），停流自动恢复
+  const [outputFlood, setOutputFlood] = useState(false);
+  useEffect(() => {
+    if (!sessionId) return;
+    setOutputFlood(isOutputFlooded(sessionId));
+    const onFlood = (e: Event) => {
+      const detail = (e as CustomEvent<{ sessionId: string; active: boolean }>).detail;
+      if (detail.sessionId === sessionId) setOutputFlood(detail.active);
+    };
+    window.addEventListener('swallow:output-flood', onFlood);
+    return () => window.removeEventListener('swallow:output-flood', onFlood);
+  }, [sessionId]);
+
   // 进度卡关闭淡出：showProgress false 后先保持挂载做 100ms opacity 过渡，再卸载
   const [progressCardAlive, setProgressCardAlive] = useState(true);
   useEffect(() => {
@@ -875,16 +907,18 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
                 updateSuggest(null);
                 return;
               }
-              if (data === '\r') {
-                // 回车：补全并执行 = 退格撤销已输入部分 → 候选全文 + 回车
+              if (data === '\t') {
+                // Tab：仅补全不执行——退格撤销已输入前缀 → 写入候选全文（不带 \r），
+                // 行缓冲同步为候选全文后关闭浮层；用户可继续编辑（追加参数等），
+                // 回车走下方普通路径按实际行执行并记历史（候选不再「优先使用」）。
                 const chosen = suggestion.items[suggestion.sel] ?? suggestion.items[0];
                 const backspaces = '\x7f'.repeat([...inputBufRef.current].length);
-                enqueueWriteToTargets(targets, backspaces + chosen + '\r');
-                recordCommand(chosen);
-                inputBufRef.current = '';
+                enqueueWriteToTargets(targets, backspaces + chosen);
+                inputBufRef.current = chosen;
                 updateSuggest(null);
                 return;
               }
+              // Enter 不再劫持：落到底部普通回车路径——执行的是用户实际输入的行
             }
 
             // —— 输入行跟踪（命令历史 + 补全前缀）——
@@ -923,12 +957,17 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
         registerEventHandlers(sessionId, {
           onOutput: (data: string) => {
             try {
-              // xterm.write 自带增量渲染；不要额外全屏 refresh——
-              // 高频输出（motd/日志）时全量刷新会阻塞主线程导致终端「无响应」
+              // 背压水位检测：积压超高水位 → 后端暂停读 socket（SSH 路径 TCP 背压），
+              // 回调触发代表该块已解析完成，低于低水位恢复。洪泛期顺带做 DOM→WebGL 升级。
+              noteOutputQueued(sessionId, data.length);
               terminal.write(data, () => {
+                noteOutputDrained(sessionId, data.length);
                 // 节流判断前移到序列化之前：高频输出时绝大多数回调无需 serialize 整屏
                 if (!shouldAppendReplaySnapshot(sessionId)) return;
-                appendReplaySnapshot(sessionId, serializeTerminalBuffer(sessionId) ?? '');
+                // 洪泛期只序列化视口——万行级全量拼接是热路径上最大的纯 JS 块，
+                // 停流后恢复全量（快照语义是「该时刻的最后一屏」）
+                const scrollback = isOutputFlooded(sessionId) ? 0 : 10000;
+                appendReplaySnapshot(sessionId, serializeTerminalBuffer(sessionId, scrollback) ?? '');
               });
             } catch (error) {
               console.error(`[${sessionId}] Failed to write data:`, error);
@@ -1153,7 +1192,7 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
         extendToTopbar={extendToTopbar}
         solid={terminalBackground}
         imageUrl={backgroundImageUrl}
-        blur={config?.terminal?.background_image_blur ?? 0}
+        blur={outputFlood ? 0 : config?.terminal?.background_image_blur ?? 0}
         opacity={config?.terminal?.background_image_opacity ?? 0.7}
       />
 
@@ -1173,7 +1212,7 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
       </TerminalContextMenu>
 
       {/* 自动补全浮层：贴输入命令行（光标行下方/上方，避免溢出）；配色跟随终端主题；
-          ↑/↓ 选择、Enter 补全并执行、Esc 关闭、鼠标点选执行 */}
+          ↑/↓ 选择、Tab 补全（不执行）、Esc 关闭、鼠标点选补全 */}
       {suggest && !showProgress && (
         <div
           ref={suggestPanelRef}
@@ -1194,14 +1233,14 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
                 // mousedown 先行：避免点击导致 xterm 失焦/选中
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  // 点击 = 补全并执行（与 Enter 一致）
+                  // 点击 = 仅补全不执行（与 Tab 一致）：行缓冲同步为候选全文，
+                  // 用户可继续编辑，回车按实际行执行并记历史
                   const backspaces = '\x7f'.repeat([...inputBufRef.current].length);
                   const targets = useBroadcastStore.getState().enabled
                     ? listPool().filter((id) => isConnected(id))
                     : [sessionId ?? ''];
-                  enqueueWriteToTargets(targets, backspaces + cmd + '\r');
-                  recordCommand(cmd);
-                  inputBufRef.current = '';
+                  enqueueWriteToTargets(targets, backspaces + cmd);
+                  inputBufRef.current = cmd;
                   updateSuggest(null);
                 }}
                 className={cn(
@@ -1216,6 +1255,7 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
           </div>
           <div className="flex items-center gap-2 border-t border-border/60 px-2.5 py-1 text-[10px] text-muted-foreground">
             <span>↑↓ 选择</span>
+            <span>Tab 补全</span>
             <span>Enter 执行</span>
             <span>Esc 关闭</span>
           </div>

@@ -35,10 +35,22 @@ pub async fn monitor_start(
     let config = crate::services::port_forwardings::resolve_host_ssh_config(&conn, &host_id)?;
 
     let timeout_secs = read_connection_timeout(&config_state);
+    // 监控是长命 ssh2 会话：保活防后台标签页定时器被节流后连接纯空闲被掐；压缩对
+    // 大体积采集输出（/proc 快照）有实益。均读自用户配置，与终端同一套。
+    let keep_alive_interval = config_state
+        .config
+        .read()
+        .map(|guard| guard.ssh.keep_alive_interval)
+        .unwrap_or(60);
+    let compression = config_state
+        .config
+        .read()
+        .map(|guard| guard.ssh.compression)
+        .unwrap_or(false);
     let connect_config = config.clone();
     // 建连挪到阻塞线程池：不占 tokio 异步 worker（慢连接不拖慢全局 IPC）
     let connect_result = tauri::async_runtime::spawn_blocking(move || {
-        MonitorSession::connect(&connect_config, timeout_secs)
+        MonitorSession::connect(&connect_config, timeout_secs, keep_alive_interval, compression)
     })
     .await
     .map_err(|e| format!("Connection task failed: {e}"))?;

@@ -34,6 +34,17 @@ pub async fn start_port_forward(
     let config = crate::services::port_forwardings::resolve_host_ssh_config(&conn, &host_id)?;
 
     let timeout_secs = read_connection_timeout(&config_state);
+    // 隧道长连接同样需要 russh 原生 keepalive（0 = 用户关闭 → Config 保持 None）
+    let keepalive_secs = config_state
+        .config
+        .read()
+        .map(|guard| guard.ssh.keep_alive_interval)
+        .unwrap_or(60);
+    let compression = config_state
+        .config
+        .read()
+        .map(|guard| guard.ssh.compression)
+        .unwrap_or(false);
 
     // remote（ssh -R）规则的本地回连目标：需在建连前写入 Handler（回调驱动）
     let forward_target = match rule.rule_type.as_str() {
@@ -65,7 +76,7 @@ pub async fn start_port_forward(
         let rule_id = rule_id.clone();
         let name = rule.name.clone();
         let app_handle = app.clone();
-        Arc::new(move || {
+        Arc::new(move |reason: &str| {
             if manager.is_running(&rule_id) {
                 manager.stop(&rule_id);
                 // 通知前端即时刷新该规则的状态（状态由内存隧道派生，无需写 DB）
@@ -75,11 +86,11 @@ pub async fn start_port_forward(
                 );
                 let _ = write_log(
                     "warn",
-                    &format!("Port forward tunnel lost connection: {name}"),
+                    &format!("Port forward tunnel lost connection: {name} ({reason})"),
                     Some("portforwarding"),
                 );
             }
-        }) as Arc<dyn Fn() + Send + Sync>
+        }) as Arc<dyn Fn(&str) + Send + Sync>
     };
 
     // 连接进度：转发页没有 invoke 过程中的反馈通道，复用 port-forward-status
@@ -107,6 +118,8 @@ pub async fn start_port_forward(
         forward_target,
         &on_progress,
         Some(on_disconnected),
+        keepalive_secs,
+        compression,
     )
     .await;
     let russh_conn = match connect_result {
@@ -141,6 +154,8 @@ pub async fn start_port_forward(
                     crate::ssh::session::SshSession::establish_authenticated_session(
                         &connect_config,
                         timeout_secs,
+                        keepalive_secs,
+                        compression,
                         &*progress,
                     )
                 })

@@ -156,6 +156,8 @@ impl TelnetSession {
         let stream = TcpStream::connect_timeout(&sock_addr, Duration::from_secs(timeout as u64))
             .map_err(|e| format!("Failed to connect to {addr}: {e}"))?;
         stream.set_nodelay(true).map_err(|e| e.to_string())?;
+        // Telnet 无协议层心跳，TCP keepalive 是唯一的空闲保活/半开连接探测手段
+        crate::utils::net::enable_tcp_keepalive(&stream);
         stream.set_nonblocking(true).map_err(|e| e.to_string())?;
         Ok(Self {
             stream: Arc::new(Mutex::new(stream)),
@@ -183,6 +185,14 @@ impl TelnetSession {
             let mut pending: Vec<u8> = Vec::new();
             // UTF-8 跨块解码缓冲
             let mut utf8_pending: Vec<u8> = Vec::with_capacity(8192 + 4);
+            // 输出批量合并 + 事件通道下发：逐块 emit 的事件洪泛会打满前端主线程
+            //（大流量输出卡死整机）
+            let mut batcher = crate::session_events::OutputBatcher::new(
+                crate::session_events::OutputBatcher::event_sink(
+                    app_handle.clone(),
+                    session_id.clone(),
+                ),
+            );
             loop {
                 if !*is_connected.lock().unwrap() {
                     break;
@@ -191,6 +201,7 @@ impl TelnetSession {
                 match stream_guard.read(&mut buffer) {
                     Ok(0) => {
                         drop(stream_guard);
+                        batcher.flush();
                         emit_session_event(&app_handle, &session_id, &SessionEvent::Disconnected);
                         break;
                     }
@@ -209,11 +220,7 @@ impl TelnetSession {
                                         let s = String::from_utf8(utf8_pending.split_off(idx))
                                             .unwrap_or_default();
                                         if !s.is_empty() {
-                                            emit_session_event(
-                                                &app_handle,
-                                                &session_id,
-                                                &SessionEvent::Output { data: s },
-                                            );
+                                            batcher.push(&s);
                                         }
                                         idx = 0;
                                         break;
@@ -226,11 +233,7 @@ impl TelnetSession {
                                             )
                                             .unwrap_or_default();
                                             idx += valid;
-                                            emit_session_event(
-                                                &app_handle,
-                                                &session_id,
-                                                &SessionEvent::Output { data: s },
-                                            );
+                                            batcher.push(&s);
                                         } else {
                                             // 开头即不完整序列或非法字节
                                             if e.error_len().is_none() {
@@ -239,13 +242,7 @@ impl TelnetSession {
                                             // 非法字节：替换 U+FFFD
                                             let bad = e.error_len().unwrap_or(1);
                                             idx += bad;
-                                            emit_session_event(
-                                                &app_handle,
-                                                &session_id,
-                                                &SessionEvent::Output {
-                                                    data: "\u{FFFD}".to_string(),
-                                                },
-                                            );
+                                            batcher.push("\u{FFFD}");
                                         }
                                     }
                                 }
@@ -255,14 +252,17 @@ impl TelnetSession {
                                 utf8_pending.drain(..idx);
                             }
                         }
+                        batcher.flush_if_due();
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         drop(stream_guard);
+                        batcher.flush_if_due();
                         thread::sleep(Duration::from_millis(10));
                         continue;
                     }
                     Err(e) => {
                         drop(stream_guard);
+                        batcher.flush();
                         emit_session_event(
                             &app_handle,
                             &session_id,
@@ -276,6 +276,8 @@ impl TelnetSession {
                 }
             }
 
+            // 发掉缓冲残留（覆盖「会话被主动停止」的 break 路径）
+            batcher.flush();
             *is_connected.lock().unwrap() = false;
             let handler = disconnect_handler.lock().unwrap().take();
             if let Some(handler) = handler {

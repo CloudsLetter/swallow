@@ -9,7 +9,9 @@ import { UnicodeGraphemesAddon } from '@xterm/addon-unicode-graphemes';
 import { ImageAddon } from '@xterm/addon-image';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { listen } from '@tauri-apps/api/event';
-import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { invoke } from '@tauri-apps/api/core';
+import { readText } from '@tauri-apps/plugin-clipboard-manager';
+import { copyText } from '../lib/clipboard';
 import {
   sshWrite,
   sshResize,
@@ -80,6 +82,19 @@ type PoolItem = {
   // 输出缓冲：handlers 尚未注册时（挂载竞态/重挂载间隙）到达的会话输出先缓存，
   // registerEventHandlers 时回放，保证连接早期输出（Last login / motd）不丢失
   pendingOutputs?: string[];
+  // —— 输出背压水位（noteOutputQueued/noteOutputDrained 维护）——
+  // write 已下发未解析完的字节数（write 回调触发即该块解析完成）
+  outputInflight?: number;
+  // 已通知后端暂停读取（SSH 路径产生 TCP 背压；其余会话类型后端 no-op）
+  outputPaused?: boolean;
+  // —— 渲染引擎管理（WebGL 上下文预算）——
+  // 当前挂载的 WebglAddon（切换/卸载引擎时 dispose；context 丢失时重建）
+  renderAddon?: WebglAddon;
+  // WebGL context 连续丢失次数（激活标签时清零；>3 次退回 DOM 直到重新激活）
+  contextLossRetries?: number;
+  // 终端是否处于激活标签（激活标签才持 WebGL context——浏览器有 ~8-16 个
+  // WebGL context 硬上限，超限最老的被静默驱逐 → 黑屏）
+  isVisible?: boolean;
   // 实际生效的渲染引擎（配置选 webgl 但 GPU 关/加载失败时降级 dom；canvas 暂时禁用同走 dom）
   renderEngine?: TerminalRenderEngine;
   // 缓冲区查找 addon（查找条通过 getSearchAddon 拿实例调 findNext/findPrevious）
@@ -114,20 +129,46 @@ export function getSessionType(sessionId: string): 'ssh' | 'telnet' | 'local' | 
   return sessionTypes[sessionId] ?? 'ssh';
 }
 
-/** 按偏好加载 xterm 渲染引擎 addon（open 前 load，xterm open 时按注册渲染器绘制）。
+/** 设置渲染引擎 addon（先卸载现有渲染 addon，切换/重建共用此入口）。
  *  - dom：不加载任何 addon（xterm 内置默认）；
  *  - canvas：⚠️ 暂时禁用——已随 xterm 6.0 卸载依赖（TODO(xterm 6): addon 无 6.x 兼容版、停更于 5.x 线），
  *    偏好降级 dom；官方出 6.x 版后：pnpm add @xterm/addon-canvas，再在下方恢复 CanvasAddon 加载分支；
  *  - webgl：仅当 gpu 开关开启时尝试 WebglAddon（6.0 配套 0.19.0），失败降级 dom（不回退 canvas）。
+ *  GPU 驱动重置/显存换页导致 context 丢失时自动重建，反复丢失（>3 次）退回 DOM 直到重新激活。
  *  返回实际生效的引擎。 */
 function applyRenderAddon(
-  terminal: Terminal,
+  sessionId: string,
   engine: TerminalRenderEngine,
   gpu: boolean,
 ): TerminalRenderEngine {
-  if (engine === 'dom' || engine === 'canvas' || !gpu) return 'dom';
+  const item = pool[sessionId];
+  if (!item) return 'dom';
+  if (item.renderAddon) {
+    try {
+      item.renderAddon.dispose();
+    } catch {
+      // context 已丢失的 addon dispose 可能抛错，忽略
+    }
+    item.renderAddon = undefined;
+  }
+  if (engine !== 'webgl' || !gpu) return 'dom';
   try {
-    terminal.loadAddon(new WebglAddon());
+    const addon = new WebglAddon();
+    addon.onContextLoss(() => {
+      if (item.renderAddon === addon) item.renderAddon = undefined;
+      const retries = (item.contextLossRetries ?? 0) + 1;
+      item.contextLossRetries = retries;
+      console.warn(`[${sessionId}] WebGL context 丢失（驱动重置/显存换页），第 ${retries} 次重建`);
+      if (retries > 3) {
+        console.warn(`[${sessionId}] WebGL context 反复丢失，退回 DOM 渲染（重新激活标签时重试）`);
+        return;
+      }
+      if (pool[sessionId]) {
+        item.renderEngine = applyRenderAddon(sessionId, 'webgl', true);
+      }
+    });
+    item.terminal.loadAddon(addon);
+    item.renderAddon = addon;
     return 'webgl';
   } catch (e) {
     console.warn('[render] WebGL 渲染引擎加载失败，降级 DOM:', e);
@@ -207,10 +248,10 @@ export function createOrGetTerminal(
   });
 
   const item: PoolItem = { terminal, fit, search, serialize: serializeAddon, attachedEl: null };
-  if (render) {
-    item.renderEngine = applyRenderAddon(terminal, render.engine, render.gpu);
-  }
   pool[sessionId] = item;
+  if (render) {
+    item.renderEngine = applyRenderAddon(sessionId, render.engine, render.gpu);
+  }
   return pool[sessionId];
 }
 
@@ -248,16 +289,18 @@ export async function copyTerminalBufferToClipboard(sessionId: string): Promise<
   // excludeModes：去掉 DECSET 等模式序列，得到干净文本（保留 alt buffer，所见即所得）
   const text = addon.serialize({ excludeModes: true });
   if (!text.trim()) return false;
-  await writeText(text);
+  await copyText(text);
   return true;
 }
 
-/** 序列化当前 xterm 缓冲，供会话回放保存定位快照。 */
-export function serializeTerminalBuffer(sessionId: string): string | undefined {
+/** 序列化当前 xterm 缓冲，供会话回放保存定位快照。
+ *  scrollbackLines：纳入序列化的回滚行数；洪泛期传 0（仅视口）——
+ *  万行级全量拼接是渲染回调热路径上最大的纯 JS 块。 */
+export function serializeTerminalBuffer(sessionId: string, scrollbackLines?: number): string | undefined {
   const addon = pool[sessionId]?.serialize;
   if (!addon) return undefined;
   try {
-    return addon.serialize({ scrollback: 10000 });
+    return addon.serialize({ scrollback: scrollbackLines ?? 10000 });
   } catch (e) {
     console.warn(`[${sessionId}] Failed to serialize terminal buffer:`, e);
     return undefined;
@@ -319,9 +362,9 @@ function copySelection(terminal: Terminal) {
   if (!terminal.hasSelection()) return;
   const text = terminal.getSelection();
   if (text) {
-    // 优先走 Tauri 剪贴板插件（WebView 的 navigator.clipboard 读取不可靠），
+    // 优先走统一 copyText（Tauri 剪贴板插件 + 可选自动清除），
     // 失败回退 navigator.clipboard。
-    writeText(text).catch(() => navigator.clipboard.writeText(text).catch(() => {}));
+    copyText(text).catch(() => navigator.clipboard.writeText(text).catch(() => {}));
   }
 }
 
@@ -514,11 +557,6 @@ export async function attachListeners(sessionId: string) {
   try {
     item.unlistenSession = await listen<SessionEvent>(`session-${sessionId}`, (e) => {
       const event = e.payload;
-      // 会话日志记录：输出在分发前先喂给日志缓冲（不经 React，高频也不影响渲染）。
-      // 放在 handlers 判断之前，保证连接早期缓冲/重连间隙的输出也不漏记。
-      if (event.kind === 'output') {
-        appendOutput(sessionId, event.data);
-      }
       // 会话级标记与全局通知（不依赖组件 handlers——非激活/后台会话断开时无组件在听）
       if (event.kind === 'progress' && event.stage === 'ready') {
         const pi = pool[sessionId];
@@ -534,20 +572,14 @@ export async function attachListeners(sessionId: string) {
           );
         }
       }
-      // 事件监听只建立一次，但回调始终转发到「当前挂载组件注册的最新回调」，
-      // 这样标签合并/分屏重挂载后，断线/进度事件仍指向新组件实例而非已卸载的旧实例。
+      // 输出统一走 deliverOutput：事件与二进制 IPC 通道两条路共用
+      //（日志缓冲 + handlers 缺位缓冲 + rAF 合并渲染都在里面）
+      if (event.kind === 'output') {
+        deliverOutput(sessionId, event.data);
+        return;
+      }
       const handlers = pool[sessionId]?.eventHandlers;
       if (!handlers) {
-        // handlers 未注册（连接早期竞态 / 组件重挂载间隙）：输出先进缓冲，
-        // registerEventHandlers 时回放——否则 Last login / motd 等早期输出会丢失。
-        // 仅缓存 output，且限长防爆（约 1MB 上限）。
-        if (event.kind === 'output') {
-          const itemRef = pool[sessionId];
-          if (itemRef) {
-            const buf = itemRef.pendingOutputs ?? (itemRef.pendingOutputs = []);
-            if (buf.join('').length < 1024 * 1024) buf.push(event.data);
-          }
-        }
         // osDetected 同样可能早于事件监听建立（连接早期 emit）——缓存待注册回放，
         // 否则竞态下会「时灵时不灵」（某发行版图标不出现）
         if (event.kind === 'osDetected') {
@@ -557,9 +589,6 @@ export async function attachListeners(sessionId: string) {
         return;
       }
       switch (event.kind) {
-        case 'output':
-          queueOutput(pool[sessionId], event.data, handlers.onOutput);
-          break;
         case 'disconnected':
           handlers.onDisconnect();
           break;
@@ -576,6 +605,109 @@ export async function attachListeners(sessionId: string) {
     });
   } catch (e) {
     // ignore if not available in environment
+  }
+}
+
+/** 会话输出统一入口（事件与二进制 IPC 通道共用）：
+ *  先喂会话日志缓冲（不经 React，高频也不影响渲染），再经 rAF 合并渲染分发；
+ *  handlers 未注册（连接早期竞态/重挂载间隙）时先进缓冲、注册时回放——
+ *  否则 Last login / motd 等早期输出会丢失。仅缓存 output，限长约 1MB 防爆。 */
+export function deliverOutput(sessionId: string, data: string) {
+  appendOutput(sessionId, data);
+  const handlers = pool[sessionId]?.eventHandlers;
+  if (!handlers) {
+    const itemRef = pool[sessionId];
+    if (itemRef) {
+      const buf = itemRef.pendingOutputs ?? (itemRef.pendingOutputs = []);
+      if (buf.join('').length < 1024 * 1024) buf.push(data);
+    }
+    return;
+  }
+  queueOutput(pool[sessionId], data, handlers.onOutput);
+}
+
+// —— 输出背压（流控）水位 ——
+// xterm.write 异步解析，回调触发即该块解析完成；回调滞后量即积压。
+// 超高水位 → 通知后端暂停读 socket（SSH 路径产生 TCP 背压，其余类型后端 no-op），
+// 低于低水位恢复。积压期间顺带做一次性 DOM→WebGL 渲染升级（GPU 允许时）。
+const OUTPUT_PAUSE_HIGH_BYTES = 4 * 1024 * 1024;
+const OUTPUT_RESUME_LOW_BYTES = 1 * 1024 * 1024;
+
+/** 输出块入队：积压超高水位时触发后端暂停与渲染升级。 */
+export function noteOutputQueued(sessionId: string, bytes: number) {
+  const item = pool[sessionId];
+  if (!item) return;
+  item.outputInflight = (item.outputInflight ?? 0) + bytes;
+  if (!item.outputPaused && item.outputInflight >= OUTPUT_PAUSE_HIGH_BYTES) {
+    item.outputPaused = true;
+    void invoke('ssh_set_output_paused', { sessionId, paused: true }).catch(() => {});
+    emitFloodEvent(sessionId, true);
+    maybeUpgradeRenderer(sessionId);
+  }
+}
+
+/** 输出块解析完成：积压低于低水位时恢复后端读取。 */
+export function noteOutputDrained(sessionId: string, bytes: number) {
+  const item = pool[sessionId];
+  if (!item) return;
+  item.outputInflight = Math.max(0, (item.outputInflight ?? 0) - bytes);
+  if (item.outputPaused && item.outputInflight < OUTPUT_RESUME_LOW_BYTES) {
+    item.outputPaused = false;
+    void invoke('ssh_set_output_paused', { sessionId, paused: false }).catch(() => {});
+    emitFloodEvent(sessionId, false);
+  }
+}
+
+// 洪泛状态变化广播：热路径降级决策（背景层暂停 blur 等）在组件侧监听
+const emitFloodEvent = (sessionId: string, active: boolean) => {
+  window.dispatchEvent(new CustomEvent('swallow:output-flood', { detail: { sessionId, active } }));
+};
+
+/** 输出洪泛中（流控暂停或积压仍高）：快照瘦身 / 背景层减负等热路径降级决策用。 */
+export function isOutputFlooded(sessionId: string): boolean {
+  const item = pool[sessionId];
+  if (!item) return false;
+  return item.outputPaused === true || (item.outputInflight ?? 0) >= OUTPUT_RESUME_LOW_BYTES;
+}
+
+/** 洪泛期渲染升级：仅激活标签——后台标签不可见，DOM 渲染零合成成本且不占
+ *  WebGL context 预算，升级无意义；用户显式关 GPU 则尊重配置。 */
+function maybeUpgradeRenderer(sessionId: string) {
+  const item = pool[sessionId];
+  if (!item || !item.isVisible || item.renderEngine === 'webgl') return;
+  const cfg = useConfigStore.getState().config;
+  if (!cfg?.terminal?.gpu_acceleration) return;
+  item.renderEngine = applyRenderAddon(sessionId, 'webgl', true);
+  if (item.renderEngine === 'webgl') {
+    console.info(`[${sessionId}] 输出洪泛：渲染引擎 DOM → WebGL`);
+  }
+}
+
+/** 标签激活：恢复可见标记与用户配置的目标引擎，清 context 丢失重试计数。
+ *  背景：浏览器 WebGL context 有 ~8-16 个硬上限，超限最老的被静默驱逐（黑屏）——
+ *  只有激活标签持 WebGL，后台标签降级 DOM（不可见时 DOM 零渲染成本）。 */
+export function activateTerminalRenderer(sessionId: string) {
+  const item = pool[sessionId];
+  if (!item) return;
+  item.isVisible = true;
+  item.contextLossRetries = 0;
+  const cfg = useConfigStore.getState().config;
+  const want = cfg?.terminal?.render_engine ?? 'dom';
+  const gpu = cfg?.terminal?.gpu_acceleration ?? true;
+  // canvas 6.x 无兼容 addon，视同 dom
+  const target = want === 'webgl' ? 'webgl' : 'dom';
+  if (item.renderEngine !== target) {
+    item.renderEngine = applyRenderAddon(sessionId, target, gpu);
+  }
+}
+
+/** 标签转后台：卸载 WebGL context 让出预算。 */
+export function deactivateTerminalRenderer(sessionId: string) {
+  const item = pool[sessionId];
+  if (!item) return;
+  item.isVisible = false;
+  if (item.renderEngine === 'webgl') {
+    item.renderEngine = applyRenderAddon(sessionId, 'dom', false);
   }
 }
 

@@ -234,8 +234,9 @@ fn accept_host_key_ssh2(
     expected_fingerprint: &str,
     timeout_secs: u32,
 ) -> Result<()> {
-    // 经跳板机（或直连）重建到目标主机的 TCP 连接；跳板机传输层随函数作用域存活
-    let (tcp, _jump) = establish_transport(config, timeout_secs, &|_, _| {})?;
+    // 经跳板机（或直连）重建到目标主机的 TCP 连接；跳板机传输层随函数作用域存活。
+    // 确认流程只握手取指纹，短命连接，保活/压缩无意义，显式关闭。
+    let (tcp, _jump) = establish_transport(config, timeout_secs, 0, false, &|_, _| {})?;
 
     let mut session = Session::new()?;
     session.set_tcp_stream(tcp);

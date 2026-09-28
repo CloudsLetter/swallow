@@ -22,7 +22,7 @@ use base64::Engine as _;
 use russh::client::{self, Handle};
 use russh::keys::ssh_key::PublicKey;
 use russh::keys::{Algorithm, Certificate, PrivateKey, PrivateKeyWithHashAlg};
-use russh::{cipher, kex, Preferred};
+use russh::{cipher, compression, kex, Preferred};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::ssh::host_keys::{
@@ -134,8 +134,9 @@ pub struct ClientHandler {
     /// remote（ssh -R）转发的本地回连目标；非 remote 规则为 None
     pub forward_target: Option<(String, u16)>,
     /// 连接断开通知（事件驱动替代看门狗轮询）：事件循环 disconnected 回调触发，
-    /// 由上层做清理与前端状态推送。跳板机会话共享同一闭包（跳板断 = 整条隧道断）。
-    pub on_disconnected: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// 携带已格式化的断线原因（服务端 disconnect 文案 / KeepaliveTimeout / IO 错误），
+    /// 由上层做清理、前端状态推送与原因透出。跳板机会话共享同一闭包（跳板断 = 整条隧道断）。
+    pub on_disconnected: Option<Arc<dyn Fn(&str) + Send + Sync>>,
 }
 
 impl client::Handler for ClientHandler {
@@ -196,13 +197,33 @@ impl client::Handler for ClientHandler {
 
     async fn disconnected(
         &mut self,
-        _reason: client::DisconnectReason<Self::Error>,
+        reason: client::DisconnectReason<Self::Error>,
     ) -> Result<(), Self::Error> {
-        // 事件驱动断线感知：立即通知上层清理（幂等），替代 3s 轮询看门狗
+        // 事件驱动断线感知：立即通知上层清理（幂等），替代 3s 轮询看门狗；
+        // 断线原因一并透出（shell → 前端 Error 事件，隧道 → 日志），断线不再无声无息
+        let note = format_disconnect_reason(&reason);
         if let Some(cb) = &self.on_disconnected {
-            cb();
+            cb(&note);
         }
         Ok(())
+    }
+}
+
+/// 断线原因统一格式化：服务端主动断开带 reason code 与其文案；本地错误侧把
+/// russh::Error 翻译为用户可读文案（与连接期错误同一套映射）。
+fn format_disconnect_reason(reason: &client::DisconnectReason<HandlerError>) -> String {
+    match reason {
+        client::DisconnectReason::ReceivedDisconnect(v) => {
+            if v.message.is_empty() {
+                format!("服务端主动断开（{:?}）", v.reason_code)
+            } else {
+                format!("服务端主动断开：{}", v.message)
+            }
+        }
+        client::DisconnectReason::Error(e) => match e.0.downcast_ref::<russh::Error>() {
+            Some(re) => describe_russh_error(re),
+            None => e.0.to_string(),
+        },
     }
 }
 
@@ -224,12 +245,18 @@ type BoxedTransport = Box<dyn AsyncReadWrite>;
 ///
 /// `forward_target`：remote（ssh -R）规则的本地回连目标，供 Handler 回调使用；
 /// local/dynamic 传 None。跳板机递归复用本函数，认证链路与 ssh2 版一一对应。
+/// `keepalive_secs`：0 = 跟随 russh 默认（不设置）；>0 = 覆盖 russh Config 的
+/// keepalive_interval，读取自用户配置（设置 → SSH → 心跳间隔）。
+/// `compression`：用户开启压缩时把 zlib 置顶到压缩算法列表（DEFAULT 是 none
+/// 置顶、等效不压缩）；none 兜底保证不支持 zlib 的服务端协商不失败。
 pub async fn connect(
     config: &SshConfig,
     timeout_secs: u32,
     forward_target: Option<(String, u16)>,
     on_progress: &(dyn Fn(&str, Option<&str>) + Send + Sync),
-    on_disconnected: Option<Arc<dyn Fn() + Send + Sync>>,
+    on_disconnected: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    keepalive_secs: u32,
+    compression: bool,
 ) -> Result<RusshConnection> {
     connect_inner(
         config,
@@ -239,13 +266,15 @@ pub async fn connect(
         Arc::new(Mutex::new(None)),
         true,
         on_disconnected,
+        keepalive_secs,
+        compression,
     )
     .await
 }
 
 /// connect 的完整实现。`server_key`：由调用方创建并注入 Handler 的记录槽
 /// （握手时无条件写入服务器主机密钥）；`do_auth=false` 用于主机密钥确认流程
-/// （只需握手，不认证）。
+/// （只需握手，不认证）。`keepalive_secs` 见 [`connect`]。
 async fn connect_inner(
     config: &SshConfig,
     timeout_secs: u32,
@@ -253,7 +282,9 @@ async fn connect_inner(
     on_progress: &(dyn Fn(&str, Option<&str>) + Send + Sync),
     server_key: Arc<Mutex<Option<ServerKeyInfo>>>,
     do_auth: bool,
-    on_disconnected: Option<Arc<dyn Fn() + Send + Sync>>,
+    on_disconnected: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    keepalive_secs: u32,
+    compression: bool,
 ) -> Result<RusshConnection> {
     let timeout_secs = timeout_secs.max(1);
     let timeout = Duration::from_secs(timeout_secs as u64);
@@ -283,6 +314,8 @@ async fn connect_inner(
                     Arc::new(Mutex::new(None)),
                     true,
                     on_disconnected.clone(),
+                    keepalive_secs,
+                    compression,
                 ))
                     .await
                     .with_context(|| {
@@ -324,12 +357,16 @@ async fn connect_inner(
         }
     };
 
-    // 连接期配置：nodelay 保持小包低延迟；keepalive 交给 russh 自动处理
-    //（无需自建探活线程）；⚠️ inactivity_timeout 语义是「空闲 N 秒断开」，
-    // 与 ssh2 那个 30s 自断 bug 同款，隧道场景必须留 None。
+    // 连接期配置：nodelay 保持小包低延迟；keepalive 必须与用户配置一致
+    // （russh 原生 keepalive@openssh.com：空闲到期自动发 global request，
+    // 使 NAT/防火墙会话表与服务端 ClientAlive 计时持续刷新，防止几分钟后被
+    // 中间设备静默回收；原 30s 硬编码与设置页脱节，且部分云主机要求更短间隔）。
+    // ⚠️ inactivity_timeout 语义是「空闲 N 秒断开」，与 ssh2 那个 30s 自断 bug
+    // 同款，隧道场景必须留 None。
     let mut client_config = client::Config {
         nodelay: true,
-        keepalive_interval: Some(Duration::from_secs(30)),
+        keepalive_interval: (keepalive_secs > 0)
+            .then(|| Duration::from_secs(keepalive_secs as u64)),
         keepalive_max: 3,
         inactivity_timeout: None,
         ..<_>::default()
@@ -337,6 +374,15 @@ async fn connect_inner(
     // 主机级算法预设覆盖（"" = 出厂默认，不设置）
     if let Some(p) = preferred_for_algo_profile(&config.algo_profile) {
         client_config.preferred = p;
+    }
+    // 用户开启压缩：zlib 置顶才会实际协商生效（DEFAULT 列表 none 置顶、等效关闭），
+    // none 兜底保证不支持 zlib 的服务端协商不失败
+    if compression {
+        client_config.preferred.compression = Cow::Borrowed(&[
+            compression::ZLIB,
+            compression::ZLIB_LEGACY,
+            compression::NONE,
+        ]);
     }
     let client_config = Arc::new(client_config);
 
@@ -388,6 +434,9 @@ pub(crate) async fn verify_and_learn_host_key(
         Arc::clone(&server_key),
         false,
         None,
+        // 主机密钥确认只握手、不建长连接：keepalive/压缩无意义，沿用默认值即可
+        0,
+        false,
     )
     .await;
 

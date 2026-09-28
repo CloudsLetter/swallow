@@ -4,6 +4,7 @@ use tauri::State;
 
 use crate::AppState;
 
+use crate::config::global_config::GlobaConfig;
 use crate::vnc::{VncConnectRequest, VncConnectResult};
 use std::time::Duration;
 
@@ -13,6 +14,7 @@ use std::time::Duration;
 #[tauri::command]
 pub async fn vnc_connect(
     state: State<'_, AppState>,
+    config_state: State<'_, GlobaConfig>,
     request: VncConnectRequest,
 ) -> Result<VncConnectResult, String> {
     // 输入校验
@@ -21,12 +23,23 @@ pub async fn vnc_connect(
     }
 
     let timeout_secs = crate::vnc::VNC_CONNECT_TIMEOUT_SECS as u32;
+    // SSH 隧道是长命 ssh2 会话：保活/压缩读自用户配置，与终端同一套
+    let keep_alive_interval = config_state
+        .config
+        .read()
+        .map(|guard| guard.ssh.keep_alive_interval)
+        .unwrap_or(60);
+    let compression = config_state
+        .config
+        .read()
+        .map(|guard| guard.ssh.compression)
+        .unwrap_or(false);
 
     // ---- SSH 隧道模式：认证 + direct-tcpip 泵到本地 loopback（阻塞 ssh2 放阻塞线程池）----
     if let Some(ssh_transport) = request.ssh {
         let sid = request.session_id.clone();
         let outcome = tauri::async_runtime::spawn_blocking(move || {
-            crate::vnc::open_ssh_tunnel(&ssh_transport, timeout_secs)
+            crate::vnc::open_ssh_tunnel(&ssh_transport, timeout_secs, keep_alive_interval, compression)
         })
         .await
         .map_err(|e| format!("SSH 隧道任务异常: {e}"))?;

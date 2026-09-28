@@ -122,6 +122,8 @@ fn spawn_pump(mut channel: ssh2::Channel, tcp: TcpStream) -> thread::JoinHandle<
 pub fn open_ssh_tunnel(
     transport: &SshTransportConfig,
     timeout_secs: u32,
+    keep_alive_interval: u32,
+    compression: bool,
 ) -> Result<(TcpStream, SshTunnelGuard)> {
     // 目标校验
     if transport.ssh_host.trim().is_empty() {
@@ -138,8 +140,13 @@ pub fn open_ssh_tunnel(
     enrich_key(&mut config)?;
 
     // 认证（含主机密钥校验；未知密钥抛 HostKeyApprovalRequired）
-    let established =
-        SshSession::establish_authenticated_session(&config, timeout_secs, &|_, _| {})?;
+    let established = SshSession::establish_authenticated_session(
+        &config,
+        timeout_secs,
+        keep_alive_interval,
+        compression,
+        &|_, _| {},
+    )?;
 
     // 本地 loopback 对：一端返回给异步桥，另一端与 direct-tcpip 通道数据泵
     let listener =

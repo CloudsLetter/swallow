@@ -61,13 +61,21 @@ pub async fn ssh_connect(
     config: SshConfig,
     cols: u32,
     rows: u32,
+    on_output: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>,
 ) -> Result<ConnectResult, String> {
     let timeout_secs = read_connection_timeout(&config_state);
+    // russh 原生 keepalive 间隔（秒）与 ssh2 路径共用同一配置项：
+    // 0 = 用户关闭心跳 → russh Config 保持 None（不发 keepalive），行为与 ssh2 一致。
     let keep_alive_interval = config_state
         .config
         .read()
         .map(|guard| guard.ssh.keep_alive_interval)
         .unwrap_or(60);
+    let compression = config_state
+        .config
+        .read()
+        .map(|guard| guard.ssh.compression)
+        .unwrap_or(false);
 
     // SSH 后端优先级：ssh.ssh_backend ∈ {"auto"|"russh"|"ssh2"}（空串按 auto）
     let ssh_backend = config_state
@@ -112,6 +120,9 @@ pub async fn ssh_connect(
             timeout_secs,
             cols,
             rows,
+            keep_alive_interval,
+            compression,
+            on_output.clone(),
         )
         .await;
         match spawn_result {
@@ -184,7 +195,15 @@ pub async fn ssh_connect(
                 },
             );
         };
-        SshSession::connect(connect_config, connect_session_id, timeout_secs, &on_progress)
+        SshSession::connect(
+            connect_config,
+            connect_session_id,
+            timeout_secs,
+            keep_alive_interval,
+            compression,
+            &on_progress,
+            on_output,
+        )
     })
     .await
     .map_err(|e| format!("Connection task failed: {e}"))?;
@@ -368,5 +387,31 @@ pub fn accept_host_key(
     let timeout_secs = read_connection_timeout(&config_state);
     crate::ssh::host_keys::accept_host_key(&token, &expected_fingerprint, timeout_secs)
         .map_err(|e| format!("Failed to accept host key: {}", e))
+}
+
+/// 终端输出流控开关：前端 write 缓冲积压超水位时暂停后端读取、低于水位恢复。
+/// 仅 SSH 路径（russh/ssh2）有真实背压语义；其他会话类型查不到即为无害 no-op。
+#[tauri::command]
+pub fn ssh_set_output_paused(
+    state: State<'_, AppState>,
+    session_id: String,
+    paused: bool,
+) -> Result<(), String> {
+    let russh_shell = state
+        .russh_shells
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(&session_id)
+        .cloned();
+    if let Some(shell) = russh_shell {
+        shell.set_output_paused(paused);
+        return Ok(());
+    }
+    if let Ok(manager) = state.ssh.lock() {
+        if let Some(session) = manager.get_session(&session_id) {
+            session.set_output_paused(paused);
+        }
+    }
+    Ok(())
 }
 

@@ -555,6 +555,28 @@ impl LocalShellSession {
             let mut buffer = [0u8; 8192];
             // 跨 read 的 UTF-8 增量解码缓冲（多字节字符可能跨 8192 边界）
             let mut utf8_pending: Vec<u8> = Vec::with_capacity(8192 + 4);
+            // 输出批量合并 + 事件通道下发：逐块 emit 的事件洪泛会打满前端主线程
+            //（大流量输出卡死整机）
+            let batcher = std::sync::Arc::new(std::sync::Mutex::new(
+                crate::session_events::OutputBatcher::new(
+                    crate::session_events::OutputBatcher::event_sink(
+                        app_handle.clone(),
+                        session_id.clone(),
+                    ),
+                ),
+            ));
+            // reader.read 是阻塞读，无数据时循环不迭代——16ms 合并窗口的到期 flush
+            // 需要独立看门狗，否则停流后残留输出（如粘贴尾部）会滞留缓冲
+            {
+                let wd_batcher = std::sync::Arc::clone(&batcher);
+                let wd_connected = std::sync::Arc::clone(&is_connected);
+                thread::spawn(move || {
+                    while *wd_connected.lock().unwrap() {
+                        thread::sleep(std::time::Duration::from_millis(8));
+                        wd_batcher.lock().unwrap().flush_if_due();
+                    }
+                });
+            }
             loop {
                 if !*is_connected.lock().unwrap() {
                     break;
@@ -562,6 +584,7 @@ impl LocalShellSession {
                 match reader.read(&mut buffer) {
                     Ok(0) => {
                         // slave 关闭（子进程退出）：EOF
+                        batcher.lock().unwrap().flush();
                         emit_session_event(&app_handle, &session_id, &SessionEvent::Disconnected);
                         break;
                     }
@@ -575,11 +598,7 @@ impl LocalShellSession {
                                     let s = String::from_utf8(utf8_pending.split_off(idx))
                                         .unwrap_or_default();
                                     if !s.is_empty() {
-                                        emit_session_event(
-                                            &app_handle,
-                                            &session_id,
-                                            &SessionEvent::Output { data: s },
-                                        );
+                                        batcher.lock().unwrap().push(&s);
                                     }
                                     idx = 0;
                                     break;
@@ -592,24 +611,14 @@ impl LocalShellSession {
                                         )
                                         .unwrap_or_default();
                                         idx += valid;
-                                        emit_session_event(
-                                            &app_handle,
-                                            &session_id,
-                                            &SessionEvent::Output { data: s },
-                                        );
+                                        batcher.lock().unwrap().push(&s);
                                     } else if e.error_len().is_none() {
                                         break; // 不完整序列，等下次补齐
                                     } else {
                                         // 非法字节：替换 U+FFFD
                                         let bad = e.error_len().unwrap_or(1);
                                         idx += bad;
-                                        emit_session_event(
-                                            &app_handle,
-                                            &session_id,
-                                            &SessionEvent::Output {
-                                                data: "\u{FFFD}".to_string(),
-                                            },
-                                        );
+                                        batcher.lock().unwrap().push("\u{FFFD}");
                                     }
                                 }
                             }
@@ -617,16 +626,20 @@ impl LocalShellSession {
                         if idx > 0 {
                             utf8_pending.drain(..idx);
                         }
+                        batcher.lock().unwrap().flush_if_due();
                     }
                     Err(e) => {
                         // 读错误：正常退出（子进程关闭管道）或异常，统一按断开处理
                         let _ = e;
+                        batcher.lock().unwrap().flush();
                         emit_session_event(&app_handle, &session_id, &SessionEvent::Disconnected);
                         break;
                     }
                 }
             }
 
+            // 发掉缓冲残留（覆盖「会话被主动停止」的 break 路径）
+            batcher.lock().unwrap().flush();
             *is_connected.lock().unwrap() = false;
             // 尽力回收子进程（可能已退出，忽略错误）
             let mut child_guard = child.lock().unwrap();

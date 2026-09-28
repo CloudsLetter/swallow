@@ -95,6 +95,11 @@ pub struct SshSession {
     jump: Option<JumpTransport>,
     /// OS 探测缓存键（host, port）：同一主机再次连接不再重复探测；host key 变更时失效
     probe_key: Option<(String, u16)>,
+    /// 输出二进制通道（SSH 终端 Raw 下发，绕过 JSON 序列化）
+    output_channel: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>,
+    /// 输出流控：true = 前端 write 缓冲积压超水位，读线程暂停消费 socket。
+    /// 不读 socket → TCP 窗口耗尽 → 服务端停发，端到端背压、内存有界。
+    output_paused: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// 远端 OS 探测缓存（host, port）→ 归一化 osId。
@@ -227,12 +232,20 @@ fn spawn_jump_bridge(mut channel: Channel, remote_side: TcpStream) -> std::threa
 pub(crate) fn establish_transport(
     config: &SshConfig,
     timeout_secs: u32,
+    keep_alive_interval: u32,
+    compression: bool,
     on_progress: &dyn Fn(&str, Option<&str>),
 ) -> Result<(TcpStream, Option<JumpTransport>)> {
     if let Some(proxy) = config.proxy.as_deref() {
         // 先建立（认证）跳板机会话；递归调用支持链式跳板（解析层已防循环）。
-        let jump_established =
-            SshSession::establish_authenticated_session(proxy, timeout_secs, on_progress)?;
+        // 跳板机会话同样长命（随目标会话存活），保活/压缩参数一并透传。
+        let jump_established = SshSession::establish_authenticated_session(
+            proxy,
+            timeout_secs,
+            keep_alive_interval,
+            compression,
+            on_progress,
+        )?;
         let channel = jump_established
             .session
             .channel_direct_tcpip(&config.host, config.port, None)
@@ -291,21 +304,38 @@ pub(crate) fn establish_transport(
 impl SshSession {
     /// 建立已完成 TCP 连接 + 握手 + 主机密钥校验 + 认证的 SSH 会话（尚未启动 shell）。
     /// 终端连接与端口转发隧道共用此入口，保证认证链路只有一份实现。
+    /// `keep_alive_interval`/`compression`：会话级保活与压缩，读取自用户配置；
+    /// 终端/监控/VNC 隧道等所有 ssh2 长连接共用（0/false = 关闭）。
     pub(crate) fn establish_authenticated_session(
         config: &SshConfig,
         timeout_secs: u32,
+        keep_alive_interval: u32,
+        compression: bool,
         on_progress: &dyn Fn(&str, Option<&str>),
     ) -> Result<EstablishedSession> {
         let timeout_secs = timeout_secs.max(1);
 
         // 建立传输层 TCP：直连，或经跳板机 direct-tcpip 桥接到本地 loopback 对。
         // 跳板机会话 + 桥接线程必须随目标会话存活，一并存入 EstablishedSession 返回。
-        let (tcp, jump) = establish_transport(config, timeout_secs, on_progress)?;
+        let (tcp, jump) = establish_transport(
+            config,
+            timeout_secs,
+            keep_alive_interval,
+            compression,
+            on_progress,
+        )?;
 
         // 在（直连或跳板机桥接的）TCP 流上做目标主机 SSH 握手
         let mut session = Session::new()?;
         session.set_tcp_stream(tcp);
         session.set_timeout(timeout_secs.saturating_mul(1000));
+        // 压缩协商必须在握手前配置（method_pref 仅握手前生效）：libssh2 默认
+        // pref 列表仅 none（不压缩）；zlib 置顶实际生效，none 兜底保证不支持
+        // zlib 的服务端协商不失败。失败忽略：退回默认（无压缩）。
+        if compression {
+            let _ = session.method_pref(ssh2::MethodType::CompCs, "zlib,none");
+            let _ = session.method_pref(ssh2::MethodType::CompSc, "zlib,none");
+        }
         session.handshake()?;
         on_progress("ssh", None);
 
@@ -419,6 +449,13 @@ impl SshSession {
         }
         on_progress("auth", Some(&config.username));
 
+        // 会话级保活：libssh2 默认 keepalive_interval=0（session 结构 memset 0 初始化），
+        // 不先配置则使用方（终端读线程 / SFTP keepalive 线程）的 keepalive_send() 空转。
+        // 握手+认证完成后再启用，避免握手期 _libssh2_wait_socket 提前发出 keepalive 包。
+        if keep_alive_interval > 0 {
+            session.set_keepalive(true, keep_alive_interval);
+        }
+
         Ok(EstablishedSession { session, jump })
     }
 
@@ -426,9 +463,18 @@ impl SshSession {
         config: SshConfig,
         session_id: String,
         timeout_secs: u32,
+        keep_alive_interval: u32,
+        compression: bool,
         on_progress: &dyn Fn(&str, Option<&str>),
+        output_channel: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>,
     ) -> Result<Self> {
-        let established = Self::establish_authenticated_session(&config, timeout_secs, on_progress)?;
+        let established = Self::establish_authenticated_session(
+            &config,
+            timeout_secs,
+            keep_alive_interval,
+            compression,
+            on_progress,
+        )?;
         Ok(Self {
             session: Arc::new(Mutex::new(established.session)),
             channel: Arc::new(Mutex::new(None)),
@@ -437,7 +483,15 @@ impl SshSession {
             disconnect_handler: Arc::new(Mutex::new(None)),
             jump: established.jump,
             probe_key: Some((config.host.clone(), config.port)),
+            output_channel,
+            output_paused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         })
+    }
+
+    /// 输出流控开关（前端水位检测触发；见 output_paused 字段注释）。
+    pub fn set_output_paused(&self, paused: bool) {
+        self.output_paused
+            .store(paused, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// 注册会话退出（EOF/错误/断开）时由 manager 执行的回调。
@@ -453,6 +507,8 @@ impl SshSession {
         keep_alive_interval: u32,
     ) -> Result<()> {
         let session = self.session.lock().unwrap();
+        // 会话级 keepalive/压缩已在 establish_authenticated_session 配置；
+        // 这里的 keep_alive_interval 只供下方读线程驱动心跳发送循环。
         // —— 远端 OS 探测（必须在本 Session 打开 shell 通道之前：ssh2 的 Session 是全局锁，
         //     通道已开的阻塞读会与二次 channel_session 排队互等；此刻通道未开、无并发读）——
         // 探测只服务「自动模式且主机尚无图标」的主机：
@@ -526,6 +582,8 @@ impl SshSession {
         let channel_arc = self.channel.clone();
         let is_connected = self.is_connected.clone();
         let disconnect_handler = self.disconnect_handler.clone();
+        let output_channel = self.output_channel.clone();
+        let output_paused = self.output_paused.clone();
         // 读线程闭包会 move app_handle，这里 clone 一份供末尾 ready 进度 emit 使用
         let ready_app = app_handle.clone();
 
@@ -540,15 +598,28 @@ impl SshSession {
             // 空闲退避：连续 WouldBlock 时指数增长（10ms→…→100ms），
             // 一读到数据立即复位——空闲会话少耗 CPU，输入回显几乎无感知延迟
             let mut backoff_ms: u64 = 10;
+            // 输出批量合并 + 二进制通道下发：逐块 JSON 事件洪泛会打满前端主线程
+            //（大流量输出卡死整机）；Raw 载荷绕过 serde JSON 序列化/转义
+            let mut batcher = crate::session_events::OutputBatcher::new(
+                crate::session_events::OutputBatcher::channel_sink(output_channel),
+            );
             loop {
                 if !*is_connected.lock().unwrap() {
                     break;
                 }
-                
+                // 流控暂停：不读 socket → TCP 窗口耗尽 → 服务端停发（端到端背压）；
+                // 暂停期间只做到期 flush 与周期性醒来等待恢复
+                if output_paused.load(std::sync::atomic::Ordering::Relaxed) {
+                    batcher.flush_if_due();
+                    thread::sleep(std::time::Duration::from_millis(16));
+                    continue;
+                }
+
                 let mut channel_guard = channel_arc.lock().unwrap();
                 if let Some(ref mut channel) = *channel_guard {
                     match channel.read(&mut buffer) {
                         Ok(0) => {
+                            batcher.flush();
                             emit_session_event(&app_handle, &session_id, &SessionEvent::Disconnected);
                             break;
                         }
@@ -563,11 +634,7 @@ impl SshSession {
                                         let data = String::from_utf8(std::mem::take(&mut pending))
                                             .unwrap_or_default();
                                         if !data.is_empty() {
-                                            emit_session_event(
-                                                &app_handle,
-                                                &session_id,
-                                                &SessionEvent::Output { data },
-                                            );
+                                            batcher.push(&data);
                                         }
                                     }
                                     Err(e) => {
@@ -579,11 +646,7 @@ impl SshSession {
                                             )
                                             .unwrap_or_default();
                                             pending.drain(..valid_up_to);
-                                            emit_session_event(
-                                                &app_handle,
-                                                &session_id,
-                                                &SessionEvent::Output { data },
-                                            );
+                                            batcher.push(&data);
                                         } else if incomplete_tail {
                                             // 开头即未完整序列（valid_up_to == 0）：等下次补齐
                                             break;
@@ -591,17 +654,12 @@ impl SshSession {
                                             // 开头是非法字节：替换为 U+FFFD 后跳过
                                             let bad_len = e.error_len().unwrap_or(1);
                                             pending.drain(..bad_len);
-                                            emit_session_event(
-                                                &app_handle,
-                                                &session_id,
-                                                &SessionEvent::Output {
-                                                    data: "\u{FFFD}".to_string(),
-                                                },
-                                            );
+                                            batcher.push("\u{FFFD}");
                                         }
                                     }
                                 }
                             }
+                            batcher.flush_if_due();
                             last_keepalive = std::time::Instant::now();
                         }
                         Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -620,6 +678,7 @@ impl SshSession {
                                                 // 发送 keepalive，不代表连接断开，忽略、下次再试
                                             } else {
                                                 eprintln!("SSH keepalive error: {}", io_err);
+                                                batcher.flush();
                                                 emit_session_event(
                                                     &app_handle,
                                                     &session_id,
@@ -639,6 +698,7 @@ impl SshSession {
                                 }
                                 last_keepalive = std::time::Instant::now();
                             }
+                            batcher.flush_if_due();
                             drop(channel_guard);
                             thread::sleep(std::time::Duration::from_millis(backoff_ms));
                             backoff_ms = (backoff_ms * 2).min(100);
@@ -646,6 +706,7 @@ impl SshSession {
                         }
                         Err(e) => {
                             eprintln!("SSH read error: {}", e);
+                            batcher.flush();
                             emit_session_event(
                                 &app_handle,
                                 &session_id,
@@ -663,8 +724,9 @@ impl SshSession {
                 
                 drop(channel_guard);
             }
-            
-            // 清理
+
+            // 清理：发掉缓冲残留（覆盖「会话被主动停止」的 break 路径）
+            batcher.flush();
             *is_connected.lock().unwrap() = false;
 
             // 通知 manager 移除该会话，使重连可以建立新会话

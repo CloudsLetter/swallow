@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use crate::ssh::host_keys::{require_approval, verify_host_key, HostKeyCheck};
 use crate::ssh::session::{SshConfig, userauth_pubkey_from_content};
+use crate::utils::net::enable_tcp_keepalive;
 
 /// 单文件整体传输大小上限（字节）：整文件内存传输的保护线（分块传输不受此限制）。
 const MAX_FILE_TRANSFER_BYTES: u64 = 100 * 1024 * 1024;
@@ -20,17 +21,6 @@ const TRANSFER_CHUNK_BYTES: usize = 1024 * 1024;
 /// FTP 控制连接池的空闲连接上限：连接数软上限，覆盖「浏览目录 + 一个长传输」的典型并发。
 /// 并发峰值可临时超出（超出部分用完即弃），避免阻塞等待。
 const FTP_POOL_MAX_CONNS: usize = 4;
-
-/// 为 TCP 流启用 keepalive（尽力而为，失败不阻断连接）：
-/// 空闲后服务器/中间设备静默断开时（半开连接），系统在 keepalive 周期内探测到对端不可达，
-/// 后续读写立即失败，避免 readdir 等操作挂满整个 I/O 超时。
-fn enable_tcp_keepalive(tcp: &TcpStream) {
-    use socket2::{SockRef, TcpKeepalive};
-    let socket = SockRef::from(tcp);
-    if socket.set_keepalive(true).is_ok() {
-        let _ = socket.set_tcp_keepalive(&TcpKeepalive::new().with_time(Duration::from_secs(30)));
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SftpConfig {
@@ -573,6 +563,14 @@ impl SftpSession {
 
         // 包装为 Arc 供 keepalive 线程共享（ssh2::Session 线程安全，内部有锁）
         let session_arc = Arc::new(session);
+
+        // libssh2 默认 keepalive_interval=0（session 结构 memset 0 初始化），
+        // 不先配置的话 keepalive_send() 是 no-op，下方 keepalive 线程等于空转。
+        // want_reply=true：OpenSSH 对未知 global request 回 REQUEST_FAILURE，
+        // 反向流量一并刷新 NAT 映射（与 russh send_keepalive(true) 一致）。
+        if keep_alive_interval > 0 {
+            session_arc.set_keepalive(true, keep_alive_interval);
+        }
 
         // 应用层 keepalive 线程：按配置间隔发送 SSH keepalive 包，保住 NAT/防火墙映射，
         // 避免空闲一段时间后连接被静默掐断（否则下次刷新/操作要等 I/O 超时才发现连接已死）。

@@ -165,8 +165,19 @@ pub struct MonitorSession {
 }
 
 impl MonitorSession {
-    pub fn connect(config: &SshConfig, timeout_secs: u32) -> Result<Self> {
-        let established = SshSession::establish_authenticated_session(config, timeout_secs, &|_, _| {})?;
+    pub fn connect(
+        config: &SshConfig,
+        timeout_secs: u32,
+        keep_alive_interval: u32,
+        compression: bool,
+    ) -> Result<Self> {
+        let established = SshSession::establish_authenticated_session(
+            config,
+            timeout_secs,
+            keep_alive_interval,
+            compression,
+            &|_, _| {},
+        )?;
         Ok(Self {
             session: established.session,
             jump: established.jump,

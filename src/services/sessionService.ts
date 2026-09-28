@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { Channel, invoke } from '@tauri-apps/api/core';
 import type { FileItem } from '../components/sftpPool';
 
 export interface SshSessionConfig {
@@ -38,14 +38,22 @@ export interface ConnectResult {
   sessionId?: string;
 }
 
-/** 建立 SSH 终端会话。 */
+/** 建立 SSH 终端会话。onOutputData：输出二进制 IPC 通道回调（Raw 字节 → ArrayBuffer，
+ *  大流量下绕过 JSON 事件序列化；不传则后端无输出——终端场景必须传）。 */
 export function sshConnect(
   sessionId: string,
   config: SshSessionConfig,
   cols: number,
   rows: number,
+  onOutputData?: (chunk: ArrayBuffer) => void,
 ): Promise<ConnectResult> {
-  return invoke<ConnectResult>('ssh_connect', { sessionId, config, cols, rows });
+  const args: Record<string, unknown> = { sessionId, config, cols, rows };
+  if (onOutputData) {
+    const channel = new Channel<ArrayBuffer>();
+    channel.onmessage = onOutputData;
+    args.onOutput = channel;
+  }
+  return invoke<ConnectResult>('ssh_connect', args);
 }
 
 /** 确认信任主机密钥并写入 known_hosts（首次连接确认后调用，凭 token 经跳板机重建连接验证）。 */

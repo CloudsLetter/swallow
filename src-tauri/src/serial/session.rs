@@ -236,6 +236,14 @@ impl SerialSession {
             let mut buffer = [0u8; 8192];
             let mut decoded_buf: Vec<u8> = Vec::with_capacity(8192);
             let mut disconnected: Option<String> = None;
+            // 输出批量合并 + 事件通道下发：逐块 emit 的事件洪泛会打满前端主线程
+            //（大流量输出卡死整机）
+            let mut batcher = crate::session_events::OutputBatcher::new(
+                crate::session_events::OutputBatcher::event_sink(
+                    app_handle.clone(),
+                    session_id.clone(),
+                ),
+            );
 
             loop {
                 if !*is_connected.lock().unwrap() {
@@ -254,6 +262,7 @@ impl SerialSession {
                 match read_result {
                     Ok(0) => {
                         // 串口一般不会返回 0；防呆处理：视为瞬时无数据
+                        batcher.flush_if_due();
                         thread::sleep(Duration::from_millis(10));
                     }
                     Ok(n) => {
@@ -269,8 +278,9 @@ impl SerialSession {
                         let mut s = String::new();
                         decode_chunk(&mut decoder, chunk, &mut s);
                         if !s.is_empty() {
-                            emit_session_event(&app_handle, &session_id, &SessionEvent::Output { data: s });
+                            batcher.push(&s);
                         }
+                        batcher.flush_if_due();
                     }
                     Err(e)
                         if e.kind() == std::io::ErrorKind::WouldBlock
@@ -278,6 +288,7 @@ impl SerialSession {
                             || e.kind() == std::io::ErrorKind::Interrupted =>
                     {
                         // read_timeout 到期：无新数据，周期醒来检查断开标志
+                        batcher.flush_if_due();
                         thread::sleep(Duration::from_millis(10));
                     }
                     Err(e) => {
@@ -287,6 +298,8 @@ impl SerialSession {
                 }
             }
 
+            // 发掉缓冲残留（覆盖所有 break 路径）
+            batcher.flush();
             *is_connected.lock().unwrap() = false;
             // 释放句柄（读循环已结束，无人持锁）
             if let Ok(mut guard) = port_arc.lock() {

@@ -120,8 +120,14 @@ pub fn bootstrap(
     on_os: Option<&dyn Fn(&str)>,
 ) -> Result<MoshBootstrap> {
     on_progress("tcp", None);
-    let established =
-        SshSession::establish_authenticated_session(config, timeout_secs.max(1), on_progress)?;
+    // 引导连接短命（跑完 mosh-server new 即退出），保活/压缩无意义，显式关闭
+    let established = SshSession::establish_authenticated_session(
+        config,
+        timeout_secs.max(1),
+        0,
+        false,
+        on_progress,
+    )?;
     let session = established.session;
 
     // 引导通道打开前探测 OS（同 ssh2 全局锁规则：此阶段无并发读，安全）。
@@ -219,6 +225,16 @@ pub fn start_pump<R: tauri::Runtime>(
                 message: None,
             });
 
+            // 输出批量合并 + 事件通道下发：逐块 emit 的事件洪泛会打满前端主线程
+            //（大流量输出卡死整机）。泵周期 ≤ POLL_TIMEOUT_MS(50ms)，
+            // 每周期一次 flush_if_due 天然兜底停流残留。
+            let mut batcher = crate::session_events::OutputBatcher::new(
+                crate::session_events::OutputBatcher::event_sink(
+                    app_handle.clone(),
+                    session_id.clone(),
+                ),
+            );
+
             loop {
                 if stop.load(Ordering::Relaxed) {
                     session.shutdown();
@@ -237,6 +253,7 @@ pub fn start_pump<R: tauri::Runtime>(
                         // 统一由 render() 的差分输出表达，无需单独处理
                     }
                     Err(e) => {
+                        batcher.flush();
                         emit_session_event(&app_handle, &session_id, &SessionEvent::Error {
                             message: format!("MOSH 会话异常: {e}"),
                         });
@@ -245,14 +262,14 @@ pub fn start_pump<R: tauri::Runtime>(
                 }
                 let bytes = session.render();
                 if !bytes.is_empty() {
-                    emit_session_event(&app_handle, &session_id, &SessionEvent::Output {
-                        data: String::from_utf8_lossy(&bytes).to_string(),
-                    });
+                    batcher.push(&String::from_utf8_lossy(&bytes));
                 }
+                batcher.flush_if_due();
                 if session.finished() {
                     break;
                 }
             }
+            batcher.flush();
             finish(&app_handle, &session_id, &disconnect_handler);
         })
         .expect("启动 MOSH 泵线程失败")
