@@ -1,5 +1,6 @@
 //! Tauri 命令：sftp 域（自 lib.rs 拆分，行为不变）。
 
+use tauri::ipc::{InvokeBody, Request};
 use tauri::{Emitter, State};
 
 use crate::commands::read_connection_timeout;
@@ -151,13 +152,44 @@ pub async fn sftp_download_file_to(
     std::fs::write(&target_path, data).map_err(|e| format!("Failed to write file: {}", e))
 }
 
+/// 解析 Raw 上传请求：二进制体（octet-stream）直接取原始字节，绕开 JSON
+/// 数字数组序列化（4MB 块 → ~16MB JSON 文本的 CPU/内存双重浪费）；
+/// 元数据（sessionId/remotePath/truncate）经请求头传递。JSON 体保留为
+/// 旧前端兼容回退。返回 (session_id, remote_path, truncate, data)。
+fn parse_binary_upload(
+    request: Request<'_>,
+) -> Result<(String, String, Option<bool>, Vec<u8>), String> {
+    fn header(request: &Request<'_>, name: &str) -> Result<String, String> {
+        request
+            .headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string())
+            .ok_or_else(|| format!("missing request header: {name}"))
+    }
+    let session_id = header(&request, "x-session-id")?;
+    let remote_path = header(&request, "x-remote-path")?;
+    let truncate = request
+        .headers()
+        .get("x-truncate")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s == "true");
+    let data = match request.body() {
+        InvokeBody::Raw(bytes) => bytes.clone(),
+        // 旧前端兼容回退：JSON 数字数组体
+        InvokeBody::Json(value) => {
+            serde_json::from_value::<Vec<u8>>(value.clone()).map_err(|e| format!("invalid json body: {e}"))?
+        }
+    };
+    Ok((session_id, remote_path, truncate, data))
+}
+
 #[tauri::command]
 pub async fn sftp_upload_file(
     state: State<'_, AppState>,
-    session_id: String,
-    local_data: Vec<u8>,
-    remote_path: String,
+    request: tauri::ipc::Request<'_>,
 ) -> Result<(), String> {
+    let (session_id, remote_path, _truncate, local_data) = parse_binary_upload(request)?;
     let session = {
         let manager = state.sftp.lock().map_err(|e| e.to_string())?;
         manager
@@ -334,11 +366,10 @@ struct SftpTransferProgress {
 #[tauri::command]
 pub async fn sftp_upload_chunk(
     state: State<'_, AppState>,
-    session_id: String,
-    remote_path: String,
-    data: Vec<u8>,
-    truncate: bool,
+    request: tauri::ipc::Request<'_>,
 ) -> Result<(), String> {
+    let (session_id, remote_path, truncate, data) = parse_binary_upload(request)?;
+    let truncate = truncate.ok_or_else(|| "missing request header: x-truncate".to_string())?;
     let session = {
         let manager = state.sftp.lock().map_err(|e| e.to_string())?;
         manager

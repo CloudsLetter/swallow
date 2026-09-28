@@ -174,16 +174,20 @@ export function sftpDownloadFileTo(
   return invoke<void>('sftp_download_file_to', { sessionId, remotePath, targetPath });
 }
 
-/** 上传文件到 SFTP 远端路径（≤100MB 单次整传；数据直接传二进制，避免 Array.from 大数组拷贝）。 */
+/** 上传文件到 SFTP 远端路径（≤100MB 单次整传）。
+ *  Raw 字节请求体（octet-stream）：invoke args 直接传 Uint8Array 走 tauri
+ *  原始 IPC 通道，元数据经请求头传递——绕开 JSON 数字数组序列化
+ * （100MB 文件原会膨胀成 ~400MB JSON 文本）。 */
 export function sftpUploadFile(
   sessionId: string,
   localData: Uint8Array,
   remotePath: string,
 ): Promise<void> {
-  return invoke<void>('sftp_upload_file', {
-    sessionId,
-    localData,
-    remotePath,
+  return invoke<void>('sftp_upload_file', localData as unknown as Record<string, unknown>, {
+    headers: {
+      'x-session-id': sessionId,
+      'x-remote-path': remotePath,
+    },
   });
 }
 
@@ -210,7 +214,14 @@ export function sftpUploadChunk(
   data: Uint8Array,
   truncate: boolean,
 ): Promise<void> {
-  return invoke<void>('sftp_upload_chunk', { sessionId, remotePath, data, truncate });
+  // 同 sftpUploadFile：Raw 字节请求体 + 请求头元数据，绕开 JSON 数字数组
+  return invoke<void>('sftp_upload_chunk', data as unknown as Record<string, unknown>, {
+    headers: {
+      'x-session-id': sessionId,
+      'x-remote-path': remotePath,
+      'x-truncate': String(truncate),
+    },
+  });
 }
 
 /**
