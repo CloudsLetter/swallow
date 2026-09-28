@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { copyText } from '../lib/clipboard';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import i18n from '../i18n/i18n';
@@ -323,7 +324,7 @@ export function Keys() {
 
   const copyPublicKey = async () => {
     if (!detailContent?.publicKey) return;
-    await navigator.clipboard.writeText(detailContent.publicKey);
+    await copyText(detailContent.publicKey);
     setCopiedPub(true);
     setTimeout(() => setCopiedPub(false), 1500);
   };

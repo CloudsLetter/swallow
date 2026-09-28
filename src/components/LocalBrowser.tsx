@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { copyText } from '../lib/clipboard';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
@@ -235,7 +236,7 @@ export function LocalBrowser({
 
   const copyLocalPath = async (p: string) => {
     try {
-      await navigator.clipboard.writeText(p);
+      await copyText(p);
       toast.success(t('sftp.copyLocalPath'));
     } catch {
       toast.error(t('common.copyFailed'));

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { copyText } from '../lib/clipboard';
 import { useTranslation } from 'react-i18next';
 import { useUiPage } from '../store/uiPage';
 import {
@@ -161,7 +162,7 @@ export function KnownHosts() {
 
   const handleCopyFingerprint = async (host: KnownHost) => {
     try {
-      await navigator.clipboard.writeText(host.fingerprint);
+      await copyText(host.fingerprint);
       setCopiedId(host.id);
       window.setTimeout(() => setCopiedId((current) => (current === host.id ? null : current)), 1500);
     } catch (copyError) {
@@ -178,7 +179,7 @@ export function KnownHosts() {
   const handleCopyRawLine = async () => {
     if (!detailHost?.rawLine) return;
     try {
-      await navigator.clipboard.writeText(detailHost.rawLine);
+      await copyText(detailHost.rawLine);
       setCopiedRaw(true);
       window.setTimeout(() => setCopiedRaw(false), 1500);
     } catch (copyError) {

@@ -284,7 +284,7 @@ export default {
     copyOnSelect: '选中时自动复制',
     copyOnSelectDesc: '选中文本时自动复制到剪贴板',
     autocompleteEnabled: '命令自动补全',
-    autocompleteEnabledDesc: '输入命令时按本地历史与内置词库弹出补全建议（↑↓ 选择、Enter 执行、Esc 关闭）',
+    autocompleteEnabledDesc: '输入命令时按本地历史与内置词库弹出补全建议（↑↓ 选择、Tab 补全、Esc 关闭；回车始终执行当前输入行）',
     rightClickPaste: '右键粘贴',
     rightClickPasteDesc: '右键点击直接粘贴剪贴板（与「右键选择单词」互斥）',
     rightClickSelectWord: '右键选择单词',
@@ -411,12 +411,6 @@ export default {
 
     // 安全设置
     securitySettings: '安全设置',
-    encryptPasswords: '加密保存密码',
-    encryptPasswordsDesc: '使用 AES-256 加密存储所有密码',
-    sessionTimeout: '会话超时时间（秒）',
-    sessionTimeoutDesc: '无操作后自动锁定应用',
-    lockOnSuspend: '挂起时锁定',
-    lockOnSuspendDesc: '系统挂起或休眠时锁定应用',
     clearClipboard: '自动清除剪贴板（秒）',
     clearClipboardDesc: '复制敏感信息后自动清除',
     seconds: '秒',
@@ -429,15 +423,14 @@ export default {
     restoreSessionsDesc: '重新打开软件时恢复上次打开的标签（密码认证会话不保存密码，恢复后需手动重连）',
     confirmExit: '关闭时确认退出',
     confirmExitDesc: '有活动会话时显示确认对话框',
-    minimizeToTray: '最小化到系统托盘',
-    minimizeToTrayDesc: '关闭窗口时最小化到托盘而不是退出',
+    confirmExitMessage: '当前有 {{count}} 个活动会话，确定要退出吗？',
+    minimizeToTray: '关闭时最小化到托盘',
+    minimizeToTrayDesc: '关闭窗口时隐藏到系统托盘而不是退出（托盘图标可唤回/退出）',
 
     // 日志和调试
     logsAndDebug: '日志和调试',
     maxLogs: '最大日志数量',
     maxLogsDesc: '保留的最大日志条目数',
-    enableDebugLogs: '启用调试日志',
-    enableDebugLogsDesc: '记录详细的调试信息（可能影响性能）',
     debugMode: '调试模式',
     debugModeDesc: '在窗口右下角显示 console 面板（便于不打开开发者工具排查问题），并尝试打开开发者工具',
     debugPanelTitle: '调试面板',
@@ -445,12 +438,10 @@ export default {
     debugClose: '关闭',
     debugEmpty: '暂无日志',
 
-    // 更新和统计
-    updatesAndAnalytics: '更新和统计',
+    // 更新
+    updatesSection: '软件更新',
     checkUpdates: '检查更新',
     checkUpdatesDesc: '启动时自动检查新版本',
-    sendAnalytics: '发送匿名统计',
-    sendAnalyticsDesc: '帮助我们改进产品（不包含敏感信息）',
     checkForUpdates: '检查更新',
     checkingForUpdates: '正在检查...',
 

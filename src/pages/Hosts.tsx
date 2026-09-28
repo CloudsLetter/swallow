@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
+import { copyText } from '../lib/clipboard';
+import { useConfigStore } from '../store/config';
 import { useTranslation } from 'react-i18next';
 import i18n from '../i18n/i18n';
 import {
@@ -283,7 +285,8 @@ export function Hosts() {  const { t } = useTranslation();
   /** 是否自动探测远端 OS 图标（✕=false 禁用；自动=true；手动 os/图片=false） */
   const [osAuto, setOsAuto] = useState(true);
   const [host, setHost] = useState('');
-  const [port, setPort] = useState(22);
+  // 新建主机表单端口默认值来自设置（设置 → SSH → 默认端口，default_port）
+  const [port, setPort] = useState(() => useConfigStore.getState().config?.ssh?.default_port ?? 22);
   const [authSource, setAuthSource] = useState<AuthSource>('account');
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [manualAuthType, setManualAuthType] = useState<'password' | 'key' | 'certificate' | 'agent' | 'none'>('password');
@@ -562,7 +565,7 @@ export function Hosts() {  const { t } = useTranslation();
   const handleCopyCommand = async (host: Host) => {
     const command = `ssh ${resolveHostUsername(host)}@${host.host} -p ${host.port}`;
     try {
-      await navigator.clipboard.writeText(command);
+      await copyText(command);
       setCopiedId(host.id);
       window.setTimeout(() => setCopiedId(null), 1500);
     } catch (copyError) {

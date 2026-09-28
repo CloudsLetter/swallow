@@ -11,7 +11,6 @@ import { Slider } from '../../components/ui/slider';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
-import { Badge } from '../../components/ui/badge';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '../../components/ui/sheet';
 import type { TerminalThemePreset, TerminalThemeColors, Config } from '../../types/config';
@@ -665,8 +664,7 @@ export function TerminalSettings() {
 
           <div>
             <Label className="mb-2 block text-sm font-medium">
-              {t('settings.defaultPort')}: {config.ssh.default_port}{' '}
-              <Badge variant="secondary">{t('settings.notEffective')}</Badge>
+              {t('settings.defaultPort')}: {config.ssh.default_port}
             </Label>
             <Input
               type="number"
@@ -704,7 +702,6 @@ export function TerminalSettings() {
             desc={t('settings.compressionDesc')}
             checked={config.ssh.compression}
             onCheckedChange={(v) => updateSSHConfig({ compression: v })}
-            notEffective
           />
 
           <div>

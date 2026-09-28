@@ -1,4 +1,5 @@
 import { Fragment, useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle, type ChangeEvent } from 'react';
+import { copyText } from '../lib/clipboard';
 import { useTranslation } from 'react-i18next';
 import { once } from '@tauri-apps/api/event';
 import { join as joinPath, tempDir } from '@tauri-apps/api/path';
@@ -1291,8 +1292,7 @@ const SftpPane = forwardRef<SftpPaneHandle, SftpPaneProps>(function SftpPane(
 
   const copyRemotePath = (name: string) => {
     const path = joinRemotePath(name);
-    navigator.clipboard
-      .writeText(path)
+    copyText(path)
       .then(() => toast.success(t('sftp.copiedRemotePath', { path })))
       .catch(() => toast.error(t('common.copyFailed')));
   };

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useConfigStore } from '../store/config';
 import { useTranslation } from 'react-i18next';
 import {
   Bot as IconBot,
@@ -146,8 +147,8 @@ export function AiAssistant({ open, onOpenChange }: { open: boolean; onOpenChang
     if (!sessionId) return;
     const text = serializeTerminalBuffer(sessionId);
     if (!text?.trim()) return;
-    // 只保留尾部（上下文上限在设置里配置，默认 12000 字符）
-    const max = 12000;
+    // 只保留尾部：上下文上限读设置（AI 助手 → context_max_chars，默认 12000 字符）
+    const max = useConfigStore.getState().config?.ai?.context_max_chars ?? 12000;
     setContext(text.length > max ? text.slice(-max) : text);
   };
 

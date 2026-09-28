@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { copyText } from '../lib/clipboard';
 import { useTranslation } from 'react-i18next';
 import i18n from '../i18n/i18n';
 import {
@@ -203,7 +204,7 @@ export function Snippets() {
 
   const handleCopy = async (snippet: Snippet) => {
     try {
-      await navigator.clipboard.writeText(snippet.command);
+      await copyText(snippet.command);
       setCopiedId(snippet.id);
       window.setTimeout(() => setCopiedId((current) => (current === snippet.id ? null : current)), 1500);
       await useSnippetApi(snippet.id);

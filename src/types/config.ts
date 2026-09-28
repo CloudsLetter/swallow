@@ -217,8 +217,6 @@ export interface Terminal {
   copy_on_select: boolean;
   scroll_on_input: boolean;
 
-  // 兼容性
-  legacy_color_scheme: "default" | "solarized-dark" | "monokai" | "dracula";
   auto_connect: boolean;
 
   // 渲染引擎（dom | canvas | webgl；webgl 即 GPU 渲染，默认 dom 保持既有行为）
@@ -305,23 +303,20 @@ export interface ShortcutBinding {
 }
 
 export interface Security {
-  encrypt_passwords: boolean;
-  session_timeout: number;
-  lock_on_suspend: boolean;
+  /** 复制敏感内容后 N 秒自动清空剪贴板；0 = 关闭 */
   clear_clipboard_after: number;
 }
 
 export interface Advanced {
+  /** 关闭时把打开的会话写入 sessions.json（restore_sessions 的数据来源） */
   auto_save: boolean;
   restore_sessions: boolean;
   confirm_on_close: boolean;
   minimize_to_tray: boolean;
   max_logs: number;
-  enable_debug_log: boolean;
   // 调试模式：打开前端 console 面板（尝试开发者工具）
   debug_mode: boolean;
   check_updates: boolean;
-  send_analytics: boolean;
 }
 
 /** AI 提供商协议 */

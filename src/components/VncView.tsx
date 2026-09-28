@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import RFB from '@novnc/novnc';
 import { useTranslation } from 'react-i18next';
-import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { readText } from '@tauri-apps/plugin-clipboard-manager';
+import { copyText } from '../lib/clipboard';
 import { ask } from '@tauri-apps/plugin-dialog';
 import { dedupeHostKeyConfirm } from '../lib/hostKeyConfirm';
 import { acceptHostKey, vncConnect, vncDisconnect } from '../services/sessionService';
@@ -330,7 +331,7 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
   const handleCopyRemoteClipboard = async () => {
     if (!remoteClipboard) return;
     try {
-      await writeText(remoteClipboard);
+      await copyText(remoteClipboard);
     } catch (err) {
       console.warn('copy remote clipboard failed:', err);
     }

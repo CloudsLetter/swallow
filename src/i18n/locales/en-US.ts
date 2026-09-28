@@ -286,7 +286,7 @@ export default {
     copyOnSelect: 'Copy On Select',
     copyOnSelectDesc: 'Automatically copy selected text to clipboard',
     autocompleteEnabled: 'Command Autocomplete',
-    autocompleteEnabledDesc: 'Suggest commands while typing from local history and the built-in list (↑↓ select, Enter run, Esc dismiss)',
+    autocompleteEnabledDesc: 'Suggest commands while typing from local history and the built-in list (↑↓ select, Tab complete, Esc dismiss; Enter always runs the typed line)',
     rightClickPaste: 'Right-Click Pastes',
     rightClickPasteDesc: 'Right-click pastes the clipboard (mutually exclusive with right-click word select)',
     rightClickSelectWord: 'Right-Click Selects Word',
@@ -413,12 +413,6 @@ export default {
 
     // Security
     securitySettings: 'Security Settings',
-    encryptPasswords: 'Encrypt Passwords',
-    encryptPasswordsDesc: 'Store all passwords using AES-256 encryption',
-    sessionTimeout: 'Session Timeout (seconds)',
-    sessionTimeoutDesc: 'Automatically lock app after inactivity',
-    lockOnSuspend: 'Lock on Suspend',
-    lockOnSuspendDesc: 'Lock app when system suspends or hibernates',
     clearClipboard: 'Auto Clear Clipboard (seconds)',
     clearClipboardDesc: 'Automatically clear clipboard after copying sensitive data',
     seconds: 'seconds',
@@ -431,15 +425,14 @@ export default {
     restoreSessionsDesc: 'Restore previously opened tabs on startup (password-auth sessions do not store passwords, reconnect manually after restore)',
     confirmExit: 'Confirm on Exit',
     confirmExitDesc: 'Show confirmation dialog when closing with active sessions',
-    minimizeToTray: 'Minimize to System Tray',
-    minimizeToTrayDesc: 'Minimize to tray instead of exiting when closing window',
+    confirmExitMessage: '{{count}} active session(s) still running. Quit anyway?',
+    minimizeToTray: 'Close to System Tray',
+    minimizeToTrayDesc: 'Hide to the system tray instead of exiting when closing the window (restore/quit from the tray icon)',
 
     // Logs
     logsAndDebug: 'Logs and Debug',
     maxLogs: 'Max Log Entries',
     maxLogsDesc: 'Maximum number of log entries to keep',
-    enableDebugLogs: 'Enable Debug Logs',
-    enableDebugLogsDesc: 'Record detailed debug information (may affect performance)',
     debugMode: 'Debug Mode',
     debugModeDesc: 'Shows a console panel at the bottom-right corner (no devtools needed) and tries to open developer tools',
     debugPanelTitle: 'Debug Console',
@@ -448,11 +441,9 @@ export default {
     debugEmpty: 'No entries yet',
 
     // Updates
-    updatesAndAnalytics: 'Updates and Analytics',
+    updatesSection: 'Updates',
     checkUpdates: 'Check for Updates',
     checkUpdatesDesc: 'Automatically check for new versions on startup',
-    sendAnalytics: 'Send Anonymous Analytics',
-    sendAnalyticsDesc: 'Help us improve the product (no sensitive data)',
     checkForUpdates: 'Check for Updates',
     checkingForUpdates: 'Checking...',
 

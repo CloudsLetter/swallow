@@ -235,8 +235,6 @@ pub struct Terminal {
 	pub copy_on_select: bool,
 	pub scroll_on_input: bool,
 
-	// 兼容性
-	pub legacy_color_scheme: ColorScheme,
 	pub auto_connect: bool,
 
 	// 渲染引擎（"dom" | "canvas" | "webgl"，默认 dom 保持既有渲染行为；webgl 即 GPU 渲染）
@@ -337,24 +335,6 @@ impl Default for BellStyle {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ColorScheme {
-	#[serde(rename = "default")]
-	Default,
-	#[serde(rename = "solarized-dark")]
-	SolarizedDark,
-	#[serde(rename = "monokai")]
-	Monokai,
-	#[serde(rename = "dracula")]
-	Dracula,
-}
-
-impl Default for ColorScheme {
-    fn default() -> Self {
-        Self::Default
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SshSettings {
 	pub connection_timeout: u32,
@@ -397,26 +377,23 @@ pub struct ShortcutBinding {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Security {
-	pub encrypt_passwords: bool,
-	pub session_timeout: u32,
-	pub lock_on_suspend: bool,
+	/// 复制敏感内容后 N 秒自动清空剪贴板；0 = 关闭
 	pub clear_clipboard_after: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Advanced {
+	/// 关闭时把打开的会话写入 sessions.json（restore_sessions 的数据来源）
 	pub auto_save: bool,
 	pub restore_sessions: bool,
 	pub confirm_on_close: bool,
 	pub minimize_to_tray: bool,
 	pub max_logs: u32,
-	pub enable_debug_log: bool,
 	/// 调试模式：开启前端 console 捕获面板（并尝试打开开发者工具）
 	#[serde(default)]
 	pub debug_mode: bool,
 	pub check_updates: bool,
-	pub send_analytics: bool,
 }
 
 impl Config {
@@ -900,7 +877,6 @@ impl Default for Terminal {
 			right_click_selects_word: true,
 			copy_on_select: true,
 			scroll_on_input: true,
-			legacy_color_scheme: ColorScheme::Default,
 			auto_connect: true,
 			render_engine: "dom".into(),
 			gpu_acceleration: true,
@@ -1118,9 +1094,6 @@ impl Default for ShortcutBinding {
 impl Default for Security {
 	fn default() -> Self {
 		Self {
-			encrypt_passwords: true,
-			session_timeout: 30,
-			lock_on_suspend: false,
 			clear_clipboard_after: 60,
 		}
 	}
@@ -1135,10 +1108,8 @@ impl Default for Advanced {
 			confirm_on_close: false,
 			minimize_to_tray: false,
 			max_logs: 1000,
-			enable_debug_log: false,
 			debug_mode: false,
 			check_updates: true,
-			send_analytics: false,
 		}
 	}
 }

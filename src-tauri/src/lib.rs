@@ -106,6 +106,7 @@ pub fn run() {
             commands::ssh::ssh_resize,
             commands::ssh::ssh_disconnect,
             commands::ssh::ssh_list_sessions,
+            commands::ssh::ssh_set_output_paused,
             commands::telnet::telnet_connect,
             commands::telnet::telnet_write,
             commands::telnet::telnet_disconnect,
@@ -256,6 +257,59 @@ pub fn run() {
             // 进程级显式安装一次（RDP / 云同步 / 更新器等所有 rustls 使用方共用）；
             // 已安装过则 Err，忽略即可。
             let _ = rustls::crypto::ring::default_provider().install_default();
+
+            // 系统托盘：advanced.minimize_to_tray 开启时关窗进托盘，托盘是唯一唤回/退出
+            // 入口（隐藏窗口无任务栏表项）。左键单击 = 唤回主窗口；菜单 = 显示 / 退出，
+            // 菜单文案按配置语言选择。关闭拦截本身在前端 onCloseRequested 做（hide）。
+            {
+                use tauri::menu::{Menu, MenuItem};
+                use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+                let zh = _app
+                    .state::<GlobaConfig>()
+                    .config
+                    .read()
+                    .map(|guard| guard.appearance.language.starts_with("zh"))
+                    .unwrap_or(true);
+                let (show_text, quit_text) = if zh {
+                    ("显示主窗口", "退出")
+                } else {
+                    ("Show Window", "Quit")
+                };
+                let show = MenuItem::with_id(_app, "tray-show", show_text, true, None::<&str>)?;
+                let quit = MenuItem::with_id(_app, "tray-quit", quit_text, true, None::<&str>)?;
+                let menu = Menu::with_items(_app, &[&show, &quit])?;
+                TrayIconBuilder::with_id("main-tray")
+                    .icon(_app.default_window_icon().expect("missing window icon").clone())
+                    .menu(&menu)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "tray-show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "tray-quit" => app.exit(0),
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            let app = tray.app_handle();
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    })
+                    .build(_app)?;
+            }
 
             // WebView2 默认是不透明白色背景，会盖住 transparent 窗口的毛玻璃/壁纸，
             // 启动时必须显式设为全透明（否则透明窗口表现为白底）

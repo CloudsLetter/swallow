@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useConfigStore } from '../../store/config';
 import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
 import { message } from '@tauri-apps/plugin-dialog';
@@ -9,7 +10,8 @@ import type { QuickConnectCardProps } from './types';
 export function MoshCard({ onOpenSession }: Pick<QuickConnectCardProps, 'onOpenSession'>) {
   const { t } = useTranslation();
   const [host, setHost] = useState('');
-  const [port, setPort] = useState(22);
+  // SSH 引导端口默认值来自设置（设置 → SSH → 默认端口，default_port）
+  const [port, setPort] = useState(() => useConfigStore.getState().config?.ssh?.default_port ?? 22);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
 

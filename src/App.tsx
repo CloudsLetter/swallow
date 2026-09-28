@@ -3,10 +3,12 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 import { useEffect, useRef, useState } from 'react';
 import { I18nextProvider } from 'react-i18next';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { ask } from '@tauri-apps/plugin-dialog';
 
 import { Layout } from './components/Layout';
 import { Home } from './pages/Home';
-import { focusTerminal } from './components/terminalPool';
+import { focusTerminal, isConnected, listPool } from './components/terminalPool';
 import { Toaster } from './components/ui/sonner';
 import { OnboardingDialog } from './components/OnboardingDialog';
 import { SessionNotifications } from './components/SessionNotifications';
@@ -223,6 +225,9 @@ function App() {
   // 标签变化时持久化当前打开的会话（仅 terminal/sftp/vnc/rdp，密码/passphrase 不落盘）
   useEffect(() => {
     const persist = () => {
+      // auto_save 关闭时不落盘：sessions.json 保留旧内容，开启 restore_sessions 后
+      // 仍可恢复到上次自动保存的状态（文件从不主动删除）
+      if (!useConfigStore.getState().config?.advanced?.auto_save) return;
       const { tabs } = useTabStore.getState();
       const sessions = tabs
         .filter((t) => t.type === 'terminal' || t.type === 'telnet' || t.type === 'local' || t.type === 'serial' || t.type === 'sftp' || t.type === 'vnc' || t.type === 'rdp' || t.type === 'mosh')
@@ -249,6 +254,33 @@ function App() {
       void saveOpenSessions(JSON.stringify(sessions)).catch(() => {});
     };
     return useTabStore.subscribe(persist);
+  }, []);
+
+  // 窗口关闭拦截（覆盖自定义按钮、原生标题栏与 Alt+F4 全部关闭路径）：
+  // - minimize_to_tray：隐藏到系统托盘而不退出（托盘菜单可唤回/退出，Rust 侧建托盘）；
+  // - 否则 confirm_on_close 且存在活动会话时弹确认框，取消则阻止关闭（无会话直接关）。
+  useEffect(() => {
+    const win = getCurrentWindow();
+    const unlisten = win.onCloseRequested(async (event) => {
+      const cfg = useConfigStore.getState().config;
+      if (cfg?.advanced.minimize_to_tray) {
+        event.preventDefault();
+        void win.hide();
+        return;
+      }
+      if (!cfg?.advanced.confirm_on_close) return;
+      const active = listPool().filter((id) => isConnected(id)).length;
+      if (active === 0) return;
+      event.preventDefault();
+      const confirmed = await ask(String(i18next.t('settings.confirmExitMessage', { count: active })), {
+        title: String(i18next.t('settings.confirmExit')),
+        kind: 'warning',
+      });
+      if (confirmed) await win.destroy();
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
   }, []);
 
   return (
