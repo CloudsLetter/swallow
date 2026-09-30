@@ -1,8 +1,9 @@
 # Taste
 - Writes requests in Chinese, and expects Chinese responses and Chinese UI strings (project keeps both `zh-CN` and `en-US` locale files in sync for every new string). Confidence: 0.75
 - Gives short, terse, imperative instructions and iterates fast — often just "还是不行" or a one-line repro — expecting the agent to keep digging rather than ask for more detail. Confidence: 0.65
+- Drives long, multi-step autonomous runs by repeatedly sending a bare "continue" — expects the agent to keep working through its own plan step by step without stopping to report status or ask what to do next. Confidence: 0.6
 - Communicates bugs mainly via screenshots plus a brief symptom description (e.g., small window fine, large window broken), treating the image as evidence of the symptom only. Confidence: 0.6
-- Works on a Tauri 2 + React 19 + TypeScript + Rust desktop app; core libs are xterm.js, Zustand, shadcn/ui; verification is done via `pnpm build` / `pnpm test` and `cargo check`. Confidence: 0.8
+- Works on a Tauri 2 + React 19 + TypeScript + Rust desktop app; core libs are xterm.js, Zustand, shadcn/ui; verification is done via `pnpm build` / `pnpm test`, `npx tsc --noEmit`, `npx vitest run` and `cargo check` (backend linking/tests additionally need MSVC Build Tools + Windows SDK on the Windows box). Confidence: 0.8
 - Prefers reusing existing project libraries, official addons, and existing UI components (shadcn) over hand-rolled implementations. Confidence: 0.75
 - For terminal behavior, prefers xterm.js native rendering coupled with official addons (e.g., `@xterm/addon-serialize`) rather than custom text/VT handling. Confidence: 0.7
 - Prefers new views/features (e.g., session replay) to open as a new app tab rendered with a real terminal, not as a modal dialog. Confidence: 0.65
@@ -11,7 +12,14 @@
 - On bug reports expects a thorough root-cause investigation ("严审代码") rather than incremental band-aid fixes, and will call out when a fix is only a guess. Confidence: 0.65
 - Comfortable rolling back experiments: will explicitly ask to undo/revert a change that didn't work ("撤销这次更改") before trying another approach. Confidence: 0.6
 - Treats mobile as out of scope for this project and wants mobile/porting suggestions ignored here (mobile is handled in a separate project). Confidence: 0.85
+- Treats cloud sync (`cloud-server/`, `services/cloud_sync.rs`) as experimental and off-limits — names it explicitly as the thing to skip when work items are batched. Confidence: 0.7
 - Prefers git commit messages in English (conventional-commit style, e.g. perf/feat/style) even though discussion and UI strings are in Chinese, and never includes a Co-authored-by trailer line. Confidence: 0.9
 - Measures terminal quality against mainstream competitors (e.g., Termius for real-time latency, Tabby for auto-detecting system/WSL/Docker shells) and expects parity. Confidence: 0.7
 - Prefers standardized, consistent UI and will call out UI that feels non-standard or ugly, expecting systematic polish via available UI/UX skills. Confidence: 0.65
 - When asked to publish a version, expects full release handling: bump versions in sync across package.json / Cargo.toml / tauri.conf.json (plus Cargo.lock), verify with tests/build, commit in English, create annotated tag, and push branch then tag to trigger release workflow. Confidence: 0.75
+- Keeps architecture/roadmap decisions in the repo's own `docs/*.md` design notes (BACKEND_DESIGN.md, SSH_BACKEND_MIGRATION.md, CLOUD_SYNC_DESIGN.md) and scopes work by section number ("§17 的 1-3 … 做了"). Expects the agent to read those docs before advising on direction. Confidence: 0.7
+- Asks for proactive codebase-wide improvement reviews ("帮我看看目前的改进方向", "看看还有什么值得优化的") and expects a prioritized tech-debt backlog backed by real evidence (file sizes, TODO/unwrap greps, doc sections), not generic advice. Confidence: 0.7
+- Given such a backlog, wants the whole list executed in one autonomous pass and only names what to skip ("除了云同步的不要动其他的全部修复了"). Confidence: 0.7
+- After an architecture discussion, delegates execution to the agent's own proposal ("可以先按你的想法动工") rather than writing a spec; expects the agent to carry it through without check-ins. Confidence: 0.7
+- Prefers single-source-of-truth registries over scattered per-file switches/arrays: adding a protocol, management page, quick-connect tile or AI tool should require editing exactly one registry, and extension points should stay internal (no public plugin ABI) until the core is done. Confidence: 0.7
+- Develops on Windows with PowerShell/cmd as the shell — bash-style pipes in commands fail, so wrap with `cmd /c` / `Select-Object -Last N` and use Windows paths. Confidence: 0.6

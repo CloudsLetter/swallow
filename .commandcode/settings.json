@@ -11,9 +11,16 @@
       "Shell(git:*)",
       "Shell(wsl.exe -l -q; echo \"---exit:$?\"; echo $env:MSYSTEM; where.exe bash.exe; echo \"---\"; Get-ItemProperty HKLM:\\SOFTWARE\\GitForWindows 2>$null | Select-Object InstallPath; echo \"---msys2:\"; Test-Path C:\\msys64\\usr\\bin\\bash.exe; Test-Path C:\\msys64\\msys2_shell.cmd; echo \"---git:\"; Test-Path 'C:\\Program Files\\Git\\bin\\bash.exe')",
       "Shell(wsl.exe:*)",
-      "Shell(where.exe:*)"
+      "Shell(where.exe:*)",
+      "powershell",
+      "Shell(cmd:*)",
+      "Shell(for:*)",
+      "Shell(dir /s /b /a-d src 2^>nul:*)",
+      "Shell(do:*)",
+      "Shell(dir /s /b /a-d src-tauri\\src 2^>nul:*)"
     ],
     "deny": [],
     "defaultMode": "default"
-  }
+  },
+  "tasteLearning": true
 }
