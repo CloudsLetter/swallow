@@ -1,0 +1,130 @@
+# DeepSource 配置 —— Swallow（Tauri 2 桌面客户端）
+#
+# ⚠️ DeepSource 的配置文件是 **TOML**，不是 YAML。文件名必须叫 `.deepsource.toml`
+#    并放在仓库根目录，它才会被读取。
+#    （注意：一旦存在这个文件，DeepSource 就以「文件配置」为准，后台
+#     Settings > Code Review 里的设置会被它覆盖；可在 Settings > Preferences
+#     关闭 TOML 配置。）
+#
+# analyzer 名与 meta 选项全部取自官方配置参考（docs.deepsource.com → Core analyzers）。
+#
+# 本仓库是 polyglot 单体仓，所以启用两个 analyzer：
+#   src/**              React 19 + TypeScript 前端（~700 文件，Vite + Zustand + xterm）
+#   src-tauri/src/**    Rust 后端（106 文件，含 18 个内联测试模块）
+#   cloud-server/**     零依赖 Node 参考服务器（server.cjs，665 行）
+# javascript analyzer 覆盖 ts / tsx / js / cjs；rust analyzer 只吃 .rs。
+
+version = 1
+
+exclude_patterns = [
+  # —— 构建产物与依赖 ——
+  "node_modules/**",
+  "dist/**",
+  "dist-ssr/**",
+
+  # —— Rust：必须排除，否则真实问题会被淹没 ——
+  # src-tauri/target 是 Cargo 构建目录（本地已达 122 GB）；
+  # src-tauri/vendor 是**被 git 跟踪的第三方 russh 源码**（80 个文件，
+  # 为 pkcs5 兼容做过一处 patch）——分析它毫无意义，只会在别人的代码里报错。
+  "src-tauri/target/**",
+  "src-tauri/vendor/**",
+  "src-tauri/gen/**",
+
+  # —— 本地/工具产物（.gitignore 里已有，这里显式列出更保险）——
+  ".history/**",
+  ".workbuddy/**",
+  ".commandcode/**",
+  ".agents/**",
+  ".pnpm-store/**",
+  ".vscode/**",
+  ".idea/**",
+
+  # —— 文档与测试用密文数据 ——
+  "docs/**",
+  "cloud-server/data/**",
+]
+
+test_patterns = [
+  "**/*.test.ts",
+  "**/*.test.tsx",
+  "**/*.spec.ts",
+  "**/*.spec.tsx",
+]
+
+# ---------------------------------------------------------------- 前端 JS/TS
+[[analyzers]]
+name = "javascript"
+enabled = true
+
+  [analyzers.meta]
+  # 前端是 React 19（shadcn/ui + Radix）
+  plugins = ["react"]
+  # tsc + Vite ESM，与项目实际一致
+  dialect = "typescript"
+  module_system = "es-modules"
+  # nodejs：Tauri 构建期与本地脚本会用到；browser：WebView 运行时；
+  # vitest：本项目的测试运行器（package.json -> "test": "vitest run"）。
+  # 其余环境（jest/mocha/cypress…）本项目不用。
+  environment = ["nodejs", "browser", "vitest"]
+  #
+  # ⚠️ 刻意**不设 `style_guide`**：本仓库没有 ESLint / Prettier 配置，代码风格
+  #    是手工维护的。若设成 airbnb/google，首轮会涌出大量纯风格问题，把真正
+  #    的缺陷埋掉。以后若引入 ESLint 配置，DeepSource 会尊重它——ESLint 里
+  #    显式禁用的规则它也不会报。
+  #
+  # ⚠️ `module_system` 是 analyzer 级、不能按文件区分：根目录是 ESM，而
+  #    cloud-server/server.cjs 是 CommonJS。若首轮跑完发现 .cjs 上出现
+  #    「require 不被允许」这类误报，就把 cloud-server/** 加进 exclude_patterns。
+  #
+  # 复杂度阈值先用默认 "high"；若首轮噪音大，可放宽：
+  # cyclomatic_complexity_threshold = "very-high"
+
+# ---------------------------------------------------------------- Rust 后端
+[[analyzers]]
+name = "rust"
+enabled = true
+
+  [analyzers.meta]
+  # Cargo.toml 未声明 rust-version（只有 edition = "2021"），故跟随 stable。
+  # 若将来固定了工具链版本（例如加 rust-version 或 rust-toolchain.toml），
+  # 把它写成具体版本（如 "1.83.0"）能让分析更准确。
+  msrv = "stable"
+  #
+  # Rust 侧 18 个文件有 #[cfg(test)] 内联测试模块，但它们无法用 test_patterns
+  # 的 glob 表达（test_patterns 只匹配文件路径）。默认不报告测试文件的文档覆盖率。
+  # 文档覆盖率若噪音大，可按需跳过：
+  # skip_doc_coverage = ["module"]
+  #
+  # 复杂度阈值默认 "high"；src/ssh/session.rs 这类长文件若被过度标记，放宽为：
+  # cyclomatic_complexity_threshold = "very-high"
+
+# ---------------------------------------------------------------- 测试覆盖率
+# 只启用「接收端」；覆盖率数据要由 CI 生成并上报，
+# 见 .github/workflows/deepsource-coverage.yml。
+#
+# 刻意**不开** should_fail_with_low_coverage：现在还没有覆盖率数据流，
+# 一旦打开会立刻让每个 PR 都挂。等 CI 跑通、基线稳定后再收紧。
+[[analyzers]]
+name = "test-coverage"
+enabled = true
+
+  # 确认可用后再取消注释（阈值选项以 DeepSource 文档为准）：
+  # [analyzers.meta]
+  # should_fail_with_low_coverage = true
+  # coverage_threshold = 60
+  # max_decrease_threshold = 2
+
+# ---------------------------------------------------------------- 代码格式化器
+# 刻意不启用。
+#
+# 本仓库没有 Prettier / rustfmt 配置，缩进与引号风格是手工定的，
+# 启用 formatter 会在 PR 上产生海量纯重排 diff，反而淹没真实改动。
+# 若将来引入 Prettier + .prettierrc（前端）或 rustfmt.toml（后端），再打开：
+#
+# [[code_formatters]]
+# name = "prettier"
+# enabled = true
+#
+# [[code_formatters]]
+# name = "rustfmt"
+# enabled = true

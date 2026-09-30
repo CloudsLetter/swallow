@@ -1,0 +1,79 @@
+# 把前端测试覆盖率上报给 DeepSource（**可选**，删掉不影响其他流程）
+#
+# 为什么需要这个文件：`.deepsource.toml` 里的 `test-coverage` analyzer 只是
+# 「接收端」——覆盖率数据必须由 CI 生成并上报，DeepSource 不会替你跑测试。
+#
+# 认证方式用官方推荐的 **OIDC**：不需要在仓库里存 `DEEPSOURCE_DSN` secret，
+# 只靠下面 `id-token: write` 权限换临时凭据。
+# （旧的 deepsourcelabs/test-coverage-action 已不推荐：它的 key 只支持
+#  python / go 两个语言，本项目用不上，故走 CLI。）
+#
+# ⚠️ 前置条件（任一缺失都不会有数据，但**不会让 CI 变红**）：
+#   1. 在 DeepSource 后台激活本仓库，并启用 Test Coverage analyzer；
+#   2. 前端覆盖率需要 vitest 的 provider（本仓库尚未安装）：
+#        pnpm add -D @vitest/coverage-v8
+#      装之前 `vitest --coverage` 会失败——所以生成步骤是 continue-on-error，
+#      且上报步骤用 hashFiles 守卫，没有产物就整段跳过。
+#   3. 本文件只上报前端（javascript）。Rust 覆盖率需要 cargo-llvm-cov，
+#      构建耗时明显，建议单独加一个 job/工作流，用 --key=rust 上报。
+#
+# 官方要求：`deepsource report` 必须**在仓库根目录**执行，否则报告里的文件
+# 路径会对不上。覆盖率报告上限 20 MB。
+
+name: deepsource-coverage
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+  id-token: write # OIDC：向 DeepSource 换取临时凭据，无需长期 secret
+
+jobs:
+  report-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 未装 @vitest/coverage-v8 时这一步会失败；continue-on-error 保证
+      # 后续守卫能判断「没有产物 → 跳过上报」，CI 依旧绿。
+      - name: Run tests with coverage
+        continue-on-error: true
+        run: pnpm exec vitest run --coverage --coverage.reporter=lcov --coverage.reportsDirectory=coverage
+
+      - name: Install DeepSource CLI
+        if: hashFiles('coverage/lcov.info') != ''
+        run: curl -fsSL https://cli.deepsource.com/install | BINDIR=./bin sh
+
+      - name: Report coverage to DeepSource
+        if: hashFiles('coverage/lcov.info') != ''
+        run: |
+          ./bin/deepsource report \
+            --analyzer=test-coverage \
+            --key=javascript \
+            --value-file=coverage/lcov.info \
+            --use-oidc
+
+      # 有产物却上报失败时给出明确提示，免得静默数据缺失
+      - name: Warn when coverage was not produced
+        if: hashFiles('coverage/lcov.info') == ''
+        run: |
+          echo "::warning::未生成 coverage/lcov.info —— 覆盖率未上报。"
+          echo "多半是缺少覆盖率 provider：pnpm add -D @vitest/coverage-v8"
