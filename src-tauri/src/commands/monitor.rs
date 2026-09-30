@@ -85,7 +85,7 @@ pub async fn monitor_start(
     }
 
     Ok(ConnectResult::connected_with_session(
-        config.host,
+        config.host.clone(),
         config.port,
         session_id,
     ))

@@ -156,12 +156,12 @@ impl client::Handler for ClientHandler {
             HostKeyCheck::Unknown { .. } => {
                 // 拒绝握手，connect 会以错误结束；上层读 unknown_fingerprint
                 // 转成待确认流程（token 里保存完整配置与来源后端）
-                *self.unknown_fingerprint.lock().unwrap() = Some(fingerprint);
+                *self.unknown_fingerprint.lock().unwrap_or_else(|e| e.into_inner()) = Some(fingerprint);
                 false
             }
         };
         // 无条件记录（握手只回调一次），accept_host_key 的 russh 重建路径据此写库
-        *self.server_key.lock().unwrap() = Some(ServerKeyInfo { algorithm, blob });
+        *self.server_key.lock().unwrap_or_else(|e| e.into_inner()) = Some(ServerKeyInfo { algorithm, blob });
         Ok(allowed)
     }
 
@@ -187,7 +187,7 @@ impl client::Handler for ClientHandler {
                     let _ = tokio::io::copy_bidirectional(&mut ch, &mut tcp).await;
                 }
                 Err(e) => {
-                    eprintln!("remote forward: connect local target {target_host}:{target_port} failed: {e}");
+                    tracing::warn!("remote forward: connect local target {target_host}:{target_port} failed: {e}");
                 }
             }
             // ChannelCloseOnDrop：ch drop 时自动向远端发送 close
@@ -631,7 +631,7 @@ fn map_connect_error(
     unknown_fingerprint: &Arc<Mutex<Option<String>>>,
     config: &SshConfig,
 ) -> anyhow::Error {
-    if let Some(fp) = unknown_fingerprint.lock().unwrap().take() {
+    if let Some(fp) = unknown_fingerprint.lock().unwrap_or_else(|e| e.into_inner()).take() {
         return require_approval_russh(config.clone(), fp);
     }
     map_russh_error(err.0)

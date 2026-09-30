@@ -21,6 +21,22 @@ const MAX_WRITE_BACKOFF_MS: u64 = 64;
 /// 避免长按/粘贴时前端写队列无限堆积。
 const WRITE_DEADLINE_SECS: u64 = 30;
 
+// 手工 Drop 清零：SshConfig 携带密码/口令/私钥内容等敏感材料，drop 时清零避免凭据
+// 在已释放堆内存中残留（含 clone 出的副本——每个副本 drop 时各自清零）。
+// 不用 zeroize derive：proxy: Option<Box<SshConfig>> 的递归类型无法满足 derive 的
+// 自引用 bound；Box 的 drop 会递归进入本实现，跳板链天然逐层清零。
+impl Drop for SshConfig {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.password.zeroize();
+        self.passphrase.zeroize();
+        self.private_key.zeroize();
+        self.public_key.zeroize();
+        self.cert_content.zeroize();
+        self.cert_private_key.zeroize();
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SshConfig {
     pub host: String,
@@ -496,7 +512,7 @@ impl SshSession {
 
     /// 注册会话退出（EOF/错误/断开）时由 manager 执行的回调。
     pub fn set_disconnect_handler(&self, handler: Box<dyn FnOnce() + Send>) {
-        *self.disconnect_handler.lock().unwrap() = Some(handler);
+        *self.disconnect_handler.lock().unwrap_or_else(|e| e.into_inner()) = Some(handler);
     }
     
     pub fn start_shell<R: tauri::Runtime>(
@@ -506,7 +522,7 @@ impl SshSession {
         rows: u32,
         keep_alive_interval: u32,
     ) -> Result<()> {
-        let session = self.session.lock().unwrap();
+        let session = self.session.lock().unwrap_or_else(|e| e.into_inner());
         // 会话级 keepalive/压缩已在 establish_authenticated_session 配置；
         // 这里的 keep_alive_interval 只供下方读线程驱动心跳发送循环。
         // —— 远端 OS 探测（必须在本 Session 打开 shell 通道之前：ssh2 的 Session 是全局锁，
@@ -573,7 +589,7 @@ impl SshSession {
         session.set_blocking(false);
         
         // 存储 channel
-        *self.channel.lock().unwrap() = Some(channel);
+        *self.channel.lock().unwrap_or_else(|e| e.into_inner()) = Some(channel);
         
         drop(session);
         
@@ -604,7 +620,7 @@ impl SshSession {
                 crate::session_events::OutputBatcher::channel_sink(output_channel),
             );
             loop {
-                if !*is_connected.lock().unwrap() {
+                if !*is_connected.lock().unwrap_or_else(|e| e.into_inner()) {
                     break;
                 }
                 // 流控暂停：不读 socket → TCP 窗口耗尽 → 服务端停发（端到端背压）；
@@ -615,7 +631,7 @@ impl SshSession {
                     continue;
                 }
 
-                let mut channel_guard = channel_arc.lock().unwrap();
+                let mut channel_guard = channel_arc.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(ref mut channel) = *channel_guard {
                     match channel.read(&mut buffer) {
                         Ok(0) => {
@@ -677,7 +693,7 @@ impl SshSession {
                                                 // EAGAIN：非阻塞 socket 发送缓冲区满，暂时无法
                                                 // 发送 keepalive，不代表连接断开，忽略、下次再试
                                             } else {
-                                                eprintln!("SSH keepalive error: {}", io_err);
+                                                tracing::error!("SSH keepalive error: {io_err}");
                                                 batcher.flush();
                                                 emit_session_event(
                                                     &app_handle,
@@ -705,7 +721,7 @@ impl SshSession {
                             continue;
                         }
                         Err(e) => {
-                            eprintln!("SSH read error: {}", e);
+                            tracing::error!("SSH read error: {e}");
                             batcher.flush();
                             emit_session_event(
                                 &app_handle,
@@ -727,10 +743,10 @@ impl SshSession {
 
             // 清理：发掉缓冲残留（覆盖「会话被主动停止」的 break 路径）
             batcher.flush();
-            *is_connected.lock().unwrap() = false;
+            *is_connected.lock().unwrap_or_else(|e| e.into_inner()) = false;
 
             // 通知 manager 移除该会话，使重连可以建立新会话
-            let handler = disconnect_handler.lock().unwrap().take();
+            let handler = disconnect_handler.lock().unwrap_or_else(|e| e.into_inner()).take();
             if let Some(handler) = handler {
                 handler();
             }
@@ -759,7 +775,7 @@ impl SshSession {
 
         while !remaining.is_empty() {
             // 会话已被读线程判死（EOF/错误）：立即放弃，避免对死通道空转重试
-            if !*self.is_connected.lock().unwrap() {
+            if !*self.is_connected.lock().unwrap_or_else(|e| e.into_inner()) {
                 anyhow::bail!("SSH session disconnected while writing");
             }
             if std::time::Instant::now() >= deadline {
@@ -769,7 +785,7 @@ impl SshSession {
                 );
             }
 
-            let mut channel_guard = self.channel.lock().unwrap();
+            let mut channel_guard = self.channel.lock().unwrap_or_else(|e| e.into_inner());
             let Some(channel) = channel_guard.as_mut() else {
                 anyhow::bail!("Channel not initialized");
             };
@@ -804,7 +820,7 @@ impl SshSession {
     }
     
     pub fn resize_pty(&self, cols: u32, rows: u32) -> Result<()> {
-        let mut channel_guard = self.channel.lock().unwrap();
+        let mut channel_guard = self.channel.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(ref mut channel) = *channel_guard {
             channel.request_pty_size(cols, rows, Some(0), Some(0))?;
             Ok(())
@@ -814,10 +830,10 @@ impl SshSession {
     }
     
     pub fn disconnect(&self) -> Result<()> {
-        *self.is_connected.lock().unwrap() = false;
+        *self.is_connected.lock().unwrap_or_else(|e| e.into_inner()) = false;
         
         // 关闭 channel
-        let mut channel_guard = self.channel.lock().unwrap();
+        let mut channel_guard = self.channel.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(ref mut channel) = *channel_guard {
             let _ = channel.close();
             let _ = channel.wait_close();
@@ -825,7 +841,7 @@ impl SshSession {
         *channel_guard = None;
         
         // 断开 session
-        let session = self.session.lock().unwrap();
+        let session = self.session.lock().unwrap_or_else(|e| e.into_inner());
         session.disconnect(None, "User disconnected", None)?;
         
         Ok(())
@@ -833,7 +849,7 @@ impl SshSession {
     
     #[allow(dead_code)]
     pub fn is_connected(&self) -> bool {
-        *self.is_connected.lock().unwrap()
+        *self.is_connected.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 

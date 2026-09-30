@@ -69,7 +69,7 @@ impl TunnelManager {
 
     /// 注册（或替换）某规则的隧道；若已存在同名隧道则先停止旧的。
     pub fn insert(&self, rule_id: String, tunnel: Arc<RunningTunnel>) {
-        let mut tunnels = self.tunnels.lock().unwrap();
+        let mut tunnels = self.tunnels.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(old) = tunnels.insert(rule_id, tunnel) {
             old.stop();
         }
@@ -77,7 +77,7 @@ impl TunnelManager {
 
     /// 停止指定规则的隧道。返回是否确实停止了一个。
     pub fn stop(&self, rule_id: &str) -> bool {
-        if let Some(tunnel) = self.tunnels.lock().unwrap().remove(rule_id) {
+        if let Some(tunnel) = self.tunnels.lock().unwrap_or_else(|e| e.into_inner()).remove(rule_id) {
             tunnel.stop();
             true
         } else {
@@ -87,7 +87,7 @@ impl TunnelManager {
 
     /// 尽力停止所有隧道（应用退出时调用）。
     pub fn stop_all(&self) {
-        let tunnels = self.tunnels.lock().unwrap();
+        let tunnels = self.tunnels.lock().unwrap_or_else(|e| e.into_inner());
         for (_, tunnel) in tunnels.iter() {
             tunnel.stop();
         }
@@ -95,11 +95,11 @@ impl TunnelManager {
 
     #[allow(dead_code)]
     pub fn is_running(&self, rule_id: &str) -> bool {
-        self.tunnels.lock().unwrap().contains_key(rule_id)
+        self.tunnels.lock().unwrap_or_else(|e| e.into_inner()).contains_key(rule_id)
     }
 
     pub fn list(&self) -> Vec<String> {
-        self.tunnels.lock().unwrap().keys().cloned().collect()
+        self.tunnels.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect()
     }
 }
 
@@ -276,7 +276,7 @@ fn spawn_remote_loop(
                 }
                 Err(e) => {
                     if running.load(Ordering::SeqCst) {
-                        eprintln!("remote forward accept error: {e}");
+                        tracing::warn!("remote forward accept error: {e}");
                     }
                     break;
                 }
@@ -289,7 +289,7 @@ fn spawn_remote_loop(
 fn forward_direct_tcpip(session: Session, tcp: TcpStream, target_host: &str, target_port: u16) {
     match session.channel_direct_tcpip(target_host, target_port, None) {
         Ok(channel) => bridge(channel, tcp),
-        Err(e) => eprintln!("direct-tcpip to {target_host}:{target_port} failed: {e}"),
+        Err(e) => tracing::warn!("direct-tcpip to {target_host}:{target_port} failed: {e}"),
     }
 }
 
@@ -303,13 +303,13 @@ fn forward_remote_to_local(channel: Channel, target_host: &str, target_port: u16
     {
         Some(s) => s,
         None => {
-            eprintln!("无法解析本地目标 {addr}");
+            tracing::warn!("无法解析本地目标 {addr}");
             return;
         }
     };
     match TcpStream::connect_timeout(&sock, Duration::from_secs(10)) {
         Ok(tcp) => bridge(channel, tcp),
-        Err(e) => eprintln!("连接本地目标 {addr} 失败: {e}"),
+        Err(e) => tracing::warn!("连接本地目标 {addr} 失败: {e}"),
     }
 }
 

@@ -272,7 +272,7 @@ fn remove_managed_key_file(path: &str) {
     if target.starts_with(&keys_dir) && target != keys_dir {
         let _ = fs::remove_file(path);
     } else {
-        eprintln!("Skipped deleting key file outside managed directory: {}", path);
+        tracing::warn!("Skipped deleting key file outside managed directory: {path}");
     }
 }
 

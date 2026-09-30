@@ -134,9 +134,8 @@ pub fn init_config() -> io::Result<models::config::Config> {
         Err(err) => {
             // 配置缺失字段已由 serde default 兜底；走到这里说明文件损坏或无法解析。
             // 先备份原文件，再回退默认配置，避免启动崩溃。
-            eprintln!(
-                "Failed to read config ({}), backing up and resetting to defaults",
-                err
+            tracing::warn!(
+                "Failed to read config ({err}), backing up and resetting to defaults"
             );
             let backup_path = config_path.with_extension("toml.bak");
             let _ = fs::copy(&config_path, &backup_path);

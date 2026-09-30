@@ -25,17 +25,17 @@ use serial::SerialManager;
 use vnc::VncManager;
 use rdp::RdpManager;
 use mosh::MoshManager;
-use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
+use dashmap::DashMap;
 use tauri::{Emitter, Manager};
 use std::thread;
 use crate::config::global_config::GlobaConfig;
 
 /// 应用运行时状态：各 Manager 自带锁（RwLock/DashMap/Arc 包装），
 /// AppState 只持有实例、不再外包 Mutex——消除双重锁，tunnel/monitor/sftp 互不阻塞。
-/// 例外：russh_shells / transfer_cancels 是裸 HashMap，仍需 Mutex（tokio 回调内只做
-/// 短锁 get/clone/remove，不跨 await，见 commands/ssh.rs 注释）。
+/// russh_shells / transfer_cancels 用 DashMap（分片锁）：击键路径的 get/clone/remove
+/// 高频且都是短操作，免全局排队也免 poison 处理。
 pub struct AppState {
     ssh: SshManager,
     sftp: SftpManager,
@@ -48,9 +48,9 @@ pub struct AppState {
     rdp: RdpManager,
     mosh: MoshManager,
     /// russh 交互终端会话表（新主后端；ssh2 作 DSA/老设备回退留在 `ssh` manager）
-    russh_shells: Mutex<HashMap<String, std::sync::Arc<ShellSession>>>,
+    russh_shells: DashMap<String, std::sync::Arc<ShellSession>>,
     /// 传输取消标志表：cancel_token -> AtomicBool（下载中断用）
-    transfer_cancels: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    transfer_cancels: DashMap<String, Arc<AtomicBool>>,
 }
 
 impl AppState {
@@ -66,8 +66,8 @@ impl AppState {
             vnc: VncManager::new(),
             rdp: RdpManager::new(),
             mosh: MoshManager::new(),
-            russh_shells: Mutex::new(HashMap::new()),
-            transfer_cancels: Mutex::new(HashMap::new()),
+            russh_shells: DashMap::new(),
+            transfer_cancels: DashMap::new(),
         }
     }
 }
@@ -79,6 +79,15 @@ pub fn run() {
 
     let config = utils::file::init_config().expect("init config failed");
     services::logs::set_max_logs(config.advanced.max_logs);
+    // tracing：stdout 结构化日志（RUST_LOG=swallow=debug 开细粒度）。
+    // 高频路径（连接/传输/读泵）走 tracing::{info,warn,error}，零 DB 写；
+    // 需要进「日志页」的审计事件仍走 write_log（DB）。
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("swallow=info")),
+        )
+        .try_init();
     tauri::Builder::default()
         .manage(GlobaConfig {
             config: Arc::new(RwLock::new(config))
@@ -338,7 +347,7 @@ pub fn run() {
                 
                 // 执行初始化
                 if let Err(e) = utils::init::init() {
-                    eprintln!("初始化失败: {}", e);
+                    tracing::error!("初始化失败: {e}");
                 }
 
                 // 关闭 splash screen，显示主窗口
@@ -375,11 +384,8 @@ pub fn run() {
 fn cleanup_all_sessions(app_handle: &tauri::AppHandle) {
     let state = app_handle.state::<AppState>();
     state.ssh.disconnect_all();
-    let russh_guard = state.russh_shells.lock();
-    if let Ok(map) = russh_guard {
-        for shell in map.values() {
-            shell.stop();
-        }
+    for shell in state.russh_shells.iter() {
+        shell.stop();
     }
     state.sftp.disconnect_all();
     state.telnet.disconnect_all();

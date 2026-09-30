@@ -182,10 +182,10 @@ fn spawn_local_loop(
                             });
                         }
                         Ok(Err(e)) => {
-                            eprintln!("direct-tcpip to {target_host}:{target_port} failed: {e}");
+                            tracing::warn!("direct-tcpip to {target_host}:{target_port} failed: {e}");
                         }
                         Err(_) => {
-                            eprintln!("direct-tcpip to {target_host}:{target_port} timed out");
+                            tracing::warn!("direct-tcpip to {target_host}:{target_port} timed out");
                         }
                     }
                 }

@@ -51,16 +51,13 @@ pub async fn ssh_connect(
     // 快速路径：会话已存在则复用（避免在切换标签或重挂载时重复建立连接）——短暂持锁
     {
         if state.ssh.get_session(&session_id).is_some() {
-            return Ok(ConnectResult::connected(config.host, config.port));
+            return Ok(ConnectResult::connected(config.host.clone(), config.port));
         }
     }
 
     // russh 后端会话复用同理
-    {
-        let map = state.russh_shells.lock().map_err(|e| SshError::classify_str(&e.to_string()))?;
-        if map.contains_key(&session_id) {
-            return Ok(ConnectResult::connected(config.host, config.port));
-        }
+    if state.russh_shells.contains_key(&session_id) {
+        return Ok(ConnectResult::connected(config.host.clone(), config.port));
     }
 
     // 密钥/证书认证：根据 key_id/cert_id 从数据库读取内容用于内存认证（不落盘）
@@ -86,12 +83,14 @@ pub async fn ssh_connect(
         .await;
         match spawn_result {
             Ok(shell) => {
-                {
-                    let mut map = state.russh_shells.lock().map_err(|e| SshError::classify_str(&e.to_string()))?;
-                    if map.contains_key(&session_id) {
-                        return Ok(ConnectResult::connected(config.host, config.port));
+                // entry 原子性：并发同 id 连接时后来者直接丢弃（Drop 兜底断开），先到先得
+                match state.russh_shells.entry(session_id.clone()) {
+                    dashmap::Entry::Occupied(_) => {
+                        return Ok(ConnectResult::connected(config.host.clone(), config.port));
                     }
-                    map.insert(session_id.clone(), std::sync::Arc::new(shell));
+                    dashmap::Entry::Vacant(vacant) => {
+                        vacant.insert(std::sync::Arc::new(shell));
+                    }
                 }
                 let _ = write_log(
                     "info",
@@ -101,7 +100,7 @@ pub async fn ssh_connect(
                     ),
                     Some("ssh"),
                 );
-                return Ok(ConnectResult::connected(config.host, config.port));
+                return Ok(ConnectResult::connected(config.host.clone(), config.port));
             }
             Err(e) => {
                 if let Some(approval) =
@@ -196,7 +195,7 @@ pub async fn ssh_connect(
     // 插入会话（短暂持锁，避免重复插入）
     {
         if state.ssh.get_session(&session_id).is_some() {
-            return Ok(ConnectResult::connected(config.host, config.port));
+            return Ok(ConnectResult::connected(config.host.clone(), config.port));
         }
         state.ssh.insert_session(session_id.clone(), session);
     }
@@ -224,16 +223,13 @@ pub async fn ssh_connect(
         Some("ssh"),
     );
 
-    Ok(ConnectResult::connected(config.host, config.port))
+    Ok(ConnectResult::connected(config.host.clone(), config.port))
 }
 
 #[tauri::command]
 pub async fn ssh_write(state: State<'_, AppState>, session_id: String, data: String) -> Result<(), String> {
-    // russh 会话：克隆句柄出锁后再 await（MutexGuard 不能跨 await）
-    let russh = {
-        let map = state.russh_shells.lock().map_err(|e| e.to_string())?;
-        map.get(&session_id).cloned()
-    };
+    // russh 会话：克隆句柄出分片锁后再 await（DashMap Ref 不能跨 await 持有）
+    let russh = state.russh_shells.get(&session_id).map(|s| s.value().clone());
     if let Some(shell) = russh {
         return shell
             .write(data.into_bytes())
@@ -255,11 +251,8 @@ pub async fn ssh_write(state: State<'_, AppState>, session_id: String, data: Str
 
 #[tauri::command]
 pub async fn ssh_resize(state: State<'_, AppState>, session_id: String, cols: u32, rows: u32) -> Result<(), String> {
-    // russh 会话：克隆句柄出锁后再 await
-    let russh = {
-        let map = state.russh_shells.lock().map_err(|e| e.to_string())?;
-        map.get(&session_id).cloned()
-    };
+    // russh 会话：克隆句柄出分片锁后再 await
+    let russh = state.russh_shells.get(&session_id).map(|s| s.value().clone());
     if let Some(shell) = russh {
         return shell
             .resize(cols, rows)
@@ -281,8 +274,7 @@ pub async fn ssh_resize(state: State<'_, AppState>, session_id: String, cols: u3
 pub async fn ssh_disconnect(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
     // russh 会话：移除表项 + 请求 select task 停止断开
     {
-        let mut map = state.russh_shells.lock().map_err(|e| e.to_string())?;
-        if let Some(shell) = map.remove(&session_id) {
+        if let Some((_, shell)) = state.russh_shells.remove(&session_id) {
             shell.stop();
             let _ = write_log(
                 "info",
@@ -313,12 +305,10 @@ pub async fn ssh_disconnect(state: State<'_, AppState>, session_id: String) -> R
 #[tauri::command]
 pub async fn ssh_list_sessions(state: State<'_, AppState>) -> Result<Vec<String>, String> {
     let mut ids = state.ssh.list_sessions();
-    {
-        let map = state.russh_shells.lock().map_err(|e| e.to_string())?;
-        for k in map.keys() {
-            if !ids.contains(k) {
-                ids.push(k.clone());
-            }
+    for k in state.russh_shells.iter() {
+        let k = k.key();
+        if !ids.contains(k) {
+            ids.push(k.clone());
         }
     }
     Ok(ids)
@@ -343,12 +333,7 @@ pub fn ssh_set_output_paused(
     session_id: String,
     paused: bool,
 ) -> Result<(), String> {
-    let russh_shell = state
-        .russh_shells
-        .lock()
-        .map_err(|e| e.to_string())?
-        .get(&session_id)
-        .cloned();
+    let russh_shell = state.russh_shells.get(&session_id).map(|s| s.value().clone());
     if let Some(shell) = russh_shell {
         shell.set_output_paused(paused);
         return Ok(());

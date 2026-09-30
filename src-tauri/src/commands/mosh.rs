@@ -30,7 +30,7 @@ pub async fn mosh_connect(
     // 会话已存在则复用（标签切换/重挂载防重复建连）
     {
         if state.mosh.contains(&session_id) {
-            return Ok(ConnectResult::connected(config.host, config.port));
+            return Ok(ConnectResult::connected(config.host.clone(), config.port));
         }
     }
 
@@ -105,7 +105,7 @@ pub async fn mosh_connect(
         );
     }
 
-    Ok(ConnectResult::connected(config.host, config.port))
+    Ok(ConnectResult::connected(config.host.clone(), config.port))
 }
 
 #[tauri::command]

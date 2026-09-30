@@ -117,7 +117,7 @@ fn require_approval_backend(
     let token = register_pending_host_key(config.clone(), backend);
     HostKeyApprovalRequired {
         fingerprint,
-        host: config.host,
+        host: config.host.clone(),
         port: config.port,
         token,
     }

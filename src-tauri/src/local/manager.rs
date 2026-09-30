@@ -21,21 +21,21 @@ impl LocalShellManager {
             let sessions = self.sessions.clone();
             let id = session_id.clone();
             session.set_disconnect_handler(Box::new(move || {
-                sessions.write().unwrap().remove(&id);
+                sessions.write().unwrap_or_else(|e| e.into_inner()).remove(&id);
             }));
         }
-        let mut sessions = self.sessions.write().unwrap();
+        let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
         sessions.insert(session_id, Arc::new(session));
     }
 
     pub fn get_session(&self, session_id: &str) -> Option<Arc<LocalShellSession>> {
-        self.sessions.read().unwrap().get(session_id).cloned()
+        self.sessions.read().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned()
     }
 
     /// 移除会话在锁内（快），断开（kill 子进程）在锁外。
     pub fn disconnect(&self, session_id: &str) -> Result<(), String> {
         let session = {
-            let mut sessions = self.sessions.write().unwrap();
+            let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
             sessions.remove(session_id)
         };
         if let Some(session) = session {
@@ -48,7 +48,7 @@ impl LocalShellManager {
     /// 避免持锁阻塞其他命令。
     pub fn disconnect_all(&self) {
         let sessions: Vec<_> = {
-            let mut guard = self.sessions.write().unwrap();
+            let mut guard = self.sessions.write().unwrap_or_else(|e| e.into_inner());
             guard.drain().map(|(_, s)| s).collect()
         };
         for session in sessions {
@@ -57,7 +57,7 @@ impl LocalShellManager {
     }
 
     pub fn list_sessions(&self) -> Vec<String> {
-        self.sessions.read().unwrap().keys().cloned().collect()
+        self.sessions.read().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect()
     }
 }
 

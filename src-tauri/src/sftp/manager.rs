@@ -17,12 +17,12 @@ impl SftpManager {
     }
 
     pub fn get_session(&self, session_id: &str) -> Option<Arc<SftpSession>> {
-        self.sessions.read().unwrap().get(session_id).cloned()
+        self.sessions.read().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned()
     }
 
     /// 直接插入已建立的会话（连接在外部完成，持锁时间最短，避免慢连接阻塞全局）。
     pub fn insert_session(&self, session_id: String, session: SftpSession) {
-        self.sessions.write().unwrap().insert(session_id, Arc::new(session));
+        self.sessions.write().unwrap_or_else(|e| e.into_inner()).insert(session_id, Arc::new(session));
     }
 
     /// 断开会话：从表中移除（正在执行的命令持有 Arc 引用时，连接会延迟到其结束才真正关闭）。
@@ -37,10 +37,10 @@ impl SftpManager {
 
     /// 断开所有会话（应用退出时调用）：SFTP 会话无网络握手，clear 即弃。
     pub fn disconnect_all(&self) {
-        self.sessions.write().unwrap().clear();
+        self.sessions.write().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
     pub fn list_sessions(&self) -> Vec<String> {
-        self.sessions.read().unwrap().keys().cloned().collect()
+        self.sessions.read().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect()
     }
 }

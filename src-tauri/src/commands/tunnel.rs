@@ -209,7 +209,7 @@ pub async fn start_port_forward(
                     ),
                     Some("portforwarding"),
                 );
-                return Ok(ConnectResult::connected(config.host, config.port));
+                return Ok(ConnectResult::connected(config.host.clone(), config.port));
             }
             let _ = write_log(
                 "error",
@@ -247,7 +247,7 @@ pub async fn start_port_forward(
         Some("portforwarding"),
     );
 
-    Ok(ConnectResult::connected(config.host, config.port))
+    Ok(ConnectResult::connected(config.host.clone(), config.port))
 }
 
 #[tauri::command]

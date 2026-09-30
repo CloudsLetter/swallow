@@ -315,8 +315,6 @@ async fn run_output_pump(
         .await;
     emit_session_event(&app, &session_id, &SessionEvent::Disconnected);
     if let Some(state) = app.try_state::<AppState>() {
-        if let Ok(mut map) = state.russh_shells.lock() {
-            map.remove(&session_id);
-        }
+        state.russh_shells.remove(&session_id);
     }
 }

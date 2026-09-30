@@ -169,7 +169,7 @@ impl TelnetSession {
 
     /// 注册会话退出（EOF/错误/断开）时由 manager 执行的回调。
     pub fn set_disconnect_handler(&self, handler: Box<dyn FnOnce() + Send>) {
-        *self.disconnect_handler.lock().unwrap() = Some(handler);
+        *self.disconnect_handler.lock().unwrap_or_else(|e| e.into_inner()) = Some(handler);
     }
 
     /// 启动输出读取线程：处理 telnet 协商并把纯数据 emit 到 session-{id}。
@@ -194,10 +194,10 @@ impl TelnetSession {
                 ),
             );
             loop {
-                if !*is_connected.lock().unwrap() {
+                if !*is_connected.lock().unwrap_or_else(|e| e.into_inner()) {
                     break;
                 }
-                let mut stream_guard = stream_arc.lock().unwrap();
+                let mut stream_guard = stream_arc.lock().unwrap_or_else(|e| e.into_inner());
                 match stream_guard.read(&mut buffer) {
                     Ok(0) => {
                         drop(stream_guard);
@@ -278,8 +278,8 @@ impl TelnetSession {
 
             // 发掉缓冲残留（覆盖「会话被主动停止」的 break 路径）
             batcher.flush();
-            *is_connected.lock().unwrap() = false;
-            let handler = disconnect_handler.lock().unwrap().take();
+            *is_connected.lock().unwrap_or_else(|e| e.into_inner()) = false;
+            let handler = disconnect_handler.lock().unwrap_or_else(|e| e.into_inner()).take();
             if let Some(handler) = handler {
                 handler();
             }
@@ -297,7 +297,7 @@ impl TelnetSession {
         let deadline = std::time::Instant::now() + Duration::from_secs(WRITE_DEADLINE_SECS);
 
         while !remaining.is_empty() {
-            if !*self.is_connected.lock().unwrap() {
+            if !*self.is_connected.lock().unwrap_or_else(|e| e.into_inner()) {
                 return Err("Telnet session disconnected while writing".to_string());
             }
             if std::time::Instant::now() >= deadline {
@@ -326,7 +326,7 @@ impl TelnetSession {
     }
 
     pub fn disconnect(&self) -> Result<(), String> {
-        *self.is_connected.lock().unwrap() = false;
+        *self.is_connected.lock().unwrap_or_else(|e| e.into_inner()) = false;
         let stream = self.stream.lock().map_err(|e| e.to_string())?;
         stream.shutdown(Shutdown::Both).map_err(|e| e.to_string())
     }

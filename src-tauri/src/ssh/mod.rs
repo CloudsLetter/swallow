@@ -7,6 +7,8 @@ pub mod russh_tunnel;
 pub mod host_keys;
 pub mod auth;
 pub mod errors;
+#[cfg(test)]
+mod integration_tests;
 
 pub use session::{SshConfig, SshSession};
 pub use manager::SshManager;

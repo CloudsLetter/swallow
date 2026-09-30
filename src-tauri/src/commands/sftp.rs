@@ -409,9 +409,7 @@ pub async fn sftp_upload_local(
     let cancel_flag: Option<Arc<AtomicBool>> = match cancel_token.clone() {
         Some(token) => {
             let flag = Arc::new(AtomicBool::new(false));
-            if let Ok(mut cancels) = state.transfer_cancels.lock() {
-                cancels.insert(token, flag.clone());
-            }
+            state.transfer_cancels.insert(token, flag.clone());
             Some(flag)
         }
         None => None,
@@ -462,9 +460,7 @@ pub async fn sftp_upload_local(
 
     // 清理取消标志
     if let Some(token) = cancel_token {
-        if let Ok(mut cancels) = state.transfer_cancels.lock() {
-            cancels.remove(&token);
-        }
+        state.transfer_cancels.remove(&token);
     }
     result
 }
@@ -498,9 +494,7 @@ pub async fn sftp_download_file_progress(
     let cancel_flag: Option<Arc<AtomicBool>> = match cancel_token.clone() {
         Some(token) => {
             let flag = Arc::new(AtomicBool::new(false));
-            if let Ok(mut cancels) = state.transfer_cancels.lock() {
-                cancels.insert(token, flag.clone());
-            }
+            state.transfer_cancels.insert(token, flag.clone());
             Some(flag)
         }
         None => None,
@@ -557,9 +551,7 @@ pub async fn sftp_download_file_progress(
 
     // 清理取消标志
     if let Some(token) = cancel_token {
-        if let Ok(mut cancels) = state.transfer_cancels.lock() {
-            cancels.remove(&token);
-        }
+        state.transfer_cancels.remove(&token);
     }
 
     let _ = write_log(
@@ -578,8 +570,7 @@ pub async fn sftp_download_file_progress(
 /// 取消进行中的下载（置位取消标志，流式下载循环检测后中断）。
 #[tauri::command]
 pub async fn sftp_cancel_transfer(state: State<'_, AppState>, cancel_token: String) -> Result<(), String> {
-    let cancels = state.transfer_cancels.lock().map_err(|e| e.to_string())?;
-    if let Some(flag) = cancels.get(&cancel_token) {
+    if let Some(flag) = state.transfer_cancels.get(&cancel_token) {
         flag.store(true, Ordering::Relaxed);
     }
     Ok(())

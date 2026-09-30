@@ -565,7 +565,7 @@ impl LocalShellSession {
 
     /// 注册会话退出（子进程退出/读端 EOF）时由 manager 执行的回调。
     pub fn set_disconnect_handler(&self, handler: Box<dyn FnOnce() + Send>) {
-        *self.disconnect_handler.lock().unwrap() = Some(handler);
+        *self.disconnect_handler.lock().unwrap_or_else(|e| e.into_inner()) = Some(handler);
     }
 
     /// 启动输出读取线程：从 PTY master 读子进程输出并 emit 到 session-{id}。
@@ -578,7 +578,7 @@ impl LocalShellSession {
 
         // 读线程建立时先取 reader（读端独立于写端，可并发）
         let reader = {
-            let m = master.lock().unwrap();
+            let m = master.lock().unwrap_or_else(|e| e.into_inner());
             m.try_clone_reader()
         };
         let mut reader = match reader {
@@ -592,8 +592,8 @@ impl LocalShellSession {
                     },
                 );
                 emit_session_event(&app_handle, &session_id, &SessionEvent::Disconnected);
-                *is_connected.lock().unwrap() = false;
-                let handler = disconnect_handler.lock().unwrap().take();
+                *is_connected.lock().unwrap_or_else(|e| e.into_inner()) = false;
+                let handler = disconnect_handler.lock().unwrap_or_else(|e| e.into_inner()).take();
                 if let Some(handler) = handler {
                     handler();
                 }
@@ -621,20 +621,20 @@ impl LocalShellSession {
                 let wd_batcher = std::sync::Arc::clone(&batcher);
                 let wd_connected = std::sync::Arc::clone(&is_connected);
                 thread::spawn(move || {
-                    while *wd_connected.lock().unwrap() {
+                    while *wd_connected.lock().unwrap_or_else(|e| e.into_inner()) {
                         thread::sleep(std::time::Duration::from_millis(8));
-                        wd_batcher.lock().unwrap().flush_if_due();
+                        wd_batcher.lock().unwrap_or_else(|e| e.into_inner()).flush_if_due();
                     }
                 });
             }
             loop {
-                if !*is_connected.lock().unwrap() {
+                if !*is_connected.lock().unwrap_or_else(|e| e.into_inner()) {
                     break;
                 }
                 match reader.read(&mut buffer) {
                     Ok(0) => {
                         // slave 关闭（子进程退出）：EOF
-                        batcher.lock().unwrap().flush();
+                        batcher.lock().unwrap_or_else(|e| e.into_inner()).flush();
                         emit_session_event(&app_handle, &session_id, &SessionEvent::Disconnected);
                         break;
                     }
@@ -648,7 +648,7 @@ impl LocalShellSession {
                                     let s = String::from_utf8(utf8_pending.split_off(idx))
                                         .unwrap_or_default();
                                     if !s.is_empty() {
-                                        batcher.lock().unwrap().push(&s);
+                                        batcher.lock().unwrap_or_else(|e| e.into_inner()).push(&s);
                                     }
                                     idx = 0;
                                     break;
@@ -661,14 +661,14 @@ impl LocalShellSession {
                                         )
                                         .unwrap_or_default();
                                         idx += valid;
-                                        batcher.lock().unwrap().push(&s);
+                                        batcher.lock().unwrap_or_else(|e| e.into_inner()).push(&s);
                                     } else if e.error_len().is_none() {
                                         break; // 不完整序列，等下次补齐
                                     } else {
                                         // 非法字节：替换 U+FFFD
                                         let bad = e.error_len().unwrap_or(1);
                                         idx += bad;
-                                        batcher.lock().unwrap().push("\u{FFFD}");
+                                        batcher.lock().unwrap_or_else(|e| e.into_inner()).push("\u{FFFD}");
                                     }
                                 }
                             }
@@ -676,12 +676,12 @@ impl LocalShellSession {
                         if idx > 0 {
                             utf8_pending.drain(..idx);
                         }
-                        batcher.lock().unwrap().flush_if_due();
+                        batcher.lock().unwrap_or_else(|e| e.into_inner()).flush_if_due();
                     }
                     Err(e) => {
                         // 读错误：正常退出（子进程关闭管道）或异常，统一按断开处理
                         let _ = e;
-                        batcher.lock().unwrap().flush();
+                        batcher.lock().unwrap_or_else(|e| e.into_inner()).flush();
                         emit_session_event(&app_handle, &session_id, &SessionEvent::Disconnected);
                         break;
                     }
@@ -689,13 +689,13 @@ impl LocalShellSession {
             }
 
             // 发掉缓冲残留（覆盖「会话被主动停止」的 break 路径）
-            batcher.lock().unwrap().flush();
-            *is_connected.lock().unwrap() = false;
+            batcher.lock().unwrap_or_else(|e| e.into_inner()).flush();
+            *is_connected.lock().unwrap_or_else(|e| e.into_inner()) = false;
             // 尽力回收子进程（可能已退出，忽略错误）
-            let mut child_guard = child.lock().unwrap();
+            let mut child_guard = child.lock().unwrap_or_else(|e| e.into_inner());
             let _ = child_guard.wait();
 
-            let handler = disconnect_handler.lock().unwrap().take();
+            let handler = disconnect_handler.lock().unwrap_or_else(|e| e.into_inner()).take();
             if let Some(handler) = handler {
                 handler();
             }
@@ -706,7 +706,7 @@ impl LocalShellSession {
         if data.is_empty() {
             return Ok(());
         }
-        if !*self.is_connected.lock().unwrap() {
+        if !*self.is_connected.lock().unwrap_or_else(|e| e.into_inner()) {
             return Err("本地终端会话已断开".to_string());
         }
         let mut writer = self.writer.lock().map_err(|e| e.to_string())?;
@@ -729,7 +729,7 @@ impl LocalShellSession {
     }
 
     pub fn disconnect(&self) -> Result<(), String> {
-        *self.is_connected.lock().unwrap() = false;
+        *self.is_connected.lock().unwrap_or_else(|e| e.into_inner()) = false;
         // kill 子进程：读线程的 read 会随管道关闭返回 EOF/错误而退出
         let mut child = self.child.lock().map_err(|e| e.to_string())?;
         let _ = child.kill();

@@ -329,7 +329,7 @@ fn remove_managed_cert_file(path: &str) {
     if target.starts_with(&dir) && target != dir {
         let _ = fs::remove_file(path);
     } else {
-        eprintln!("Skipped deleting certificate file outside managed directory: {path}");
+        tracing::warn!("Skipped deleting certificate file outside managed directory: {path}");
     }
 }
 

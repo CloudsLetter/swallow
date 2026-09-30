@@ -23,22 +23,22 @@ impl SshManager {
             let sessions = self.sessions.clone();
             let id = session_id.clone();
             session.set_disconnect_handler(Box::new(move || {
-                sessions.write().unwrap().remove(&id);
+                sessions.write().unwrap_or_else(|e| e.into_inner()).remove(&id);
             }));
         }
-        let mut sessions = self.sessions.write().unwrap();
+        let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
         sessions.insert(session_id, Arc::new(session));
     }
 
     pub fn get_session(&self, session_id: &str) -> Option<Arc<SshSession>> {
-        let sessions = self.sessions.read().unwrap();
+        let sessions = self.sessions.read().unwrap_or_else(|e| e.into_inner());
         sessions.get(session_id).cloned()
     }
 
     pub fn disconnect(&self, session_id: &str) -> Result<()> {
         // 移除在锁内（快），断开（网络 I/O）在锁外：避免慢断开阻塞其他 SSH 命令
         let session = {
-            let mut sessions = self.sessions.write().unwrap();
+            let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
             sessions.remove(session_id)
         };
         if let Some(session) = session {
@@ -52,7 +52,7 @@ impl SshManager {
     /// 绝不能在持锁状态下做，否则会卡住所有并发命令。
     pub fn disconnect_all(&self) {
         let sessions: Vec<_> = {
-            let mut guard = self.sessions.write().unwrap();
+            let mut guard = self.sessions.write().unwrap_or_else(|e| e.into_inner());
             guard.drain().map(|(_, s)| s).collect()
         };
         for session in sessions {
@@ -61,7 +61,7 @@ impl SshManager {
     }
 
     pub fn list_sessions(&self) -> Vec<String> {
-        let sessions = self.sessions.read().unwrap();
+        let sessions = self.sessions.read().unwrap_or_else(|e| e.into_inner());
         sessions.keys().cloned().collect()
     }
 }

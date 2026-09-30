@@ -219,7 +219,7 @@ impl SerialSession {
 
     /// 注册会话退出回调（读线程收尾时执行，manager 据此从注册表移除）。
     pub fn set_disconnect_handler(&self, handler: Box<dyn FnOnce() + Send>) {
-        *self.disconnect_handler.lock().unwrap() = Some(handler);
+        *self.disconnect_handler.lock().unwrap_or_else(|e| e.into_inner()) = Some(handler);
     }
 
     /// 启动输出读取线程：阻塞读（100ms 超时轮询）→ 按会话字符集流式解码 → Output 事件。
@@ -246,11 +246,11 @@ impl SerialSession {
             );
 
             loop {
-                if !*is_connected.lock().unwrap() {
+                if !*is_connected.lock().unwrap_or_else(|e| e.into_inner()) {
                     break;
                 }
                 let read_result = {
-                    let mut guard = port_arc.lock().unwrap();
+                    let mut guard = port_arc.lock().unwrap_or_else(|e| e.into_inner());
                     match guard.as_mut() {
                         None => {
                             drop(guard);
@@ -300,7 +300,7 @@ impl SerialSession {
 
             // 发掉缓冲残留（覆盖所有 break 路径）
             batcher.flush();
-            *is_connected.lock().unwrap() = false;
+            *is_connected.lock().unwrap_or_else(|e| e.into_inner()) = false;
             // 释放句柄（读循环已结束，无人持锁）
             if let Ok(mut guard) = port_arc.lock() {
                 *guard = None;
@@ -311,7 +311,7 @@ impl SerialSession {
                 });
             }
             emit_session_event(&app_handle, &session_id, &SessionEvent::Disconnected);
-            let handler = disconnect_handler.lock().unwrap().take();
+            let handler = disconnect_handler.lock().unwrap_or_else(|e| e.into_inner()).take();
             if let Some(handler) = handler {
                 handler();
             }
@@ -339,7 +339,7 @@ impl SerialSession {
         let deadline = std::time::Instant::now() + Duration::from_secs(WRITE_DEADLINE_SECS);
 
         while !remaining.is_empty() {
-            if !*self.is_connected.lock().unwrap() {
+            if !*self.is_connected.lock().unwrap_or_else(|e| e.into_inner()) {
                 return Err("串口会话已断开，无法写入。".to_string());
             }
             if std::time::Instant::now() >= deadline {
@@ -366,7 +366,7 @@ impl SerialSession {
     }
 
     pub fn disconnect(&self) -> Result<(), String> {
-        *self.is_connected.lock().unwrap() = false;
+        *self.is_connected.lock().unwrap_or_else(|e| e.into_inner()) = false;
         // 释放句柄唤醒读线程（读线程会补发 Disconnected 事件并自查自删）
         if let Ok(mut guard) = self.port.lock() {
             *guard = None;

@@ -110,7 +110,7 @@ fn set_tauri_effect(window: &tauri::WebviewWindow, effect: &str) -> Result<(), S
 
 #[tauri::command]
 pub fn get_config(state: State<GlobaConfig>) -> crate::models::config::Config {
-   state.config.read().unwrap().clone()
+   state.config.read().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 #[tauri::command]

@@ -34,8 +34,8 @@ impl Drop for SshTunnelGuard {
 /// 密钥认证内容装载（与 ssh_connect 保持一致：key_id 优先查 DB，回退 key_path）。
 fn enrich_key(config: &mut SshConfig) -> Result<()> {
     let owned = prepare_ssh_auth_material(config.clone()).map_err(|e| anyhow::anyhow!(e))?;
-    config.private_key = owned.private_key;
-    config.public_key = owned.public_key;
+    config.private_key = owned.private_key.clone();
+    config.public_key = owned.public_key.clone();
     Ok(())
 }
 

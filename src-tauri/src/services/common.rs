@@ -18,7 +18,7 @@ pub(crate) fn resolve_secret(db_value: Option<String>, key: &str) -> Option<Stri
     match secrets::get_secret(key) {
         Ok(value) => value,
         Err(e) => {
-            eprintln!("Failed to read secret from keyring ({key}): {e}");
+            tracing::warn!("Failed to read secret from keyring ({key}): {e}");
             None
         }
     }

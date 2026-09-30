@@ -313,7 +313,7 @@ impl FtpPool {
         // 预热首个连接：连接失败立即报错，保持「连接即验证凭据」的语义
         let conn = pool.connect_stream()?;
         pool.total.fetch_add(1, Ordering::Relaxed);
-        pool.idle.lock().unwrap().push(conn);
+        pool.idle.lock().unwrap_or_else(|e| e.into_inner()).push(conn);
         Ok(pool)
     }
 
@@ -347,7 +347,7 @@ impl FtpPool {
     /// 借出一个连接：优先复用空闲（探活失败丢弃重建），无空闲则新建。
     fn acquire(&self) -> Result<FtpConn<'_>, Box<dyn std::error::Error + Send + Sync>> {
         loop {
-            let candidate = self.idle.lock().unwrap().pop();
+            let candidate = self.idle.lock().unwrap_or_else(|e| e.into_inner()).pop();
             match candidate {
                 Some(mut conn) => {
                     if conn.noop().is_ok() {
@@ -378,7 +378,7 @@ impl FtpPool {
             self.total.fetch_sub(1, Ordering::Relaxed);
             return;
         }
-        let mut idle = self.idle.lock().unwrap();
+        let mut idle = self.idle.lock().unwrap_or_else(|e| e.into_inner());
         if idle.len() < FTP_POOL_MAX_CONNS {
             idle.push(stream);
         } else {
@@ -626,11 +626,11 @@ impl SftpSession {
             // 标准协商链：MLSD（结构化最稳）→ LIST（Unix 行，raw 字节 + GBK 兜底）→ NLST（仅名兜底）。
             // MLSD 结果缓存到连接池（一次失败后不再尝试）；LIST/NLST 都走 raw 数据通道，
             // 绕开 suppaftp 高层读取的 lossy，文件名不被破坏。
-            let mlsd_cached = *pool.mlsd_ok.lock().unwrap();
+            let mlsd_cached = *pool.mlsd_ok.lock().unwrap_or_else(|e| e.into_inner());
             if mlsd_cached != Some(false) {
                 match raw_ftp_lines(ftp_stream, "MLSD") {
                     Ok(lines) => {
-                        *pool.mlsd_ok.lock().unwrap() = Some(true);
+                        *pool.mlsd_ok.lock().unwrap_or_else(|e| e.into_inner()) = Some(true);
                         let mut files: Vec<FileItem> = lines
                             .iter()
                             .filter_map(|line| parse_mlsd_entry(line))
@@ -640,7 +640,7 @@ impl SftpSession {
                     }
                     Err(_) => {
                         // 服务器不支持 MLSD（命令未实现等）：缓存后走 LIST
-                        *pool.mlsd_ok.lock().unwrap() = Some(false);
+                        *pool.mlsd_ok.lock().unwrap_or_else(|e| e.into_inner()) = Some(false);
                     }
                 }
             }
