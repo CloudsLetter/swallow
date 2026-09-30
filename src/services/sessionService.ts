@@ -26,6 +26,51 @@ export interface SftpSessionConfig {
   passphrase?: string;
 }
 
+/** IPC 结构化错误（后端 ssh/errors.rs IpcError）：code 供分支，message 供展示。
+ * 旧版后端抛裸字符串时 code 为 undefined，调用方按原逻辑处理即可。 */
+export interface CommandError {
+  code?: string;
+  message: string;
+}
+
+/** 从 invoke 抛出的错误中提取 code/message（Tauri 把 Serialize 结构原样透传）。 */
+export function toCommandError(err: unknown): CommandError {
+  if (typeof err === 'object' && err !== null && 'message' in err) {
+    const e = err as { code?: unknown; message: unknown };
+    return {
+      code: typeof e.code === 'string' ? e.code : undefined,
+      message: typeof e.message === 'string' ? e.message : String(err),
+    };
+  }
+  if (typeof err === 'string') {
+    try {
+      const parsed = JSON.parse(err) as { code?: unknown; message?: unknown };
+      if (parsed && typeof parsed.message === 'string') {
+        return {
+          code: typeof parsed.code === 'string' ? parsed.code : undefined,
+          message: parsed.message,
+        };
+      }
+    } catch {
+      // 非 JSON 字符串：原样返回
+    }
+    return { message: err };
+  }
+  return { message: String(err) };
+}
+
+/** SSH 错误码（与后端 SshError 常量对齐），供连接失败分支用。 */
+export const SSH_ERROR_CODES = {
+  hostKeyApproval: 'host-key-approval',
+  hostKeyMismatch: 'host-key-mismatch',
+  noCommonAlgo: 'no-common-algo',
+  keyUnreadable: 'key-unreadable',
+  authFailed: 'auth-failed',
+  timeout: 'timeout',
+  unreachable: 'unreachable',
+  unknown: 'unknown',
+} as const;
+
 /** 连接命令返回结果：connected 或需要主机密钥确认。 */
 export interface ConnectResult {
   status: 'connected' | 'needsHostKeyApproval';

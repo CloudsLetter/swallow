@@ -54,8 +54,7 @@ pub async fn vnc_connect(
                 let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
                     .await
                     .map_err(|e| format!("无法创建本地监听端口: {e}"))?;
-                let manager = state.vnc.lock().map_err(|e| e.to_string())?;
-                return manager.start(&sid, listener, tcp, Some(guard), request.generation);
+                return state.vnc.start(&sid, listener, tcp, Some(guard), request.generation);
             }
             Err(e) => {
                 // SSH 主机密钥待确认：复用 ssh/session 的 pending 机制与 accept_host_key
@@ -99,8 +98,7 @@ pub async fn vnc_connect(
         .await
         .map_err(|e| format!("无法创建本地监听端口: {e}"))?;
 
-    let manager = state.vnc.lock().map_err(|e| e.to_string())?;
-    manager.start(&request.session_id, listener, tcp, None, request.generation)
+    state.vnc.start(&request.session_id, listener, tcp, None, request.generation)
 }
 
 #[tauri::command]
@@ -110,16 +108,14 @@ pub async fn vnc_disconnect(
     // 只停止该代际的会话；None = 停止当前注册会话（手动断开/标签关闭）
     generation: Option<u64>,
 ) -> Result<(), String> {
-    let manager = state.vnc.lock().map_err(|e| e.to_string())?;
     match generation {
-        Some(gen) => manager.stop_generation(&session_id, gen),
-        None => manager.stop(&session_id),
+        Some(gen) => state.vnc.stop_generation(&session_id, gen),
+        None => state.vnc.stop(&session_id),
     }
 }
 
 #[tauri::command]
 pub async fn vnc_list_sessions(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let manager = state.vnc.lock().map_err(|e| e.to_string())?;
-    Ok(manager.list())
+    Ok(state.vnc.list())
 }
 

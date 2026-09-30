@@ -7,6 +7,7 @@ import { SftpView } from '../components/SftpView';
 import { SplitView } from '../components/SplitView';
 import { QuickConnect } from './QuickConnect';
 import { useTabStore, Tab } from '../store/tabStore';
+import { hasSidePanel } from '../extensions/protocols';
 import { useAppConnecting } from '../store/appConnecting';
 import { useUiPage } from '../store/uiPage';
 import { ReplayView } from '../components/ReplayView';
@@ -114,10 +115,9 @@ export function Home() {
 
   const homeTab = tabs.find((t: Tab) => t.type === 'home');
   const isHomeActive = activeTabId === (homeTab?.id ?? 'home-tab');
-  // 左右面板与左侧 TerminalSidePanel 同显隐：仅 SSH 终端与 MOSH 标签激活时存在
+  // 左右面板与左侧 TerminalSidePanel 同显隐：注册表决定（terminal/mosh）
   const activeSessionTab = tabs.find((t: Tab) => t.id === activeTabId);
-  const isSidePanelTab =
-    activeSessionTab?.type === 'terminal' || activeSessionTab?.type === 'mosh';
+  const isSidePanelTab = hasSidePanel(activeSessionTab?.type);
 
   // 激活终端连接中：让出两侧面板（连接动画全宽不被遮挡）
   const connecting = useAppConnecting((s) => s.active);

@@ -338,41 +338,43 @@ impl MonitorSession {
     }
 }
 
-/// 会话池：与 SshManager 同构，短锁取 Arc、立即释放后再执行。
+/// 会话池：DashMap 分片锁，会话级并发互不阻塞（AppState 不再外包 Mutex）。
+/// 取 Arc 引用后立即释放分片锁，采集（exec + 阻塞读）在锁外执行。
 pub struct MonitorManager {
-    sessions: Arc<Mutex<HashMap<String, Arc<Mutex<MonitorSession>>>>>,
+    sessions: Arc<dashmap::DashMap<String, Arc<Mutex<MonitorSession>>>>,
 }
 
 impl MonitorManager {
     pub fn new() -> Self {
         Self {
-            sessions: Arc::new(Mutex::new(HashMap::new())),
+            sessions: Arc::new(dashmap::DashMap::new()),
         }
     }
 
     pub fn insert(&self, session_id: String, session: MonitorSession) {
-        let mut sessions = self.sessions.lock().unwrap();
-        sessions.insert(session_id, Arc::new(Mutex::new(session)));
+        self.sessions.insert(session_id, Arc::new(Mutex::new(session)));
     }
 
     pub fn get(&self, session_id: &str) -> Option<Arc<Mutex<MonitorSession>>> {
-        let sessions = self.sessions.lock().unwrap();
-        sessions.get(session_id).cloned()
+        self.sessions.get(session_id).map(|r| r.value().clone())
     }
 
     pub fn remove(&self, session_id: &str) -> Option<Arc<Mutex<MonitorSession>>> {
-        let mut sessions = self.sessions.lock().unwrap();
-        sessions.remove(session_id)
+        self.sessions.remove(session_id).map(|(_, v)| v)
     }
 
     pub fn list(&self) -> Vec<String> {
-        let sessions = self.sessions.lock().unwrap();
-        sessions.keys().cloned().collect()
+        self.sessions.iter().map(|r| r.key().clone()).collect()
     }
 
     pub fn disconnect_all(&self) {
-        let mut sessions = self.sessions.lock().unwrap();
-        for (_, session) in sessions.drain() {
+        let sessions: Vec<_> = self
+            .sessions
+            .iter()
+            .map(|r| r.value().clone())
+            .collect();
+        self.sessions.clear();
+        for session in sessions {
             if let Ok(guard) = session.lock() {
                 guard.disconnect();
             }

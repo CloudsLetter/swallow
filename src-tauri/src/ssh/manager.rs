@@ -47,10 +47,15 @@ impl SshManager {
         Ok(())
     }
 
-    /// 尽力断开所有会话（应用退出时调用）。
+    /// 尽力断开所有会话（应用退出时调用）：先 drain 出锁，
+    /// 再逐个断开——断开是网络 I/O（channel.close/wait_close），
+    /// 绝不能在持锁状态下做，否则会卡住所有并发命令。
     pub fn disconnect_all(&self) {
-        let mut sessions = self.sessions.write().unwrap();
-        for (_, session) in sessions.drain() {
+        let sessions: Vec<_> = {
+            let mut guard = self.sessions.write().unwrap();
+            guard.drain().map(|(_, s)| s).collect()
+        };
+        for session in sessions {
             let _ = session.disconnect();
         }
     }

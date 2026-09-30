@@ -80,19 +80,26 @@ export function QuickConnect() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    const withTimeout = <T,>(p: Promise<T>, fallback: T, ms = 15000): Promise<T> =>
+      Promise.race([p, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
     const loadHosts = async () => {
       const [hostList, accountList, keyList, certList] = await Promise.all([
-        getHosts(),
-        getAccounts(),
-        getKeys(),
-        getCertificates().catch(() => [] as Certificate[]),
+        withTimeout(getHosts().catch(() => [] as Host[]), [] as Host[]),
+        withTimeout(getAccounts().catch(() => [] as Account[]), [] as Account[]),
+        withTimeout(getKeys().catch(() => [] as Key[]), [] as Key[]),
+        withTimeout(getCertificates().catch(() => [] as Certificate[]), [] as Certificate[]),
       ]);
+      if (cancelled) return;
       setHosts(hostList);
       setAccounts(accountList);
       setKeys(keyList);
       setCerts(certList);
     };
-    loadHosts();
+    loadHosts().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   /** 打开连接标签并关闭当前快速连接标签。 */

@@ -32,18 +32,21 @@ use tauri::{Emitter, Manager};
 use std::thread;
 use crate::config::global_config::GlobaConfig;
 
-/// 应用运行时状态：SSH/SFTP 会话管理器随 App 生命周期创建与销毁。
+/// 应用运行时状态：各 Manager 自带锁（RwLock/DashMap/Arc 包装），
+/// AppState 只持有实例、不再外包 Mutex——消除双重锁，tunnel/monitor/sftp 互不阻塞。
+/// 例外：russh_shells / transfer_cancels 是裸 HashMap，仍需 Mutex（tokio 回调内只做
+/// 短锁 get/clone/remove，不跨 await，见 commands/ssh.rs 注释）。
 pub struct AppState {
-    ssh: Mutex<SshManager>,
-    sftp: Mutex<SftpManager>,
-    telnet: Mutex<TelnetManager>,
-    local: Mutex<LocalShellManager>,
-    tunnels: Mutex<TunnelManager>,
-    monitor: Mutex<MonitorManager>,
-    serial: Mutex<SerialManager>,
-    vnc: Mutex<VncManager>,
-    rdp: Mutex<RdpManager>,
-    mosh: Mutex<MoshManager>,
+    ssh: SshManager,
+    sftp: SftpManager,
+    telnet: TelnetManager,
+    local: LocalShellManager,
+    tunnels: TunnelManager,
+    monitor: MonitorManager,
+    serial: SerialManager,
+    vnc: VncManager,
+    rdp: RdpManager,
+    mosh: MoshManager,
     /// russh 交互终端会话表（新主后端；ssh2 作 DSA/老设备回退留在 `ssh` manager）
     russh_shells: Mutex<HashMap<String, std::sync::Arc<ShellSession>>>,
     /// 传输取消标志表：cancel_token -> AtomicBool（下载中断用）
@@ -53,16 +56,16 @@ pub struct AppState {
 impl AppState {
     fn new() -> Self {
         Self {
-            ssh: Mutex::new(SshManager::new()),
-            sftp: Mutex::new(SftpManager::new()),
-            telnet: Mutex::new(TelnetManager::new()),
-            local: Mutex::new(LocalShellManager::new()),
-            tunnels: Mutex::new(TunnelManager::new()),
-            monitor: Mutex::new(MonitorManager::new()),
-            serial: Mutex::new(SerialManager::new()),
-            vnc: Mutex::new(VncManager::new()),
-            rdp: Mutex::new(RdpManager::new()),
-            mosh: Mutex::new(MoshManager::new()),
+            ssh: SshManager::new(),
+            sftp: SftpManager::new(),
+            telnet: TelnetManager::new(),
+            local: LocalShellManager::new(),
+            tunnels: TunnelManager::new(),
+            monitor: MonitorManager::new(),
+            serial: SerialManager::new(),
+            vnc: VncManager::new(),
+            rdp: RdpManager::new(),
+            mosh: MoshManager::new(),
             russh_shells: Mutex::new(HashMap::new()),
             transfer_cancels: Mutex::new(HashMap::new()),
         }
@@ -356,54 +359,35 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             if let tauri::RunEvent::ExitRequested { .. } = event {
-                // 尽力断开所有 SSH/SFTP 会话，避免退出后残留连接
-                let state = app_handle.state::<AppState>();
-                let ssh_guard = state.ssh.lock();
-                if let Ok(manager) = ssh_guard {
-                    manager.disconnect_all();
-                }
-                let russh_guard = state.russh_shells.lock();
-                if let Ok(map) = russh_guard {
-                    for shell in map.values() {
-                        shell.stop();
-                    }
-                }
-                let sftp_guard = state.sftp.lock();
-                if let Ok(mut manager) = sftp_guard {
-                    manager.disconnect_all();
-                }
-                let telnet_guard = state.telnet.lock();
-                if let Ok(manager) = telnet_guard {
-                    manager.disconnect_all();
-                }
-                let local_guard = state.local.lock();
-                if let Ok(manager) = local_guard {
-                    manager.disconnect_all();
-                }
-                let tunnels_guard = state.tunnels.lock();
-                if let Ok(manager) = tunnels_guard {
-                    manager.stop_all();
-                }
-                let monitor_guard = state.monitor.lock();
-                if let Ok(manager) = monitor_guard {
-                    manager.disconnect_all();
-                }
-                let serial_guard = state.serial.lock();
-                if let Ok(manager) = serial_guard {
-                    manager.disconnect_all();
-                }
-                let vnc_guard = state.vnc.lock();
-                if let Ok(manager) = vnc_guard {
-                    manager.stop_all();
-                }
-                let rdp_guard = state.rdp.lock();
-                if let Ok(manager) = rdp_guard {
-                    manager.stop_all();
-                }
-                let mosh_guard = state.mosh.lock();
-                if let Ok(manager) = mosh_guard {
-                    manager.disconnect_all();
-                }
+                // 退出清理放后台线程做：disconnect_all 含网络 I/O（channel.close/
+                // wait_close），在事件回调里同步执行会拖住退出流程，表现为点 X 后卡死。
+                // 后台线程里尽力断开，进程退出会兜底回收。
+                let handle = app_handle.clone();
+                std::thread::spawn(move || {
+                    cleanup_all_sessions(&handle);
+                });
             }
         });
+}
+
+/// 退出时的会话清理（后台线程调用）：各 manager 先 drain 出锁再逐个断开，
+/// 任何一个慢连接都不会卡住其他 manager 的清理。
+fn cleanup_all_sessions(app_handle: &tauri::AppHandle) {
+    let state = app_handle.state::<AppState>();
+    state.ssh.disconnect_all();
+    let russh_guard = state.russh_shells.lock();
+    if let Ok(map) = russh_guard {
+        for shell in map.values() {
+            shell.stop();
+        }
+    }
+    state.sftp.disconnect_all();
+    state.telnet.disconnect_all();
+    state.local.disconnect_all();
+    state.tunnels.stop_all();
+    state.monitor.disconnect_all();
+    state.serial.disconnect_all();
+    state.vnc.stop_all();
+    state.rdp.stop_all();
+    state.mosh.disconnect_all();
 }

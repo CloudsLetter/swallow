@@ -6760,6 +6760,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "chrono",
+ "dashmap",
  "dirs",
  "encoding_rs",
  "futures-util",

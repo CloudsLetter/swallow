@@ -80,12 +80,23 @@ export function SerialCard({ onOpenSession, highlight }: QuickConnectCardProps) 
 
   // 展开时才枚举本机串口（按需扫描，不再常驻页面时提前跑）
   useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (!cancelled) setPorts([]);
+    }, 15000);
     void serialListPorts()
-      .then((list) => setPorts(list))
+      .then((list) => {
+        if (!cancelled) setPorts(list);
+      })
       .catch((e) => {
         console.warn('Failed to list serial ports:', e);
-        setPorts([]);
-      });
+        if (!cancelled) setPorts([]);
+      })
+      .finally(() => window.clearTimeout(timer));
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, []);
 
   const handleConnect = () => {

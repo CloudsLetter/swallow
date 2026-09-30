@@ -13,9 +13,22 @@ export function LocalShellChips({ onOpenSession }: Pick<QuickConnectCardProps, '
   const [profiles, setProfiles] = useState<LocalShellProfile[] | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (!cancelled) setProfiles([]);
+    }, 15000);
     void localShellListProfiles()
-      .then((list) => setProfiles(list.filter((p) => p.available)))
-      .catch(() => setProfiles([]));
+      .then((list) => {
+        if (!cancelled) setProfiles(list.filter((p) => p.available));
+      })
+      .catch(() => {
+        if (!cancelled) setProfiles([]);
+      })
+      .finally(() => window.clearTimeout(timer));
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, []);
 
   const items = profiles ?? [];

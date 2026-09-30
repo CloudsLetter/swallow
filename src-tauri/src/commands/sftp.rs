@@ -13,7 +13,6 @@ use std::sync::Arc;
 use serde::Serialize;
 use crate::config::global_config::GlobaConfig;
 use crate::services::logs::write_log;
-use crate::services::keys::load_key_content;
 use crate::utils::sqlite;
 
 
@@ -36,20 +35,21 @@ pub async fn sftp_connect(
 
     // 公钥认证：根据 key_id 从密钥库读取密钥内容（与 SSH 终端一致，不落盘）
     if config.protocol == "sftp" && config.auth_type == "publickey" {
-        if let Some(key_id) = config.key_id.clone() {
-            let conn = sqlite::open_connection()?;
-            let (private_key, public_key) = load_key_content(&conn, &key_id)?;
-            if private_key.is_none() && public_key.is_none() {
-                return Err("该密钥的内容未存储，请重新导入或生成密钥。".to_string());
-            }
-            config.private_key = private_key;
-            config.public_key = public_key;
-        }
+        let conn = sqlite::open_connection()?;
+        let (mut private_key, mut public_key) = (config.private_key.clone(), config.public_key.clone());
+        crate::ssh::auth::fill_sftp_key_material(
+            &conn,
+            config.key_id.as_deref(),
+            &mut private_key,
+            &mut public_key,
+        )?;
+        config.private_key = private_key;
+        config.public_key = public_key;
     }
 
     // 先检查会话是否已存在（快速路径，避免重复连接）
     {
-        let manager = state.sftp.lock().map_err(|e| e.to_string())?;
+        let manager = &state.sftp;
         if manager.get_session(&session_id).is_some() {
             return Ok(ConnectResult::connected(config.host, config.port));
         }
@@ -93,7 +93,7 @@ pub async fn sftp_connect(
     };
 
     // 连接成功后加锁插入（持锁时间最短）
-    let mut manager = state.sftp.lock().map_err(|e| e.to_string())?;
+    let manager = &state.sftp;
     if manager.get_session(&session_id).is_some() {
         return Ok(ConnectResult::connected(config.host, config.port));
     }
@@ -117,7 +117,7 @@ pub async fn sftp_connect(
 #[tauri::command]
 pub async fn sftp_list_dir(state: State<'_, AppState>, session_id: String, path: String) -> Result<Vec<FileItem>, String> {
     let session = {
-        let manager = state.sftp.lock().map_err(|e| e.to_string())?;
+        let manager = &state.sftp;
         manager
             .get_session(&session_id)
             .ok_or_else(|| format!("SFTP session {} not found", session_id))?
@@ -139,7 +139,7 @@ pub async fn sftp_download_file_to(
     target_path: String,
 ) -> Result<(), String> {
     let session = {
-        let manager = state.sftp.lock().map_err(|e| e.to_string())?;
+        let manager = &state.sftp;
         manager
             .get_session(&session_id)
             .ok_or_else(|| format!("SFTP session {} not found", session_id))?
@@ -191,7 +191,7 @@ pub async fn sftp_upload_file(
 ) -> Result<(), String> {
     let (session_id, remote_path, _truncate, local_data) = parse_binary_upload(request)?;
     let session = {
-        let manager = state.sftp.lock().map_err(|e| e.to_string())?;
+        let manager = &state.sftp;
         manager
             .get_session(&session_id)
             .ok_or_else(|| format!("SFTP session {} not found", session_id))?
@@ -212,13 +212,13 @@ pub async fn sftp_stream_copy(
     dst_path: String,
 ) -> Result<u64, String> {
     let src = {
-        let manager = state.sftp.lock().map_err(|e| e.to_string())?;
+        let manager = &state.sftp;
         manager
             .get_session(&src_session_id)
             .ok_or_else(|| format!("SFTP session {} not found", src_session_id))?
     };
     let dst = {
-        let manager = state.sftp.lock().map_err(|e| e.to_string())?;
+        let manager = &state.sftp;
         manager
             .get_session(&dst_session_id)
             .ok_or_else(|| format!("SFTP session {} not found", dst_session_id))?
@@ -236,7 +236,7 @@ pub async fn sftp_stream_copy(
 #[tauri::command]
 pub async fn sftp_delete_file(state: State<'_, AppState>, session_id: String, remote_path: String) -> Result<(), String> {
     let session = {
-        let manager = state.sftp.lock().map_err(|e| e.to_string())?;
+        let manager = &state.sftp;
         manager
             .get_session(&session_id)
             .ok_or_else(|| format!("SFTP session {} not found", session_id))?
@@ -251,7 +251,7 @@ pub async fn sftp_delete_file(state: State<'_, AppState>, session_id: String, re
 #[tauri::command]
 pub async fn sftp_delete_dir(state: State<'_, AppState>, session_id: String, remote_path: String) -> Result<(), String> {
     let session = {
-        let manager = state.sftp.lock().map_err(|e| e.to_string())?;
+        let manager = &state.sftp;
         manager
             .get_session(&session_id)
             .ok_or_else(|| format!("SFTP session {} not found", session_id))?
@@ -266,7 +266,7 @@ pub async fn sftp_delete_dir(state: State<'_, AppState>, session_id: String, rem
 #[tauri::command]
 pub async fn sftp_remove_dir_recursive(state: State<'_, AppState>, session_id: String, remote_path: String) -> Result<(), String> {
     let session = {
-        let manager = state.sftp.lock().map_err(|e| e.to_string())?;
+        let manager = &state.sftp;
         manager
             .get_session(&session_id)
             .ok_or_else(|| format!("SFTP session {} not found", session_id))?
@@ -283,7 +283,7 @@ pub async fn sftp_remove_dir_recursive(state: State<'_, AppState>, session_id: S
 #[tauri::command]
 pub async fn sftp_create_dir(state: State<'_, AppState>, session_id: String, remote_path: String) -> Result<(), String> {
     let session = {
-        let manager = state.sftp.lock().map_err(|e| e.to_string())?;
+        let manager = &state.sftp;
         manager
             .get_session(&session_id)
             .ok_or_else(|| format!("SFTP session {} not found", session_id))?
@@ -298,7 +298,7 @@ pub async fn sftp_create_dir(state: State<'_, AppState>, session_id: String, rem
 #[tauri::command]
 pub async fn sftp_chmod(state: State<'_, AppState>, session_id: String, remote_path: String, mode: u32) -> Result<(), String> {
     let session = {
-        let manager = state.sftp.lock().map_err(|e| e.to_string())?;
+        let manager = &state.sftp;
         manager
             .get_session(&session_id)
             .ok_or_else(|| format!("SFTP session {} not found", session_id))?
@@ -318,7 +318,7 @@ pub async fn sftp_search_files(
     query: String,
 ) -> Result<Vec<String>, String> {
     let session = {
-        let manager = state.sftp.lock().map_err(|e| e.to_string())?;
+        let manager = &state.sftp;
         manager
             .get_session(&session_id)
             .ok_or_else(|| format!("SFTP session {} not found", session_id))?
@@ -340,7 +340,7 @@ pub async fn sftp_rename(
     new_path: String,
 ) -> Result<(), String> {
     let session = {
-        let manager = state.sftp.lock().map_err(|e| e.to_string())?;
+        let manager = &state.sftp;
         manager
             .get_session(&session_id)
             .ok_or_else(|| format!("SFTP session {} not found", session_id))?
@@ -371,7 +371,7 @@ pub async fn sftp_upload_chunk(
     let (session_id, remote_path, truncate, data) = parse_binary_upload(request)?;
     let truncate = truncate.ok_or_else(|| "missing request header: x-truncate".to_string())?;
     let session = {
-        let manager = state.sftp.lock().map_err(|e| e.to_string())?;
+        let manager = &state.sftp;
         manager
             .get_session(&session_id)
             .ok_or_else(|| format!("SFTP session {} not found", session_id))?
@@ -394,7 +394,7 @@ pub async fn sftp_upload_local(
     cancel_token: Option<String>,
 ) -> Result<(), String> {
     let session = {
-        let manager = state.sftp.lock().map_err(|e| e.to_string())?;
+        let manager = &state.sftp;
         manager
             .get_session(&session_id)
             .ok_or_else(|| format!("SFTP session {} not found", session_id))?
@@ -486,7 +486,7 @@ pub async fn sftp_download_file_progress(
     );
     // 取 Arc 引用后立即释放全局锁：整个下载过程不再阻塞其他会话命令（列表刷新/上传/删除）
     let session = {
-        let manager = state.sftp.lock().map_err(|e| e.to_string())?;
+        let manager = &state.sftp;
         manager
             .get_session(&session_id)
             .ok_or_else(|| format!("SFTP session {} not found", session_id))?
@@ -586,7 +586,8 @@ pub async fn sftp_cancel_transfer(state: State<'_, AppState>, cancel_token: Stri
 }
 
 #[tauri::command]
-pub async fn sftp_disconnect(state: State<'_, AppState>, session_id: String) -> Result<(), String> {    let mut manager = state.sftp.lock().map_err(|e| e.to_string())?;
+pub async fn sftp_disconnect(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
+    let manager = &state.sftp;
     let result = manager
         .disconnect(&session_id)
         .map_err(|e| format!("Failed to disconnect: {}", e));
@@ -607,8 +608,7 @@ pub async fn sftp_disconnect(state: State<'_, AppState>, session_id: String) -> 
 
 #[tauri::command]
 pub async fn sftp_list_sessions(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let manager = state.sftp.lock().map_err(|e| e.to_string())?;
-    Ok(manager.list_sessions())
+    Ok(state.sftp.list_sessions())
 }
 
 

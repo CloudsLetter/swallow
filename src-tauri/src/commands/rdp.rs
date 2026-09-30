@@ -52,7 +52,7 @@ pub async fn rdp_connect(
         .await
         .map_err(|e| format!("无法创建本地监听端口: {e}"))?;
 
-    let manager = state.rdp.lock().map_err(|e| e.to_string())?;
+    let manager = &state.rdp;
     manager.start(&request.session_id, listener, config, request.generation)
 }
 
@@ -63,16 +63,14 @@ pub async fn rdp_disconnect(
     // 只停止该代际的会话；None = 停止当前注册会话（手动断开/标签关闭）
     generation: Option<u64>,
 ) -> Result<(), String> {
-    let manager = state.rdp.lock().map_err(|e| e.to_string())?;
     match generation {
-        Some(gen) => manager.stop_generation(&session_id, gen),
-        None => manager.stop(&session_id),
+        Some(gen) => state.rdp.stop_generation(&session_id, gen),
+        None => state.rdp.stop(&session_id),
     }
 }
 
 #[tauri::command]
 pub async fn rdp_list_sessions(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let manager = state.rdp.lock().map_err(|e| e.to_string())?;
-    Ok(manager.list())
+    Ok(state.rdp.list())
 }
 

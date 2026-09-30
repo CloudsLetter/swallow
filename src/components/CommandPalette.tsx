@@ -14,14 +14,9 @@ import {
   Settings as IconSettings,
   Activity as IconActivity,
   Zap as IconZap,
-  Home as IconHome,
-  Network as IconNetwork,
-  Radio as IconRadio,
-  Usb as IconUsb,
   ScreenShare as IconScreenShare,
-  LayoutGrid as IconLayoutGrid,
-  PlayCircle as IconPlayCircle,
 } from 'lucide-react';
+import { getProtocol } from '../extensions/protocols';
 import {
   getHosts,
   getAccounts,
@@ -74,21 +69,14 @@ const PAGE_ITEMS: { id: string; labelKey: string; Icon: typeof IconDeviceDesktop
   { id: 'settings', labelKey: 'menu.settings', Icon: IconSettings },
 ];
 
-/** 标签类型 → 图标（快速切换器显示协议识别）。 */
-const TAB_TYPE_ICON: Record<string, typeof IconTerminal> = {
-  home: IconHome,
-  terminal: IconTerminal,
-  telnet: IconNetwork,
-  local: IconZap,
-  serial: IconUsb,
-  sftp: IconFolder,
-  vnc: IconDeviceDesktop,
-  rdp: IconScreenShare,
-  mosh: IconRadio,
-  replay: IconPlayCircle,
-  split: IconLayoutGrid,
-  'quick-connect': IconZap,
-};
+/** 标签类型 → 图标（快速切换器显示协议识别，来源与 TabBar 同一注册表）。 */
+function tabTypeIcon(type: string): typeof IconTerminal {
+  try {
+    return getProtocol(type as Parameters<typeof getProtocol>[0]).icon;
+  } catch {
+    return IconTerminal;
+  }
+}
 
 export function CommandPalette() {
   const { t } = useTranslation();
@@ -174,7 +162,7 @@ export function CommandPalette() {
 
     // —— 打开的标签：快速切换（含当前标签，回车直达）——
     const tabItems: PaletteItem[] = tabsList.map((tab) => {
-      const TipIcon = TAB_TYPE_ICON[tab.type] ?? IconTerminal;
+      const TipIcon = tabTypeIcon(tab.type);
       // SSH 类会话补充远端身份，便于区分同名标签
       const remote =
         tab.type === 'terminal'

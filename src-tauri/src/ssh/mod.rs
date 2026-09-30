@@ -5,6 +5,8 @@ pub mod russh_backend;
 pub mod russh_shell;
 pub mod russh_tunnel;
 pub mod host_keys;
+pub mod auth;
+pub mod errors;
 
 pub use session::{SshConfig, SshSession};
 pub use manager::SshManager;

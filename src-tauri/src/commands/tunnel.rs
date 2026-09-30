@@ -4,6 +4,7 @@ use tauri::{Emitter, State};
 
 use crate::commands::read_connection_timeout;
 use crate::commands::ConnectResult;
+use crate::ssh::errors::{is_ssh2_fallback_eligible, IpcError, SshError};
 use crate::AppState;
 
 use std::sync::Arc;
@@ -20,18 +21,20 @@ pub async fn start_port_forward(
     state: State<'_, AppState>,
     config_state: State<'_, GlobaConfig>,
     rule_id: String,
-) -> Result<ConnectResult, String> {
-    let conn = sqlite::open_connection()?;
-    let rule = crate::services::port_forwardings::load_port_forwarding(&conn, &rule_id)?
-        .ok_or_else(|| "端口转发规则不存在或已被删除".to_string())?;
+) -> Result<ConnectResult, IpcError> {
+    let conn = sqlite::open_connection().map_err(SshError::classify_str)?;
+    let rule = crate::services::port_forwardings::load_port_forwarding(&conn, &rule_id)
+        .map_err(SshError::classify_str)?
+        .ok_or_else(|| IpcError::new("rule-missing", "端口转发规则不存在或已被删除"))?;
 
     let host_id = rule
         .host_id
         .clone()
-        .ok_or_else(|| "该规则未指定 SSH 主机，无法建立隧道".to_string())?;
+        .ok_or_else(|| IpcError::new("rule-missing-host", "该规则未指定 SSH 主机，无法建立隧道"))?;
 
     // 解析主机认证（账号优先/主机回退）并读取密钥/证书内容，与终端连接同链路
-    let config = crate::services::port_forwardings::resolve_host_ssh_config(&conn, &host_id)?;
+    let config =
+        crate::ssh::auth::resolve_host_ssh_config(&conn, &host_id).map_err(SshError::classify_str)?;
 
     let timeout_secs = read_connection_timeout(&config_state);
     // 隧道长连接同样需要 russh 原生 keepalive（0 = 用户关闭 → Config 保持 None）
@@ -54,19 +57,16 @@ pub async fn start_port_forward(
                 .clone()
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
-                .ok_or_else(|| "远程转发需要指定目标主机".to_string())?;
+                .ok_or_else(|| IpcError::new("rule-bad-target", "远程转发需要指定目标主机"))?;
             let port = u16::try_from(rule.target_port)
-                .map_err(|_| "目标端口超出 0-65535 范围".to_string())?;
+                .map_err(|_| IpcError::new("rule-bad-target", "目标端口超出 0-65535 范围"))?;
             Some((target, port))
         }
         _ => None,
     };
 
     // TunnelManager 克隆供断线通知闭包使用（TunnelManager 是 Arc 包装，克隆零成本）
-    let manager = {
-        let guard = state.tunnels.lock().map_err(|e| e.to_string())?;
-        guard.clone()
-    };
+    let manager = state.tunnels.clone();
 
     // 断线通知（事件驱动，替代 3s 轮询看门狗线程）：russh 事件循环断开时立即
     // 触发。仅当隧道已注册才做清理与前端推送——连接阶段的断线由 connect 的
@@ -160,7 +160,7 @@ pub async fn start_port_forward(
                     )
                 })
                 .await
-                .map_err(|e| format!("Connection task failed: {e}"))?;
+                .map_err(|e| SshError::classify_str(&format!("Connection task failed: {e}")))?;
                 let est = match established {
                     Ok(est) => est,
                     Err(e) => {
@@ -174,7 +174,7 @@ pub async fn start_port_forward(
                                 approval.token.clone(),
                             ));
                         }
-                        return Err(format!("SSH connection failed: {}", e));
+                        return Err(SshError::classify(&e));
                     }
                 };
                 let rule_name = rule.name.clone();
@@ -189,18 +189,18 @@ pub async fn start_port_forward(
                     crate::ssh::tunnel::start_tunnel(&rule, est.session, est.jump)
                 })
                 .await
-                .map_err(|e| format!("Tunnel task failed: {e}"))?
-                .map_err(|e| format!("Failed to start tunnel: {e}"))?;
+                .map_err(|e| SshError::classify_str(&format!("Tunnel task failed: {e}")))?
+                .map_err(|e| SshError::classify(&e))?;
                 {
-                    let guard = state.tunnels.lock().map_err(|e| e.to_string())?;
-                    guard.insert(
+                    state.tunnels.insert(
                         rule_id.clone(),
                         Arc::new(crate::ssh::tunnel::RunningTunnel::Ssh2(Arc::new(
                             fallback_tunnel,
                         ))),
                     );
                 }
-                crate::services::port_forwardings::touch_last_used(&conn, &rule_id)?;
+                crate::services::port_forwardings::touch_last_used(&conn, &rule_id)
+                    .map_err(SshError::classify_str)?;
                 let _ = write_log(
                     "info",
                     &format!(
@@ -219,22 +219,20 @@ pub async fn start_port_forward(
                 ),
                 Some("portforwarding"),
             );
-            return Err(format!("SSH connection failed: {}", e));
+            return Err(SshError::classify(&e));
         }
     };
 
     // 建立隧道并启动后台监听 task（跳板机连接随 RusshConnection 存活，drop 自动释放）
     let tunnel = crate::ssh::russh_tunnel::start_russh_tunnel(&rule, russh_conn)
         .await
-        .map_err(|e| format!("Failed to start tunnel: {}", e))?;
+        .map_err(|e| SshError::classify(&e))?;
 
     let tunnel_arc = Arc::new(crate::ssh::tunnel::RunningTunnel::Russh(Arc::new(tunnel)));
-    {
-        let guard = state.tunnels.lock().map_err(|e| e.to_string())?;
-        guard.insert(rule_id.clone(), tunnel_arc);
-    }
+    state.tunnels.insert(rule_id.clone(), tunnel_arc);
 
-    crate::services::port_forwardings::touch_last_used(&conn, &rule_id)?;
+    crate::services::port_forwardings::touch_last_used(&conn, &rule_id)
+        .map_err(SshError::classify_str)?;
 
     let _ = write_log(
         "info",
@@ -254,11 +252,7 @@ pub async fn start_port_forward(
 
 #[tauri::command]
 pub async fn stop_port_forward(state: State<'_, AppState>, rule_id: String) -> Result<(), String> {
-    let stopped = state
-        .tunnels
-        .lock()
-        .map_err(|e| e.to_string())?
-        .stop(&rule_id);
+    let stopped = state.tunnels.stop(&rule_id);
     if stopped {
         let _ = write_log("info", "Port forward tunnel stopped", Some("portforwarding"));
     }
@@ -267,18 +261,5 @@ pub async fn stop_port_forward(state: State<'_, AppState>, rule_id: String) -> R
 
 #[tauri::command]
 pub async fn list_active_port_forwards(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    Ok(state.tunnels.lock().map_err(|e| e.to_string())?.list())
-}
-
-/// 判断 russh 连接错误是否属于「兼容回退」范畴：纯 DSA 主机（无共同主机密钥/KEX
-/// 算法）、DSA 或传统 PEM 客户端私钥（russh 无法解析/签名）。主机密钥变更、
-/// 待确认流程、网络类错误不回退（回退只会得到同样的失败）。
-pub(crate) fn is_ssh2_fallback_eligible(e: &anyhow::Error) -> bool {
-    let msg = format!("{e:#}");
-    msg.contains("没有共同支持的 SSH 算法")
-        || msg.contains("协商了未知的 SSH 算法")
-        || msg.contains("无法解析私钥")
-        || msg.contains("NoCommonAlgo")
-        || msg.contains("UnknownAlgo")
-        || msg.contains("CouldNotReadKey")
+    Ok(state.tunnels.list())
 }

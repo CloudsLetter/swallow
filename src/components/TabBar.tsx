@@ -9,18 +9,9 @@ import {
   Plus as IconPlus,
   Home as IconHome,
   EllipsisVertical as IconDotsVertical,
-  Terminal as IconTerminal,
-  Folder as IconFolder,
-  Network as IconNetwork,
-  Zap as IconZap,
-  LayoutGrid as IconLayoutGrid,
-  PlayCircle as IconPlayCircle,
-  Monitor as IconMonitor,
-  Usb as IconUsb,
-  ScreenShare as IconScreenShare,
-  Radio as IconRadio,
   Pin as IconPin,
 } from 'lucide-react';
+import { getProtocol } from '../extensions/protocols';
 import { Button } from './ui/button';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from './ui/context-menu';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
@@ -35,30 +26,7 @@ const MIN_DRAG_REGION_WIDTH = 40;
 
 /** 按标签类型映射协议图标，让 SSH/SFTP/Telnet/本地终端一眼可辨。 */
 function tabIcon(type: Tab['type']) {
-  switch (type) {
-    case 'sftp':
-      return IconFolder;
-    case 'vnc':
-      return IconMonitor;
-    case 'rdp':
-      return IconScreenShare;
-    case 'mosh':
-      return IconRadio;
-    case 'serial':
-      return IconUsb;
-    case 'telnet':
-      return IconNetwork;
-    case 'local':
-      return IconZap;
-    case 'quick-connect':
-      return IconZap;
-    case 'split':
-      return IconLayoutGrid;
-    case 'replay':
-      return IconPlayCircle;
-    default:
-      return IconTerminal;
-  }
+  return getProtocol(type).icon;
 }
 
 /** 拖拽落点：reorder=排序，merge=合并（带方向）。 */

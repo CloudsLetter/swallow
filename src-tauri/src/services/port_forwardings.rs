@@ -2,12 +2,9 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::AppState;
 use crate::models::data::{Account, Host, PortForwarding};
-use crate::services::certificates::load_cert_content;
 use crate::services::common::{resolve_secret, store_secret_or_clear};
-use crate::services::keys::load_key_content;
 use crate::services::logs::append_log;
 use crate::services::transfer;
-use crate::ssh::session::SshConfig;
 use crate::utils::sqlite;
 
 /// 从数据库读取全部规则（status 为占位值，实际连接状态由调用方按内存隧道派生）。
@@ -63,8 +60,6 @@ pub async fn list_port_forwardings(
     let mut rules = query_all_port_forwardings()?;
     let active: std::collections::HashSet<String> = state
         .tunnels
-        .lock()
-        .map_err(|e| e.to_string())?
         .list()
         .into_iter()
         .collect();
@@ -232,11 +227,7 @@ pub async fn save_port_forwarding(
     validate_port_forwarding(&rule)?;
     if !rule.id.trim().is_empty() {
         // 编辑运行中的规则：先停止旧隧道，避免 DB 参数已更新但隧道仍按旧参数监听
-        let _ = state
-            .tunnels
-            .lock()
-            .map_err(|e| e.to_string())?
-            .stop(&rule.id);
+        let _ = state.tunnels.stop(&rule.id);
     }
     persist_port_forwarding(&mut rule)?;
     Ok(rule)
@@ -248,11 +239,7 @@ pub async fn delete_port_forwarding(
     id: String,
 ) -> Result<(), String> {
     // 先停止可能正在运行的隧道，否则规则删除后隧道仍占端口/连接，成为无法停止的孤儿
-    let _ = state
-        .tunnels
-        .lock()
-        .map_err(|e| e.to_string())?
-        .stop(&id);
+    let _ = state.tunnels.stop(&id);
 
     let conn = sqlite::open_connection()?;
     let name: Option<String> = conn
@@ -353,7 +340,7 @@ pub fn touch_last_used(conn: &Connection, id: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn load_host(conn: &Connection, id: &str) -> Result<Option<Host>, String> {
+pub(crate) fn load_host(conn: &Connection, id: &str) -> Result<Option<Host>, String> {
     conn.query_row(
         "SELECT id, name, host, port, account_id, username, status, last_connected, auth_type, password,
                 key_id, certificate_id, use_proxy, proxy_host_id, proxy_auth_type, proxy_key_id,
@@ -403,7 +390,7 @@ fn load_host(conn: &Connection, id: &str) -> Result<Option<Host>, String> {
     .map_err(|e| e.to_string())
 }
 
-fn load_account(conn: &Connection, id: &str) -> Result<Option<Account>, String> {
+pub(crate) fn load_account(conn: &Connection, id: &str) -> Result<Option<Account>, String> {
     conn.query_row(
         "SELECT id, name, username, auth_type, password, key_id, certificate_id,
                 description, created_at, last_used
@@ -430,157 +417,6 @@ fn load_account(conn: &Connection, id: &str) -> Result<Option<Account>, String> 
     )
     .optional()
     .map_err(|e| e.to_string())
-}
-
-/// 解析指定主机用于建立隧道的 SSH 认证配置（账号优先、主机回退），
-/// 并读取密钥/证书内容填充，与终端连接走同一套认证链路。
-/// 主机配置了跳板机时，一并解析跳板机配置填入 `config.proxy`（递归支持链式跳板，防循环）。
-pub fn resolve_host_ssh_config(conn: &Connection, host_id: &str) -> Result<SshConfig, String> {
-    let mut visited = std::collections::HashSet::new();
-    resolve_host_ssh_config_inner(conn, host_id, &mut visited)
-}
-
-fn resolve_host_ssh_config_inner(
-    conn: &Connection,
-    host_id: &str,
-    visited: &mut std::collections::HashSet<String>,
-) -> Result<SshConfig, String> {
-    if !visited.insert(host_id.to_string()) {
-        return Err("检测到跳板机循环引用，请检查主机间的跳板机配置。".to_string());
-    }
-    let host = load_host(conn, host_id)?.ok_or_else(|| "SSH 主机不存在或已被删除".to_string())?;
-
-    // 账号优先：存在关联账号则用账号的认证信息，否则回退主机自身字段
-    let mut username = host.username.clone();
-    let mut auth_type = host.auth_type.clone().unwrap_or_default();
-    let mut password = host.password.clone();
-    let mut key_id = host.key_id.clone();
-    let mut cert_id = host.certificate_id.clone();
-    if let Some(account_id) = host.account_id.clone() {
-        if let Some(account) = load_account(conn, &account_id)? {
-            username = account.username;
-            auth_type = account.auth_type;
-            password = account.password;
-            key_id = account.key_id;
-            cert_id = account.certificate_id;
-        }
-    }
-
-    let mut config = SshConfig {
-        backend: String::new(),
-        algo_profile: String::new(),
-        host: host.host.clone(),
-        port: host.port,
-        username,
-        auth_type,
-        password,
-        key_path: None,
-        cert_path: None,
-        passphrase: None,
-        key_id,
-        private_key: None,
-        public_key: None,
-        cert_id,
-        cert_content: None,
-        cert_private_key: None,
-        proxy: None,
-    };
-
-    fill_auth_content(conn, &mut config)?;
-
-    // 跳板机：引用已有主机（proxy_host_id）或内联配置（proxy_host + proxy_port）
-    if host.use_proxy.unwrap_or(false) {
-        let proxy_config = if let Some(proxy_host_id) = host.proxy_host_id.clone() {
-            // 递归解析被引用的跳板机主机（会继续处理其自身的跳板机，visited 防循环）
-            resolve_host_ssh_config_inner(conn, &proxy_host_id, visited)?
-        } else if let (Some(proxy_host), Some(proxy_port)) =
-            (host.proxy_host.clone(), host.proxy_port)
-        {
-            resolve_inline_proxy_config(conn, &host, proxy_host, proxy_port)?
-        } else {
-            return Err("该主机配置了跳板机，但跳板机地址或主机引用不完整。".to_string());
-        };
-        config.proxy = Some(Box::new(proxy_config));
-    }
-
-    Ok(config)
-}
-
-/// 解析内联跳板机配置（直接填写的跳板机地址/端口/用户名/认证），读取其密钥/证书内容。
-fn resolve_inline_proxy_config(
-    conn: &Connection,
-    host: &Host,
-    proxy_host: String,
-    proxy_port: u16,
-) -> Result<SshConfig, String> {
-    let auth_type = host.proxy_auth_type.clone().unwrap_or_default();
-    let mut config = SshConfig {
-        backend: String::new(),
-        algo_profile: String::new(),
-        host: proxy_host,
-        port: proxy_port,
-        username: host.proxy_username.clone().unwrap_or_default(),
-        auth_type,
-        password: host.proxy_password.clone(),
-        key_path: None,
-        cert_path: None,
-        passphrase: None,
-        key_id: host.proxy_key_id.clone(),
-        private_key: None,
-        public_key: None,
-        cert_id: host.proxy_cert_id.clone(),
-        cert_content: None,
-        cert_private_key: None,
-        proxy: None,
-    };
-    fill_auth_content(conn, &mut config)?;
-    Ok(config)
-}
-
-/// 根据 auth_type 从数据库读取密钥/证书内容填充到 config（key/certificate 认证），
-/// 主配置与跳板机配置共用此逻辑。
-fn fill_auth_content(conn: &Connection, config: &mut SshConfig) -> Result<(), String> {
-    match config.auth_type.as_str() {
-        "key" => {
-            if let Some(kid) = config.key_id.clone() {
-                let (private_key, public_key) = load_key_content(conn, &kid)?;
-                if private_key.is_none() && public_key.is_none() {
-                    return Err("该密钥的内容未存储，请重新导入或生成密钥。".to_string());
-                }
-                config.private_key = private_key;
-                config.public_key = public_key;
-            } else {
-                return Err("密钥认证缺少可用的密钥，请到“账号/主机”页重新选择密钥。".to_string());
-            }
-        }
-        "certificate" => {
-            if let Some(cid) = config.cert_id.clone() {
-                let (cert_content, private_key) = load_cert_content(conn, &cid)?;
-                if cert_content.is_none() {
-                    return Err("该证书的内容未存储，请重新导入证书。".to_string());
-                }
-                if private_key.is_none() {
-                    return Err(
-                        "该证书未绑定配套私钥，无法完成 SSH 认证，请到“证书”页重新导入并附上私钥。"
-                            .to_string(),
-                    );
-                }
-                config.cert_content = cert_content;
-                config.cert_private_key = private_key;
-            } else {
-                return Err("证书认证缺少证书，请到“账号/主机”页重新选择证书。".to_string());
-            }
-        }
-        "password" => {
-            if config.password.is_none() {
-                return Err("密码认证缺少密码，请到“账号/主机”页重新填写密码。".to_string());
-            }
-        }
-        _ => {
-            return Err(format!("不支持的认证类型：{}", config.auth_type));
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]

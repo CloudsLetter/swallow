@@ -23,8 +23,7 @@ pub async fn local_shell_connect(
 ) -> Result<ConnectResult, String> {
     // 快速路径：会话已存在则复用
     {
-        let manager = state.local.lock().map_err(|e| e.to_string())?;
-        if manager.get_session(&session_id).is_some() {
+        if state.local.get_session(&session_id).is_some() {
             return Ok(ConnectResult::connected("localhost".to_string(), 0));
         }
     }
@@ -52,18 +51,14 @@ pub async fn local_shell_connect(
 
     // 插入会话（短暂持锁）
     {
-        let manager = state.local.lock().map_err(|e| e.to_string())?;
-        if manager.get_session(&session_id).is_some() {
+        if state.local.get_session(&session_id).is_some() {
             return Ok(ConnectResult::connected("localhost".to_string(), 0));
         }
-        manager.insert_session(session_id.clone(), session);
+        state.local.insert_session(session_id.clone(), session);
     }
 
     // 启动读循环并快速推进进度（本地终端无 tcp/ssh/auth 阶段）
-    if let Some(session) = {
-        let manager = state.local.lock().map_err(|e| e.to_string())?;
-        manager.get_session(&session_id)
-    } {
+    if let Some(session) = state.local.get_session(&session_id) {
         let progress = |stage: &str, message: Option<&str>| {
             emit_session_event(
                 &app_handle,
@@ -94,8 +89,7 @@ pub async fn local_shell_connect(
 #[tauri::command]
 pub async fn local_shell_write(state: State<'_, AppState>, session_id: String, data: String) -> Result<(), String> {
     let session = {
-        let manager = state.local.lock().map_err(|e| e.to_string())?;
-        manager
+        state.local
             .get_session(&session_id)
             .ok_or_else(|| format!("Local shell session {} not found", session_id))?
     };
@@ -113,8 +107,7 @@ pub async fn local_shell_resize(
     rows: u32,
 ) -> Result<(), String> {
     let session = {
-        let manager = state.local.lock().map_err(|e| e.to_string())?;
-        manager
+        state.local
             .get_session(&session_id)
             .ok_or_else(|| format!("Local shell session {} not found", session_id))?
     };
@@ -126,8 +119,7 @@ pub async fn local_shell_resize(
 #[tauri::command]
 pub async fn local_shell_disconnect(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
     let result = {
-        let manager = state.local.lock().map_err(|e| e.to_string())?;
-        manager
+        state.local
             .disconnect(&session_id)
             .map_err(|e| format!("Failed to disconnect: {}", e))
     };
@@ -145,13 +137,22 @@ pub async fn local_shell_disconnect(state: State<'_, AppState>, session_id: Stri
 
 #[tauri::command]
 pub async fn local_shell_list_sessions(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let manager = state.local.lock().map_err(|e| e.to_string())?;
-    Ok(manager.list_sessions())
+    Ok(state.local.list_sessions())
 }
 
 /// 探测本机可用 shell 画像（QuickConnect 动态入口用；纯文件存在性检查，无进程启动）。
 #[tauri::command]
-pub fn local_shell_list_profiles() -> Result<Vec<crate::local::LocalShellProfile>, String> {
-    Ok(crate::local::list_shell_profiles())
+pub async fn local_shell_list_profiles() -> Result<Vec<crate::local::LocalShellProfile>, String> {
+    // 同步命令占主线程事件循环：wsl.exe 在 WSL 服务异常时会挂起数分钟，
+    // 期间整个应用的 IPC 都会被拖死（表现即打开快速连接时卡死）。
+    // 放阻塞线程池执行，内部另有子进程超时 + 结果缓存兜底；外层再卡 20 秒超时，
+    // 保证任何情况下 IPC 都不会被一个探测命令无限拖住。
+    tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        tauri::async_runtime::spawn_blocking(crate::local::list_shell_profiles),
+    )
+    .await
+    .map_err(|_| "Shell 探测超时（本机 wsl/注册表响应过慢，已跳过）".to_string())?
+    .map_err(|e| format!("Shell 探测任务异常: {e}"))
 }
 

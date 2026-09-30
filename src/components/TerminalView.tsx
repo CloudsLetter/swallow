@@ -12,7 +12,7 @@ import { useTerminalFit } from '../hooks/useTerminalFit';
 import { useTerminalBackground } from '../hooks/useTerminalBackground';
 import { TerminalBackdrop } from './TerminalBackdrop';
 import { useSessionConnection, sshSessionPool } from '../hooks/useSessionConnection';
-import { acceptHostKey, sshConnect, disconnectSsh, telnetConnect, telnetDisconnect, localShellConnect, localShellDisconnect, serialConnect, serialDisconnect, moshConnect, moshDisconnect } from '../services/sessionService';
+import { acceptHostKey, sshConnect, disconnectSsh, telnetConnect, telnetDisconnect, localShellConnect, localShellDisconnect, serialConnect, serialDisconnect, moshConnect, moshDisconnect, toCommandError } from '../services/sessionService';
 import { touchHostLastConnected, getHosts, updateHost } from '../services/dataService';
 import type { Config } from '../types/config';
 import {
@@ -840,11 +840,12 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
             setSilentReconnect(sessionId, false);
             resetReconnectAttempts(sessionId);
             setIsConnectingState(false);
+            const cmdErr = toCommandError(error);
 
             // 标记当前正在执行的步骤为失败（读最新状态，避免使用初始化时的 stale 数组）
             const latest = getConnectionSteps(sessionId) || steps;
             const currentStepId = latest.find((s) => s.status === 'loading')?.id || 'auth';
-            updateStep(currentStepId, 'error', String(error));
+            updateStep(currentStepId, 'error', cmdErr.message);
 
             // 静默重连失败：显示进度窗口，便于用户手动重试
             if (wasSilentReconnect) {
@@ -853,11 +854,11 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
 
             // 连接失败：右下角 toast 提示（终端保持干净，不打印错误文本）
             toast.error(t('connection.failed'), {
-              description: String(error),
+              description: cmdErr.message,
               id: `conn-${sessionId}`,
               duration: 6000,
             });
-            console.error('SSH connection error:', error);
+            console.error('SSH connection error:', cmdErr.code ?? 'unknown', cmdErr.message);
 
             // 失败后不自动关闭，等待用户操作
           }

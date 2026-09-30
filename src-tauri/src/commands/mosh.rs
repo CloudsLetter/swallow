@@ -3,7 +3,7 @@
 use tauri::{Emitter, State};
 
 use crate::commands::read_connection_timeout;
-use crate::commands::ssh::prepare_ssh_auth_material;
+use crate::ssh::auth::prepare_ssh_auth_material;
 use crate::commands::ConnectResult;
 use crate::AppState;
 
@@ -29,8 +29,7 @@ pub async fn mosh_connect(
 
     // 会话已存在则复用（标签切换/重挂载防重复建连）
     {
-        let manager = state.mosh.lock().map_err(|e| e.to_string())?;
-        if manager.contains(&session_id) {
+        if state.mosh.contains(&session_id) {
             return Ok(ConnectResult::connected(config.host, config.port));
         }
     }
@@ -84,10 +83,7 @@ pub async fn mosh_connect(
     // 数据面泵线程：UDP + SSP，增量 ANSI emit 到 session-{id}
     let (input_tx, input_rx) = std::sync::mpsc::channel::<crate::mosh::session::PumpCommand>();
     let stop = Arc::new(AtomicBool::new(false));
-    let removal = {
-        let manager = state.mosh.lock().map_err(|e| e.to_string())?;
-        manager.removal_closure(session_id.clone())
-    };
+    let removal = state.mosh.removal_closure(session_id.clone());
     let disconnect_handler = Arc::new(Mutex::new(Some(removal)));
     crate::mosh::session::start_pump(
         app_handle,
@@ -103,8 +99,7 @@ pub async fn mosh_connect(
     );
 
     {
-        let manager = state.mosh.lock().map_err(|e| e.to_string())?;
-        manager.insert_session(
+        state.mosh.insert_session(
             session_id,
             crate::mosh::MoshSessionHandle { input_tx, stop },
         );
@@ -115,10 +110,7 @@ pub async fn mosh_connect(
 
 #[tauri::command]
 pub fn mosh_write(state: State<'_, AppState>, session_id: String, data: String) -> Result<(), String> {
-    let handle = {
-        let manager = state.mosh.lock().map_err(|e| e.to_string())?;
-        manager.get_handle(&session_id)
-    };
+    let handle = state.mosh.get_handle(&session_id);
     if let Some((input_tx, _)) = handle {
         let _ = input_tx.send(crate::mosh::session::PumpCommand::Input(data.into_bytes()));
     }
@@ -127,10 +119,7 @@ pub fn mosh_write(state: State<'_, AppState>, session_id: String, data: String) 
 
 #[tauri::command]
 pub fn mosh_resize(state: State<'_, AppState>, session_id: String, cols: u32, rows: u32) -> Result<(), String> {
-    let handle = {
-        let manager = state.mosh.lock().map_err(|e| e.to_string())?;
-        manager.get_handle(&session_id)
-    };
+    let handle = state.mosh.get_handle(&session_id);
     if let Some((input_tx, _)) = handle {
         let _ = input_tx.send(crate::mosh::session::PumpCommand::Resize(
             cols.clamp(1, 2000) as u16,
@@ -142,14 +131,12 @@ pub fn mosh_resize(state: State<'_, AppState>, session_id: String, cols: u32, ro
 
 #[tauri::command]
 pub fn mosh_disconnect(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
-    let manager = state.mosh.lock().map_err(|e| e.to_string())?;
-    manager.disconnect(&session_id);
+    state.mosh.disconnect(&session_id);
     Ok(())
 }
 
 #[tauri::command]
 pub fn mosh_list_sessions(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let manager = state.mosh.lock().map_err(|e| e.to_string())?;
-    Ok(manager.list())
+    Ok(state.mosh.list())
 }
 

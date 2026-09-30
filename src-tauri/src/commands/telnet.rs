@@ -26,8 +26,7 @@ pub async fn telnet_connect(
 
     // 快速路径：会话已存在则复用
     {
-        let manager = state.telnet.lock().map_err(|e| e.to_string())?;
-        if manager.get_session(&session_id).is_some() {
+        if state.telnet.get_session(&session_id).is_some() {
             return Ok(ConnectResult::connected(config.host.clone(), config.port));
         }
     }
@@ -58,18 +57,14 @@ pub async fn telnet_connect(
 
     // 插入会话（短暂持锁）
     {
-        let manager = state.telnet.lock().map_err(|e| e.to_string())?;
-        if manager.get_session(&session_id).is_some() {
+        if state.telnet.get_session(&session_id).is_some() {
             return Ok(ConnectResult::connected(config.host.clone(), config.port));
         }
-        manager.insert_session(session_id.clone(), session);
+        state.telnet.insert_session(session_id.clone(), session);
     }
 
     // 启动读循环并推进连接进度（telnet 无 ssh/auth/shell 阶段，快速推进到 ready）
-    if let Some(session) = {
-        let manager = state.telnet.lock().map_err(|e| e.to_string())?;
-        manager.get_session(&session_id)
-    } {
+    if let Some(session) = state.telnet.get_session(&session_id) {
         let progress = |stage: &str, message: Option<&str>| {
             emit_session_event(
                 &app_handle,
@@ -100,8 +95,7 @@ pub async fn telnet_connect(
 #[tauri::command]
 pub async fn telnet_write(state: State<'_, AppState>, session_id: String, data: String) -> Result<(), String> {
     let session = {
-        let manager = state.telnet.lock().map_err(|e| e.to_string())?;
-        manager
+        state.telnet
             .get_session(&session_id)
             .ok_or_else(|| format!("Telnet session {} not found", session_id))?
     };
@@ -115,8 +109,7 @@ pub async fn telnet_write(state: State<'_, AppState>, session_id: String, data: 
 #[tauri::command]
 pub async fn telnet_disconnect(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
     let result = {
-        let manager = state.telnet.lock().map_err(|e| e.to_string())?;
-        manager
+        state.telnet
             .disconnect(&session_id)
             .map_err(|e| format!("Failed to disconnect: {}", e))
     };
@@ -134,7 +127,6 @@ pub async fn telnet_disconnect(state: State<'_, AppState>, session_id: String) -
 
 #[tauri::command]
 pub async fn telnet_list_sessions(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let manager = state.telnet.lock().map_err(|e| e.to_string())?;
-    Ok(manager.list_sessions())
+    Ok(state.telnet.list_sessions())
 }
 

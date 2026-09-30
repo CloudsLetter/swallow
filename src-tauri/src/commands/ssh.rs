@@ -3,54 +3,14 @@
 use tauri::{Emitter, State};
 
 use crate::commands::read_connection_timeout;
-use crate::commands::tunnel::is_ssh2_fallback_eligible;
 use crate::commands::ConnectResult;
+use crate::ssh::errors::{is_ssh2_fallback_eligible, IpcError, SshError};
 use crate::AppState;
 
 use crate::ssh::{SshConfig, SshSession};
+use crate::ssh::auth::prepare_ssh_auth_material;
 use crate::config::global_config::GlobaConfig;
 use crate::services::logs::write_log;
-use crate::services::keys::load_key_content;
-use crate::services::certificates::load_cert_content;
-use crate::utils::sqlite;
-
-
-/// 密钥/证书认证材料装载：按 key_id/cert_id 从 DB 读内容入内存（不落盘）。
-/// SSH 终端与 MOSH 引导共用同一认证链路，保证行为一致。
-pub(crate) fn prepare_ssh_auth_material(mut config: SshConfig) -> Result<SshConfig, String> {
-    if config.auth_type == "key" {
-        if let Some(key_id) = config.key_id.clone() {
-            let conn = sqlite::open_connection()?;
-            let (private_key, public_key) = load_key_content(&conn, &key_id)?;
-            if private_key.is_none() && public_key.is_none() {
-                return Err("该密钥的内容未存储，请重新导入或生成密钥。".to_string());
-            }
-            config.private_key = private_key;
-            config.public_key = public_key;
-        } else if config.private_key.is_none() && config.key_path.is_none() {
-            return Err("密钥认证缺少可用的密钥，请到“账号/主机”页重新选择密钥。".to_string());
-        }
-    }
-
-    if config.auth_type == "certificate" {
-        if let Some(cert_id) = config.cert_id.clone() {
-            let conn = sqlite::open_connection()?;
-            let (cert_content, private_key) = load_cert_content(&conn, &cert_id)?;
-            if cert_content.is_none() {
-                return Err("该证书的内容未存储，请重新导入证书。".to_string());
-            }
-            if private_key.is_none() {
-                return Err(
-                    "该证书未绑定配套私钥，无法完成 SSH 认证，请到“证书”页重新导入并附上私钥。"
-                        .to_string(),
-                );
-            }
-            config.cert_content = cert_content;
-            config.cert_private_key = private_key;
-        }
-    }
-    Ok(config)
-}
 
 #[tauri::command]
 pub async fn ssh_connect(
@@ -62,7 +22,7 @@ pub async fn ssh_connect(
     cols: u32,
     rows: u32,
     on_output: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>,
-) -> Result<ConnectResult, String> {
+) -> Result<ConnectResult, IpcError> {
     let timeout_secs = read_connection_timeout(&config_state);
     // russh 原生 keepalive 间隔（秒）与 ssh2 路径共用同一配置项：
     // 0 = 用户关闭心跳 → russh Config 保持 None（不发 keepalive），行为与 ssh2 一致。
@@ -88,24 +48,23 @@ pub async fn ssh_connect(
     let host_backend = config.backend.trim().to_string();
     let ssh_backend_effective = if host_backend.is_empty() { ssh_backend } else { host_backend };
 
-    // 如果会话已存在则复用（避免在切换标签或重挂载时重复建立连接）——短暂持锁
+    // 快速路径：会话已存在则复用（避免在切换标签或重挂载时重复建立连接）——短暂持锁
     {
-        let manager = state.ssh.lock().map_err(|e| e.to_string())?;
-        if manager.get_session(&session_id).is_some() {
+        if state.ssh.get_session(&session_id).is_some() {
             return Ok(ConnectResult::connected(config.host, config.port));
         }
     }
 
     // russh 后端会话复用同理
     {
-        let map = state.russh_shells.lock().map_err(|e| e.to_string())?;
+        let map = state.russh_shells.lock().map_err(|e| SshError::classify_str(&e.to_string()))?;
         if map.contains_key(&session_id) {
             return Ok(ConnectResult::connected(config.host, config.port));
         }
     }
 
     // 密钥/证书认证：根据 key_id/cert_id 从数据库读取内容用于内存认证（不落盘）
-    let config = prepare_ssh_auth_material(config)?;
+    let config = prepare_ssh_auth_material(config).map_err(SshError::classify_str)?;
 
     // russh 主后端：连接+PTY+shell 同步完成（纯 async，不占阻塞线程）。
     // - HostKeyApprovalRequired → 转前端待确认流程（同隧道）；
@@ -128,7 +87,7 @@ pub async fn ssh_connect(
         match spawn_result {
             Ok(shell) => {
                 {
-                    let mut map = state.russh_shells.lock().map_err(|e| e.to_string())?;
+                    let mut map = state.russh_shells.lock().map_err(|e| SshError::classify_str(&e.to_string()))?;
                     if map.contains_key(&session_id) {
                         return Ok(ConnectResult::connected(config.host, config.port));
                     }
@@ -173,7 +132,7 @@ pub async fn ssh_connect(
                         ),
                         Some("ssh"),
                     );
-                    return Err(format!("SSH connection failed: {}", e));
+                    return Err(SshError::classify(&e));
                 }
             }
         }
@@ -206,7 +165,7 @@ pub async fn ssh_connect(
         )
     })
     .await
-    .map_err(|e| format!("Connection task failed: {e}"))?;
+    .map_err(|e| SshError::classify_str(&format!("Connection task failed: {e}")))?;
 
     let session = match connect_result {
         Ok(session) => session,
@@ -230,30 +189,23 @@ pub async fn ssh_connect(
                     Some("ssh"),
                 );
             }
-            return Err(format!("SSH connection failed: {}", e));
+            return Err(SshError::classify(&e));
         }
     };
 
     // 插入会话（短暂持锁，避免重复插入）
     {
-        let manager = state.ssh.lock().map_err(|e| e.to_string())?;
-        if manager.get_session(&session_id).is_some() {
+        if state.ssh.get_session(&session_id).is_some() {
             return Ok(ConnectResult::connected(config.host, config.port));
         }
-        manager.insert_session(session_id.clone(), session);
+        state.ssh.insert_session(session_id.clone(), session);
     }
 
     // 获取会话并启动 shell（不持全局锁）
-    if let Some(session) = {
-        let manager = state.ssh.lock().map_err(|e| e.to_string())?;
-        manager.get_session(&session_id)
-    } {
+    if let Some(session) = state.ssh.get_session(&session_id) {
         if let Err(e) = session.start_shell(app_handle, cols, rows, keep_alive_interval) {
             // shell 启动失败时移除会话，避免残留无 shell 的僵尸会话
-            let _ = {
-                let manager = state.ssh.lock().map_err(|e| e.to_string())?;
-                manager.disconnect(&session_id)
-            };
+            let _ = state.ssh.disconnect(&session_id);
             let _ = write_log(
                 "error",
                 &format!(
@@ -262,7 +214,7 @@ pub async fn ssh_connect(
                 ),
                 Some("ssh"),
             );
-            return Err(format!("Failed to start shell: {}", e));
+            return Err(SshError::classify(&e));
         }
     }
 
@@ -289,8 +241,7 @@ pub async fn ssh_write(state: State<'_, AppState>, session_id: String, data: Str
             .map_err(|e| format!("Failed to write data: {}", e));
     }
     let session = {
-        let manager = state.ssh.lock().map_err(|e| e.to_string())?;
-        manager
+        state.ssh
             .get_session(&session_id)
             .ok_or_else(|| format!("Session {} not found", session_id))?
     };
@@ -316,8 +267,7 @@ pub async fn ssh_resize(state: State<'_, AppState>, session_id: String, cols: u3
             .map_err(|e| format!("Failed to resize PTY: {}", e));
     }
     let session = {
-        let manager = state.ssh.lock().map_err(|e| e.to_string())?;
-        manager
+        state.ssh
             .get_session(&session_id)
             .ok_or_else(|| format!("Session {} not found", session_id))?
     };
@@ -344,8 +294,7 @@ pub async fn ssh_disconnect(state: State<'_, AppState>, session_id: String) -> R
     }
     // 移除会话在锁内（快），断开握手（网络 I/O）在 manager 内部锁外执行
     let result = {
-        let manager = state.ssh.lock().map_err(|e| e.to_string())?;
-        manager
+        state.ssh
             .disconnect(&session_id)
             .map_err(|e| format!("Failed to disconnect: {}", e))
     };
@@ -363,10 +312,7 @@ pub async fn ssh_disconnect(state: State<'_, AppState>, session_id: String) -> R
 
 #[tauri::command]
 pub async fn ssh_list_sessions(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let mut ids = {
-        let manager = state.ssh.lock().map_err(|e| e.to_string())?;
-        manager.list_sessions()
-    };
+    let mut ids = state.ssh.list_sessions();
     {
         let map = state.russh_shells.lock().map_err(|e| e.to_string())?;
         for k in map.keys() {
@@ -407,10 +353,8 @@ pub fn ssh_set_output_paused(
         shell.set_output_paused(paused);
         return Ok(());
     }
-    if let Ok(manager) = state.ssh.lock() {
-        if let Some(session) = manager.get_session(&session_id) {
-            session.set_output_paused(paused);
-        }
+    if let Some(session) = state.ssh.get_session(&session_id) {
+        session.set_output_paused(paused);
     }
     Ok(())
 }

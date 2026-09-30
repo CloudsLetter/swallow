@@ -5,9 +5,8 @@
 //! 本文件只负责：把「已认证 SSH 会话」对目标 VNC 服务开的 direct-tcpip 通道，
 //! 泵到本地 loopback TCP 流一端（另一端交给异步 WS<->TCP 桥）。
 
-use crate::services::keys::load_key_content;
+use crate::ssh::auth::prepare_ssh_auth_material;
 use crate::ssh::session::{EstablishedSession, SshConfig, SshSession};
-use crate::utils::sqlite;
 use crate::vnc::SshTransportConfig;
 use anyhow::{Context, Result};
 use std::io::{self, Write};
@@ -34,20 +33,9 @@ impl Drop for SshTunnelGuard {
 
 /// 密钥认证内容装载（与 ssh_connect 保持一致：key_id 优先查 DB，回退 key_path）。
 fn enrich_key(config: &mut SshConfig) -> Result<()> {
-    if config.auth_type == "key" {
-        if let Some(key_id) = config.key_id.clone() {
-            let conn = sqlite::open_connection().map_err(|e| anyhow::anyhow!(e))?;
-            let (private_key, public_key) =
-                load_key_content(&conn, &key_id).map_err(|e| anyhow::anyhow!(e))?;
-            if private_key.is_none() && public_key.is_none() {
-                anyhow::bail!("该密钥的内容未存储，请重新导入或生成密钥。");
-            }
-            config.private_key = private_key;
-            config.public_key = public_key;
-        } else if config.private_key.is_none() && config.key_path.is_none() {
-            anyhow::bail!("密钥认证缺少可用的密钥，请到“账号/主机”页重新选择密钥。");
-        }
-    }
+    let owned = prepare_ssh_auth_material(config.clone()).map_err(|e| anyhow::anyhow!(e))?;
+    config.private_key = owned.private_key;
+    config.public_key = owned.public_key;
     Ok(())
 }
 

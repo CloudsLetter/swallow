@@ -39,12 +39,32 @@ pub struct LocalShellProfile {
 pub fn list_shell_profiles() -> Vec<LocalShellProfile> {
     #[cfg(target_os = "windows")]
     {
-        list_shell_profiles_windows()
+        list_shell_profiles_cached()
     }
     #[cfg(not(target_os = "windows"))]
     {
         list_shell_profiles_unix()
     }
+}
+
+/// 探测结果缓存：wsl.exe 在服务异常时即使有超时也要等 8 秒，
+/// 页面每次挂载都调一次会反复白等。进程级缓存 5 分钟。
+#[cfg(target_os = "windows")]
+fn list_shell_profiles_cached() -> Vec<LocalShellProfile> {
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+    static CACHE: OnceLock<Mutex<(Vec<LocalShellProfile>, Instant)>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new((Vec::new(), Instant::now() - Duration::from_secs(3600))));
+    if let Ok(guard) = cache.lock() {
+        if guard.0.iter().any(|p| p.available) && guard.1.elapsed() < Duration::from_secs(300) {
+            return guard.0.clone();
+        }
+    }
+    let fresh = list_shell_profiles_windows();
+    if let Ok(mut guard) = cache.lock() {
+        *guard = (fresh.clone(), Instant::now());
+    }
+    fresh
 }
 
 #[cfg(target_os = "windows")]
@@ -139,6 +159,36 @@ fn list_shell_profiles_windows() -> Vec<LocalShellProfile> {
 /// - git：Git for Windows 的 usr/bin/bash.exe（--login -i）
 /// - msys2：MSYS2 的 usr/bin/bash.exe（--login -i，需配合 MSYSTEM 环境）
 /// System32\bash.exe 与 WindowsApps\bash.exe 是 WSL 存根，一律排除。
+/// 带超时的子进程执行：wsl.exe 在 WSL 服务异常时会无限挂起，
+/// QuickConnect 每次挂载都触发探测——不设超时就是打开页面即卡死整机 IPC。
+#[cfg(target_os = "windows")]
+fn run_with_timeout(mut cmd: std::process::Command, timeout: std::time::Duration) -> Option<std::process::Output> {
+    use std::io::Read;
+    let mut child = cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null()).spawn().ok()?;
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(_) => return None,
+        }
+    };
+    // 进程已退出：管道里的数据都在内核缓冲里，直接读完即可
+    // （wsl -l -q / reg query 输出都是 KB 级，不会撑满管道导致上面的等待死锁）
+    let mut out = Vec::new();
+    if let Some(mut stdout) = child.stdout.take() {
+        let _ = stdout.read_to_end(&mut out);
+    }
+    Some(std::process::Output { status, stdout: out, stderr: Vec::new() })
+}
+
 #[cfg(target_os = "windows")]
 struct BashInstall {
     kind: &'static str,
@@ -187,21 +237,22 @@ fn find_bash_installs(
         push("bash", "Git Bash", PathBuf::from(dir).join("bin\\bash.exe"));
     }
     // Git 注册表安装路径（InstallPath\bin\bash.exe）
-    if let Ok(output) = std::process::Command::new("reg")
-        .args([
+    {
+        let mut cmd = std::process::Command::new("reg");
+        cmd.args([
             "query",
             "HKLM\\SOFTWARE\\GitForWindows",
             "/v",
             "InstallPath",
-        ])
-        .output()
-    {
-        let text = String::from_utf8_lossy(&output.stdout);
-        for line in text.lines() {
-            if let Some(pos) = line.find("REG_SZ") {
-                let dir = line[pos + "REG_SZ".len()..].trim();
-                if !dir.is_empty() {
-                    push("bash", "Git Bash", PathBuf::from(dir).join("bin\\bash.exe"));
+        ]);
+        if let Some(output) = run_with_timeout(cmd, std::time::Duration::from_secs(5)) {
+            let text = String::from_utf8_lossy(&output.stdout);
+            for line in text.lines() {
+                if let Some(pos) = line.find("REG_SZ") {
+                    let dir = line[pos + "REG_SZ".len()..].trim();
+                    if !dir.is_empty() {
+                        push("bash", "Git Bash", PathBuf::from(dir).join("bin\\bash.exe"));
+                    }
                 }
             }
         }
@@ -227,10 +278,9 @@ fn find_bash_installs(
 /// 传给 wsl.exe 会报 invalid encoding）。
 #[cfg(target_os = "windows")]
 fn wsl_distros() -> Vec<String> {
-    let output = std::process::Command::new("wsl.exe")
-        .args(["-l", "-q"])
-        .output();
-    let Ok(output) = output else {
+    let mut cmd = std::process::Command::new("wsl.exe");
+    cmd.args(["-l", "-q"]);
+    let Some(output) = run_with_timeout(cmd, std::time::Duration::from_secs(8)) else {
         return Vec::new();
     };
     let raw = &output.stdout;

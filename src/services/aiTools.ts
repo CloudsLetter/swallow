@@ -10,6 +10,7 @@
  */
 import { invoke } from '@tauri-apps/api/core';
 import { useTabStore, type Tab } from '../store/tabStore';
+import { terminalLikeTypes } from '../extensions/protocols';
 import { useConfigStore } from '../store/config';
 import {
   enqueueWriteToTargets,
@@ -26,8 +27,8 @@ export interface ToolCall {
   arguments: string;
 }
 
-/** 会话类标签类型（与 useActiveTerminalSession 口径一致） */
-const SESSION_TAB_TYPES: Tab['type'][] = ['terminal', 'telnet', 'local', 'serial', 'mosh'];
+/** 会话类标签类型（协议注册表派生，与 Home 侧栏显隐同源） */
+const SESSION_TAB_TYPES: Tab['type'][] = terminalLikeTypes();
 
 /** 工具的 OpenAI function 定义（透传给 /chat/completions 的 tools 字段） */
 export const TOOL_SCHEMAS = [

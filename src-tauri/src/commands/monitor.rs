@@ -32,7 +32,7 @@ pub async fn monitor_start(
 
     // 解析主机认证（账号优先/主机回退，含跳板机 + 密钥/证书内容），与终端连接同链路
     let conn = sqlite::open_connection()?;
-    let config = crate::services::port_forwardings::resolve_host_ssh_config(&conn, &host_id)?;
+    let config = crate::ssh::auth::resolve_host_ssh_config(&conn, &host_id)?;
 
     let timeout_secs = read_connection_timeout(&config_state);
     // 监控是长命 ssh2 会话：保活防后台标签页定时器被节流后连接纯空闲被掐；压缩对
@@ -80,7 +80,7 @@ pub async fn monitor_start(
     };
 
     {
-        let manager = state.monitor.lock().map_err(|e| e.to_string())?;
+        let manager = &state.monitor;
         manager.insert(session_id.clone(), session);
     }
 
@@ -97,7 +97,7 @@ pub async fn monitor_collect(
     session_id: String,
 ) -> Result<MonitorSnapshot, String> {
     let session = {
-        let manager = state.monitor.lock().map_err(|e| e.to_string())?;
+        let manager = &state.monitor;
         manager
             .get(&session_id)
             .ok_or_else(|| format!("监控会话 {} 不存在", session_id))?
@@ -114,7 +114,7 @@ pub async fn monitor_collect(
 #[tauri::command]
 pub async fn monitor_stop(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
     let removed = {
-        let manager = state.monitor.lock().map_err(|e| e.to_string())?;
+        let manager = &state.monitor;
         manager.remove(&session_id)
     };
     if let Some(session) = removed {
@@ -127,7 +127,6 @@ pub async fn monitor_stop(state: State<'_, AppState>, session_id: String) -> Res
 
 #[tauri::command]
 pub async fn monitor_list_sessions(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let manager = state.monitor.lock().map_err(|e| e.to_string())?;
-    Ok(manager.list())
+    Ok(state.monitor.list())
 }
 
