@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # DeepSource 配置 —— Swallow（Tauri 2 桌面客户端）
 #
 # ⚠️ DeepSource 的配置文件是 **TOML**，不是 YAML。文件名必须叫 `.deepsource.toml`
@@ -129,4 +128,3 @@ enabled = true
 # [[code_formatters]]
 # name = "rustfmt"
 # enabled = true
-
