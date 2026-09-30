@@ -17,12 +17,50 @@ pub fn db_path() -> PathBuf {
 }
 
 pub fn open_connection() -> Result<Connection, String> {
-    Connection::open(db_path()).map_err(|e| e.to_string())
+    let conn = Connection::open(db_path()).map_err(|e| e.to_string())?;
+    configure_sqlite(&conn)?;
+    Ok(conn)
 }
 
+/// 连接级 PRAGMA 配置（测试可直接对临时库断言 WAL 生效）。
+/// WAL：读不阻塞写、写不阻塞读。监控 2s 轮询 + SFTP 并发 + 日志写入共用一个 DB 文件，
+/// journal 模式默认 rollback-journal 下写锁是库级独占，并发一高就 SQLITE_BUSY。
+/// WAL 是持久属性（落库文件，设一次永久生效）；每连接重设是幂等兜底。
+/// busy_timeout 给阻塞 API（rusqlite 同步调用）兜底：等锁最多 5s 而不是立即报错。
+fn configure_sqlite(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA synchronous=NORMAL;")
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// 当前 schema 版本。每次新增迁移在文末追加一节并 +1。
+const SCHEMA_VERSION: i64 = 1;
+
+fn current_version(conn: &Connection) -> Result<i64, String> {
+    conn.query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(|e| e.to_string())
+}
+
+fn set_version(conn: &Connection, v: i64) -> Result<(), String> {
+    conn.execute_batch(&format!("PRAGMA user_version={v}"))
+        .map_err(|e| e.to_string())
+}
+
+/// 幂等加列（仅 v1 兼容路径：老库 user_version=0 时一次性补齐历史加列）。
+/// 新迁移一律走版本门控（migrate_to_X + user_version），不再散装 ensure_column。
 pub fn init_database() -> Result<(), String> {
     let conn = open_connection()?;
+    init_database_conn(&conn)
+}
 
+/// 迁移主体（conn 参数化：集成/单元测试可对临时库跑完整迁移）。
+fn init_database_conn(conn: &Connection) -> Result<(), String> {
+    let version = current_version(&conn)?;
+
+    // v1 兼容路径：新库建表、老库（user_version=0）补齐历史列并跑一次性数据迁移，
+    // 完成后落版。user_version >= 1 的库整段跳过——不再每次启动空跑 27 个
+    // PRAGMA table_info 与迁移函数（版本门控自此真正生效）。
+    if version < 1 {
     conn.execute_batch(
         r#"
         CREATE TABLE IF NOT EXISTS hosts (
@@ -206,20 +244,225 @@ pub fn init_database() -> Result<(), String> {
     ensure_column(&conn, "port_forwardings", "socks_username", "TEXT")?;
     ensure_column(&conn, "port_forwardings", "socks_password", "TEXT")?;
 
-    normalize_key_type_values(&conn)?;
-    migrate_key_files_to_db(&conn)?;
-    migrate_cert_files_to_db(&conn)?;
+        normalize_key_type_values(&conn)?;
+        migrate_key_files_to_db(&conn)?;
+        migrate_cert_files_to_db(&conn)?;
 
-    bootstrap_known_hosts(&conn)?;
-    // ensure 加列后老行的 key_data 为 NULL：从 raw_line 回填（幂等）
-    backfill_known_host_key_data(&conn)?;
+        bootstrap_known_hosts(&conn)?;
+        // ensure 加列后老行的 key_data 为 NULL：从 raw_line 回填（幂等）
+        backfill_known_host_key_data(&conn)?;
 
-    // 一次性迁移：旧明文凭据尽力搬入系统密钥链后清空列
-    migrate_plaintext_secrets(&conn);
+        // 一次性迁移：旧明文凭据尽力搬入系统密钥链后清空列
+        migrate_plaintext_secrets(&conn);
+
+        set_version(&conn, SCHEMA_VERSION)?;
+    }
+
+    // 未来迁移在此追加（模板见 migrate_guard_example）：
+    // if version < 2 { migrate_to_2(&conn)?; set_version(&conn, 2)?; }
 
     // 隧道连接状态是内存态（存于 TunnelManager），不在 DB 持久化，无需重置 status 列
     Ok(())
 }
+
+/// v1 建表（仅 user_version=0 时执行）：CREATE TABLE IF NOT EXISTS 全量幂等。
+#[allow(dead_code)]
+fn create_tables_v1(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS hosts (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            host TEXT NOT NULL,
+            port INTEGER NOT NULL,
+            account_id TEXT,
+            username TEXT NOT NULL,
+            status TEXT NOT NULL,
+            icon TEXT,
+            last_connected TEXT,
+            auth_type TEXT,
+            password TEXT,
+            key_id TEXT,
+            use_proxy INTEGER,
+            proxy_host_id TEXT,
+            proxy_auth_type TEXT,
+            proxy_key_id TEXT,
+            proxy_cert_id TEXT,
+            proxy_host TEXT,
+            proxy_port INTEGER,
+            proxy_username TEXT,
+            proxy_password TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS accounts (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            username TEXT NOT NULL,
+            auth_type TEXT NOT NULL,
+            password TEXT,
+            key_id TEXT,
+            certificate_id TEXT,
+            description TEXT,
+            created_at TEXT NOT NULL,
+            last_used TEXT,
+            tags_json TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS keys (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            key_type TEXT NOT NULL,
+            fingerprint TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            size INTEGER NOT NULL,
+            key_path TEXT,
+            public_key_path TEXT,
+            source TEXT,
+            format_warning TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS certificates (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            cert_type TEXT NOT NULL,
+            key_type TEXT NOT NULL,
+            fingerprint TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            cert_path TEXT,
+            private_key_path TEXT,
+            principals_json TEXT,
+            valid_after TEXT,
+            valid_before TEXT,
+            source TEXT,
+            cert_content TEXT,
+            private_key_content TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS sftp_connections (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            host TEXT NOT NULL,
+            port INTEGER NOT NULL,
+            protocol TEXT NOT NULL,
+            username TEXT NOT NULL,
+            auth_type TEXT NOT NULL,
+            password TEXT,
+            key_path TEXT,
+            passphrase TEXT,
+            key_id TEXT,
+            remote_path TEXT NOT NULL,
+            last_accessed TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS snippets (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            command TEXT NOT NULL,
+            description TEXT,
+            category TEXT NOT NULL,
+            tags_json TEXT,
+            created_at TEXT NOT NULL,
+            last_used TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS logs (
+            id TEXT PRIMARY KEY,
+            timestamp TEXT NOT NULL,
+            level TEXT NOT NULL,
+            message TEXT NOT NULL,
+            source TEXT,
+            log_key TEXT,
+            params TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS known_hosts (
+            id TEXT PRIMARY KEY,
+            host TEXT NOT NULL,
+            key_type TEXT NOT NULL,
+            fingerprint TEXT NOT NULL,
+            last_used TEXT NOT NULL,
+            added_date TEXT NOT NULL,
+            key_data TEXT NOT NULL DEFAULT '',
+            raw_line TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS remote_conns (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            protocol TEXT NOT NULL,
+            host TEXT NOT NULL,
+            port INTEGER NOT NULL,
+            username TEXT,
+            password TEXT,
+            jump_host_id TEXT,
+            created TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS port_forwardings (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL,
+            host_id TEXT,
+            listen_host TEXT NOT NULL,
+            listen_port INTEGER NOT NULL,
+            target_host TEXT,
+            target_port INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            description TEXT,
+            created_at TEXT NOT NULL,
+            last_used TEXT,
+            socks_username TEXT,
+            socks_password TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS monitor_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            host_ids TEXT NOT NULL DEFAULT '[]',
+            auto_start INTEGER NOT NULL DEFAULT 1,
+            updated_at TEXT NOT NULL
+        );
+        "#,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// v1 历史加列（仅 user_version=0 时执行）。
+#[allow(dead_code)]
+fn ensure_columns_v1(conn: &Connection) -> Result<(), String> {
+    ensure_column(&conn, "logs", "log_key", "TEXT")?;
+    ensure_column(&conn, "logs", "params", "TEXT")?;
+    ensure_column(&conn, "hosts", "account_id", "TEXT")?;
+    ensure_column(&conn, "hosts", "certificate_id", "TEXT")?;
+    ensure_column(&conn, "hosts", "proxy_cert_id", "TEXT")?;
+    ensure_column(&conn, "hosts", "icon", "TEXT")?;
+    ensure_column(&conn, "hosts", "backend", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(&conn, "hosts", "algo_profile", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(&conn, "hosts", "os_auto", "INTEGER NOT NULL DEFAULT 1")?;
+    ensure_column(&conn, "hosts", "group_name", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(&conn, "hosts", "tags_json", "TEXT")?;
+    ensure_column(&conn, "hosts", "favorite", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(&conn, "port_forwardings", "auto_connect", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(&conn, "sftp_connections", "key_id", "TEXT")?;
+    ensure_column(&conn, "keys", "key_path", "TEXT")?;
+    ensure_column(&conn, "keys", "public_key_path", "TEXT")?;
+    ensure_column(&conn, "keys", "format_warning", "TEXT")?;
+    ensure_column(&conn, "keys", "source", "TEXT")?;
+    ensure_column(&conn, "keys", "private_key", "TEXT")?;
+    ensure_column(&conn, "keys", "public_key", "TEXT")?;
+    ensure_column(&conn, "certificates", "cert_content", "TEXT")?;
+    ensure_column(&conn, "certificates", "private_key_content", "TEXT")?;
+    ensure_column(&conn, "known_hosts", "key_data", "TEXT")?;
+    ensure_column(&conn, "port_forwardings", "socks_username", "TEXT")?;
+    ensure_column(&conn, "port_forwardings", "socks_password", "TEXT")?;
+    Ok(())
+}
+
+/// 版本门控迁移模板：新增迁移时复制此函数改名 migrate_to_2/3...，
+/// 在 init_database 末尾按 `if current_version < 2 { migrate_to_2()?; set_version(2)?; }` 接入。
+/// 现有 v1 内容已在 CREATE TABLE + 历史 ensure_column 中固化，无需回填函数。
+#[allow(dead_code)]
+fn migrate_guard_example() {}
 
 /// 一次性迁移：把 keys 表中早期 create_key_pair 写入的原始算法名
 /// （如 `ssh-ed25519` / `ssh-rsa` / `ecdsa-sha2-nistp256`）规范化为
@@ -359,14 +602,14 @@ fn migrate_secret_column(conn: &Connection, table: &str, column: &str, key_templ
     let mut stmt = match conn.prepare(&sql) {
         Ok(stmt) => stmt,
         Err(e) => {
-            eprintln!("Failed to prepare secret migration for {table}.{column}: {e}");
+            tracing::warn!("Failed to prepare secret migration for {table}.{column}: {e}");
             return;
         }
     };
     let rows = match stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))) {
         Ok(rows) => rows,
         Err(e) => {
-            eprintln!("Failed to query secrets for migration {table}.{column}: {e}");
+            tracing::warn!("Failed to query secrets for migration {table}.{column}: {e}");
             return;
         }
     };
@@ -380,10 +623,10 @@ fn migrate_secret_column(conn: &Connection, table: &str, column: &str, key_templ
             Ok(()) => {
                 let update = format!("UPDATE {table} SET {column} = '' WHERE id = ?1");
                 if let Err(e) = conn.execute(&update, rusqlite::params![id]) {
-                    eprintln!("Failed to clear migrated secret {table}.{column}: {e}");
+                    tracing::warn!("Failed to clear migrated secret {table}.{column}: {e}");
                 }
             }
-            Err(e) => eprintln!("Failed to migrate secret {table}.{column} for {id} to keyring: {e}"),
+            Err(e) => tracing::warn!("Failed to migrate secret {table}.{column} for {id} to keyring: {e}"),
         }
     }
 }
@@ -443,6 +686,8 @@ pub fn sanitize_file_stem(input: &str) -> String {
     }
 }
 
+/// 幂等加列（仅 v1 兼容路径：老库 user_version=0 时一次性补齐历史加列）。
+/// 新迁移一律走版本门控（migrate_to_X + user_version），不再散装 ensure_column。
 pub fn ensure_column(conn: &Connection, table: &str, column: &str, definition: &str) -> Result<(), String> {
     let mut stmt = conn
         .prepare(&format!("PRAGMA table_info({table})"))
@@ -623,5 +868,30 @@ mod tests {
     #[test]
     fn compute_fingerprint_invalid_base64() {
         assert_eq!(compute_fingerprint("!!!invalid!!!"), "SHA256:invalid");
+    }
+
+    #[test]
+    fn wal_applied_and_v1_gate_is_idempotent() {
+        use super::{configure_sqlite, current_version, init_database_conn};
+        use rusqlite::Connection;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let conn = Connection::open(dir.path().join("test.sqlite3")).expect("open temp db");
+
+        // WAL 真正生效（journal_mode 变更是持久属性，读回应为 wal）
+        configure_sqlite(&conn).expect("configure");
+        let mode: String = conn
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .expect("journal_mode");
+        assert_eq!(mode, "wal", "WAL 必须在 configure_sqlite 后生效");
+
+        // 新库：v1 门控路径完整跑通（建表 + 历史加列 + 数据迁移 + 落版）
+        assert_eq!(current_version(&conn).unwrap(), 0);
+        init_database_conn(&conn).expect("v1 迁移应成功");
+        assert_eq!(current_version(&conn).unwrap(), 1, "应落版到 SCHEMA_VERSION");
+
+        // 幂等：老库二次启动走门控跳过分支，版本不回退、不重跑
+        init_database_conn(&conn).expect("二次迁移应幂等");
+        assert_eq!(current_version(&conn).unwrap(), 1);
     }
 }
