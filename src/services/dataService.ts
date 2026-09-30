@@ -652,6 +652,7 @@ export async function aiChat(
   messages: unknown[],
   onEvent: (event: AiStreamEvent) => void,
   tools?: unknown,
+  options?: { effort?: string },
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const channel = new Channel<string>();
@@ -669,7 +670,7 @@ export async function aiChat(
         // 非 JSON 消息（异常情况）静默忽略
       }
     };
-    invoke('ai_chat', { messages, tools, channel }).catch((error) => {
+    invoke('ai_chat', { messages, tools, options, channel }).catch((error) => {
       if (!done) reject(String(error));
     });
   });

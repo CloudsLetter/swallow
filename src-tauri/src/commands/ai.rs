@@ -57,6 +57,7 @@ pub async fn ai_chat(
     config_state: State<'_, GlobaConfig>,
     messages: Vec<Value>,
     tools: Option<Value>,
+    options: Option<Value>,
     channel: Channel<String>,
 ) -> Result<(), String> {
     let profile = {
@@ -69,9 +70,17 @@ pub async fn ai_chat(
         profile
     };
 
+    // 思考强度（reasoning_effort）：仅 OpenAI 兼容协议透传（o 系/gpt-5 等推理模型）。
+    // Anthropic 的 extended thinking 要求多轮回传 thinking 块，agent 循环暂不支持，忽略。
+    let effort = options
+        .as_ref()
+        .and_then(|o| o["effort"].as_str())
+        .filter(|e| matches!(*e, "low" | "medium" | "high"))
+        .map(|e| e.to_string());
+
     match profile.protocol.as_str() {
         "anthropic" => chat_anthropic(&profile, messages, tools, channel).await,
-        _ => chat_openai(&profile, messages, tools, channel).await,
+        _ => chat_openai(&profile, messages, tools, effort, channel).await,
     }
 }
 
@@ -125,6 +134,7 @@ async fn chat_openai(
     profile: &AiProfile,
     messages: Vec<Value>,
     tools: Option<Value>,
+    effort: Option<String>,
     channel: Channel<String>,
 ) -> Result<(), String> {
     let base = profile.base_url.trim().trim_end_matches('/');
@@ -141,6 +151,10 @@ async fn chat_openai(
         if !is_empty {
             body["tools"] = tools;
         }
+    }
+    if let Some(effort) = effort {
+        // reasoning_effort：o 系/gpt-5 等推理模型支持；不支持的端点多数忽略该字段
+        body["reasoning_effort"] = json!(effort);
     }
 
     let client = reqwest::Client::new();
