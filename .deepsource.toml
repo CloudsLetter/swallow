@@ -129,6 +129,4 @@ enabled = true
 # [[code_formatters]]
 # name = "rustfmt"
 # enabled = true
-=======
-version = 1
->>>>>>> 113393ddd88870852fb5aa639b654f9f89505823
+
