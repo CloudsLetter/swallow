@@ -18,6 +18,8 @@ dist-ssr
 !.env.example
 *.tsbuildinfo
 .pnpm-store
+# 测试覆盖率产物（vitest --coverage 写出 lcov.info + lcov-report/）
+coverage/
 
 # Editor directories and files
 .vscode/*
