@@ -1,20 +1,9 @@
 import { useState } from 'react';
 import {
-  Monitor as IconDeviceDesktop,
-  Key as IconKey,
-  Folder as IconFolder,
-  FileText as IconFileText,
-  Settings as IconSettings,
   ChevronLeft as IconChevronLeft,
-  ArrowLeftRight as IconForward,
-  User as IconUser,
-  Terminal as IconTerminal,
-  Lock as IconLock,
-  FileBadge as IconCert,
-  Activity as IconActivity,
-  ScreenShare as IconRemote,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { PAGES } from '../extensions/pages';
 import { Button } from './ui/button';
 import {
   SidebarContent,
@@ -42,20 +31,14 @@ export function SideMenu({ onItemClick, activePage }: SideMenuProps) {
   const [collapsed, setCollapsed] = useState(false);
   const { t } = useTranslation();
 
-  const menuItems: MenuItem[] = [
-    { id: 'hosts', label: t('menu.hosts'), icon: <IconDeviceDesktop size={16} strokeWidth={2} /> },
-    { id: 'remote', label: t('menu.desktop'), icon: <IconRemote size={16} strokeWidth={2} /> },
-    { id: 'account', label: t('menu.account'), icon: <IconUser size={16} strokeWidth={2} /> },
-    { id: 'portforwarding', label: t('menu.portForwarding'), icon: <IconForward size={16} strokeWidth={2} /> },
-    { id: 'keys', label: t('menu.keys'), icon: <IconKey size={16} strokeWidth={2} /> },
-    { id: 'certificates', label: t('menu.certificates'), icon: <IconCert size={16} strokeWidth={2} /> },
-    { id: 'knownhosts', label: t('menu.knownHosts'), icon: <IconLock size={16} strokeWidth={2} /> },
-    { id: 'sftp', label: t('menu.sftp'), icon: <IconFolder size={16} strokeWidth={2} /> },
-    { id: 'snippets', label: t('menu.snippets'), icon: <IconTerminal size={16} strokeWidth={2} /> },
-    { id: 'monitor', label: t('menu.monitor'), icon: <IconActivity size={16} strokeWidth={2} /> },
-    { id: 'logs', label: t('menu.logs'), icon: <IconFileText size={16} strokeWidth={2} /> },
-    { id: 'settings', label: t('menu.settings'), icon: <IconSettings size={16} strokeWidth={2} /> },
-  ];
+  const menuItems: MenuItem[] = PAGES.map((p) => {
+    const ItemIcon = p.icon;
+    return {
+      id: p.id,
+      label: t(p.labelKey),
+      icon: <ItemIcon size={16} strokeWidth={2} />,
+    };
+  });
 
   // 折叠/展开按钮：展开态为全宽（图标+文字）靠左，折叠态为居中图标
   const toggleButton = (

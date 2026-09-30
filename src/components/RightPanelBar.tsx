@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 import { usePanelStore, type RightPanelSection } from '../store/panelStore';
 import { useConfigStore } from '../store/config';
 import { useTabStore } from '../store/tabStore';
+import { isTerminalLike } from '../extensions/protocols';
 import { useBroadcastStore } from '../store/broadcast';
 import { useUiPage } from '../store/uiPage';
 import { useTerminalBackground } from '../hooks/useTerminalBackground';
@@ -42,7 +43,7 @@ import type { Config } from '../types/config';
 function useActiveTerminalSession(): string | undefined {
   return useTabStore((s) => {
     const tab = s.tabs.find((item) => item.id === s.activeTabId);
-    if (!tab || !['terminal', 'telnet', 'local', 'serial', 'mosh'].includes(tab.type)) return undefined;
+    if (!tab || !isTerminalLike(tab.type)) return undefined;
     return tab.sessionId ?? undefined;
   });
 }

@@ -54,6 +54,11 @@ export function terminalLikeTypes(): TabType[] {
   return (Object.keys(PROTOCOLS) as TabType[]).filter((t) => PROTOCOLS[t].terminalLike);
 }
 
+/** 单个类型是否为终端类（替代 `['terminal','telnet',...].includes(tab.type)` 手写）。 */
+export function isTerminalLike(type: TabType): boolean {
+  return PROTOCOLS[type]?.terminalLike ?? false;
+}
+
 /** 该标签激活时是否显示左右面板。 */
 export function hasSidePanel(type: TabType | undefined): boolean {
   return !!type && (PROTOCOLS[type]?.sidePanel ?? false);

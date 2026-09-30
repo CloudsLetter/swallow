@@ -1,15 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { LucideIcon } from 'lucide-react';
 import {
   Search as IconSearch,
   Server as IconServer,
   Clock as IconClock,
-  Network as IconNetwork,
-  Monitor as IconMonitor,
-  ScreenShare as IconScreenShare,
-  Radio as IconRadio,
-  Usb as IconUsb,
 } from 'lucide-react';
 import {
   getHosts,
@@ -31,27 +25,8 @@ import { Button } from '../components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { message } from '@tauri-apps/plugin-dialog';
 import { LocalShellChips } from './quickConnect/LocalShellChips';
-import { TelnetCard } from './quickConnect/TelnetCard';
-import { VncCard } from './quickConnect/VncCard';
-import { RdpCard } from './quickConnect/RdpCard';
-import { MoshCard } from './quickConnect/MoshCard';
-import { SerialCard } from './quickConnect/SerialCard';
+import { PROTOCOL_TILES, getProtocolTile } from '../extensions/quickConnect';
 import type { QuickConnectCardProps } from './quickConnect/types';
-
-/** 协议磁贴注册表：加新协议 = 新建卡片组件 + 此处注册一行（表单按需展开渲染）。 */
-const PROTOCOL_TILES: {
-  id: string;
-  icon: LucideIcon;
-  titleKey: string;
-  descKey: string;
-  Component: React.ComponentType<QuickConnectCardProps>;
-}[] = [
-  { id: 'telnet', icon: IconNetwork, titleKey: 'quickConnect.telnetTitle', descKey: 'quickConnect.telnetDesc', Component: TelnetCard },
-  { id: 'vnc', icon: IconMonitor, titleKey: 'quickConnect.vncTitle', descKey: 'quickConnect.vncDesc', Component: VncCard },
-  { id: 'rdp', icon: IconScreenShare, titleKey: 'quickConnect.rdpTitle', descKey: 'quickConnect.rdpDesc', Component: RdpCard },
-  { id: 'mosh', icon: IconRadio, titleKey: 'quickConnect.moshTitle', descKey: 'quickConnect.moshDesc', Component: MoshCard },
-  { id: 'serial', icon: IconUsb, titleKey: 'quickConnect.serialTitle', descKey: 'quickConnect.serialDesc', Component: SerialCard },
-];
 
 export function QuickConnect() {
   const [hosts, setHosts] = useState<Host[]>([]);
@@ -174,7 +149,7 @@ export function QuickConnect() {
     });
   };
 
-  const openTile = PROTOCOL_TILES.find((tile) => tile.id === openProtocol) ?? null;
+  const openTile = (openProtocol ? getProtocolTile(openProtocol) : undefined) ?? null;
   const cardProps: QuickConnectCardProps = {
     onOpenSession: openSessionTab,
     hosts,
@@ -242,22 +217,26 @@ export function QuickConnect() {
           </div>
 
           {/* 展开的协议表单（单开） */}
-          {openTile && (
-            <div
-              ref={expandedRef}
-              className={cn(
-                'mt-3 rounded-lg bg-card p-3 ring-1 ring-border/60',
-                openTile.id === 'serial' && serialHighlight
-                  ? 'ring-2 ring-primary/40' : ''
-              )}
-            >
-              <div className="mb-2.5 flex items-center gap-1.5 text-sm font-medium">
-                <openTile.icon size={15} className="text-primary" />
-                {t(openTile.titleKey)}
+          {openTile && (() => {
+            const OpenIcon = openTile.icon;
+            const OpenComponent = openTile.Component;
+            return (
+              <div
+                ref={expandedRef}
+                className={cn(
+                  'mt-3 rounded-lg bg-card p-3 ring-1 ring-border/60',
+                  openTile.id === 'serial' && serialHighlight
+                    ? 'ring-2 ring-primary/40' : ''
+                )}
+              >
+                <div className="mb-2.5 flex items-center gap-1.5 text-sm font-medium">
+                  <OpenIcon size={15} className="text-primary" />
+                  {t(openTile.titleKey)}
+                </div>
+                <OpenComponent {...cardProps} />
               </div>
-              <openTile.Component {...cardProps} />
-            </div>
-          )}
+            );
+          })()}
         </div>
       </div>
 

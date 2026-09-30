@@ -1,7 +1,15 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  buildConnectionSteps,
+  createTerminalConnect,
+  startConfiguredSshLog,
+  type TerminalConnectMode,
+  type TerminalLocalConfig,
+  type TerminalSerialConfig,
+  type TerminalSshConfig,
+  type TerminalTelnetConfig,
+} from '../hooks/terminalConnect';
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
-import { ask } from '@tauri-apps/plugin-dialog';
 import type { ITerminalOptions } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { ConnectionProgress } from './ConnectionProgress';
@@ -12,8 +20,7 @@ import { useTerminalFit } from '../hooks/useTerminalFit';
 import { useTerminalBackground } from '../hooks/useTerminalBackground';
 import { TerminalBackdrop } from './TerminalBackdrop';
 import { useSessionConnection, sshSessionPool } from '../hooks/useSessionConnection';
-import { acceptHostKey, sshConnect, disconnectSsh, telnetConnect, telnetDisconnect, localShellConnect, localShellDisconnect, serialConnect, serialDisconnect, moshConnect, moshDisconnect, toCommandError } from '../services/sessionService';
-import { touchHostLastConnected, getHosts, updateHost } from '../services/dataService';
+import { getHosts, updateHost } from '../services/dataService';
 import type { Config } from '../types/config';
 import {
   createOrGetTerminal,
@@ -38,7 +45,6 @@ import {
   incrementReconnectAttempts,
   resetReconnectAttempts,
   setSilentReconnect,
-  getSilentReconnect,
   getSearchAddon,
   setFindToggleHandler,
   focusTerminal,
@@ -54,11 +60,9 @@ import {
 } from './terminalPool';
 import {
   isSessionLogging,
-  createSessionLogPath,
   forceStopSessionLog,
   appendReplaySnapshot,
   shouldAppendReplaySnapshot,
-  startSessionLog,
 } from './sessionLog';
 import { useBroadcastStore } from '../store/broadcast';
 import { usePanelStore } from '../store/panelStore';
@@ -78,7 +82,6 @@ import {
 import type { ISearchOptions } from '@xterm/addon-search';
 import { toast } from 'sonner';
 import { cn } from '../lib/utils';
-import { dedupeHostKeyConfirm } from '../lib/hostKeyConfirm';
 
 // onError 事件可能高频到达：500ms 内去重，避免 toast 刷屏
 let lastErrorToastAt = 0;
@@ -114,171 +117,6 @@ function buildTerminalOptions(cfg: Config['terminal']): ITerminalOptions {
     options.theme = theme;
   }
   return options;
-}
-
-export type TerminalConnectMode = 'ssh' | 'telnet' | 'local' | 'serial' | 'mosh';
-
-/** 构建连接进度步骤（tcp/ssh/auth/shell/ready），顺序与后端 Progress 事件一致。 */
-function buildConnectionSteps(
-  mode: TerminalConnectMode,
-  opts: { telnetHost?: string; shell?: string; authType?: string; serialPort?: string },
-  t: TFunction,
-): ConnectionStep[] {
-  const authLabel =
-    mode === 'telnet'
-      ? t('connection.stepConnect', { host: opts.telnetHost })
-      : mode === 'local'
-        ? t('connection.stepLocalShell', { shell: opts.shell })
-        : mode === 'serial'
-          ? t('connection.stepConnect', { host: opts.serialPort })
-          : t('connection.stepAuth', { authType: opts.authType });
-  const shellLabel = mode === 'mosh' ? t('connection.stepMoshServer') : t('connection.stepShell');
-  return [
-    { id: 'tcp', label: t('connection.stepTcp'), status: 'pending' },
-    { id: 'ssh', label: t('connection.stepSsh'), status: 'pending' },
-    { id: 'auth', label: authLabel, status: 'pending' },
-    { id: 'shell', label: shellLabel, status: 'pending' },
-    { id: 'ready', label: t('connection.stepReady'), status: 'pending' },
-  ];
-}
-
-/** 主机密钥被重新信任（mismatch 换机/重装后确认）→ 该主机的 OS 占位图标
- *  已失效：清掉「自动探测写入的 os: 占位」并让重连重新探测（后端 trust 时已
- *  失效 OS_CACHE）。仅清自动来源（osAuto!==false）；手动选择的图标不动。 */
-async function resetAutoOsIconAfterTrust(host?: string, port?: number) {
-  if (!host) return;
-  try {
-    const hosts = await getHosts();
-    const h = hosts.find((x) => x.host === host && x.port === (port ?? 22));
-    if (!h) return;
-    if (h.icon?.startsWith('os:') && h.osAuto !== false) {
-      await updateHost(h.id, { icon: undefined });
-      window.dispatchEvent(new Event('hosts:icons-changed'));
-    }
-  } catch {
-    // 重置失败不阻断连接
-  }
-}
-
-/** SSH 建连 + 主机密钥确认循环：首次遇到未信任主机密钥时弹确认，用户 trust 后重试连接。 */
-async function connectSshWithHostKeyApproval(
-  sessionId: string,
-  sshConfig: TerminalSshConfig,
-  cols: number,
-  rows: number,
-  t: TFunction,
-) {
-  // 输出走二进制 IPC 通道（Raw 字节 → ArrayBuffer），绕过 JSON 事件序列化；
-  // 后端批量器保证每条消息都是完整 UTF-8，TextDecoder 非流式解码安全
-  const utf8 = new TextDecoder();
-  const onOutputData = (chunk: ArrayBuffer) => deliverOutput(sessionId, utf8.decode(chunk));
-  let result = await sshConnect(sessionId, sshConfig, cols, rows, onOutputData);
-  while (result.status === 'needsHostKeyApproval') {
-    const fingerprint = result.fingerprint ?? '';
-    const accepted = await dedupeHostKeyConfirm(
-      `${result.host}:${result.port}:${fingerprint}`,
-      () =>
-        ask(
-          t('connection.hostKeyBody', { host: result.host, port: result.port, fingerprint }),
-          {
-            title: t('connection.hostKeyTitle'),
-            kind: 'warning',
-            okLabel: t('connection.trustAndConnect'),
-            cancelLabel: t('common.cancel'),
-          },
-        ),
-    );
-    if (!accepted) {
-      throw new Error(t('connection.declinedHostKey'));
-    }
-    await acceptHostKey(result.hostKeyToken!, fingerprint);
-    // 换机/重装后重新信任：清自动 OS 占位，重连即重新探测新系统图标
-    await resetAutoOsIconAfterTrust(sshConfig.host, sshConfig.port);
-    result = await sshConnect(sessionId, sshConfig, cols, rows, onOutputData);
-  }
-  return result;
-}
-
-/** MOSH 引导 + 主机密钥确认循环：与 SSH 同链路（引导走 SSH，数据面走 UDP）。 */
-async function connectMoshWithHostKeyApproval(
-  sessionId: string,
-  moshConfig: TerminalSshConfig,
-  cols: number,
-  rows: number,
-  t: TFunction,
-) {
-  let result = await moshConnect(sessionId, moshConfig, cols, rows);
-  while (result.status === 'needsHostKeyApproval') {
-    const fingerprint = result.fingerprint ?? '';
-    const accepted = await dedupeHostKeyConfirm(
-      `${result.host}:${result.port}:${fingerprint}`,
-      () =>
-        ask(
-          t('connection.hostKeyBody', { host: result.host, port: result.port, fingerprint }),
-          {
-            title: t('connection.hostKeyTitle'),
-            kind: 'warning',
-            okLabel: t('connection.trustAndConnect'),
-            cancelLabel: t('common.cancel'),
-          },
-        ),
-    );
-    if (!accepted) {
-      throw new Error(t('connection.declinedHostKey'));
-    }
-    await acceptHostKey(result.hostKeyToken!, fingerprint);
-    // 换机/重装后重新信任：清自动 OS 占位，重连即重新探测新系统图标
-    await resetAutoOsIconAfterTrust(moshConfig.host, moshConfig.port);
-    result = await moshConnect(sessionId, moshConfig, cols, rows);
-  }
-  return result;
-}
-
-/** 按设置自动开始 SSH 会话日志；不弹出保存对话框。 */
-async function startConfiguredSshLog(sessionId: string, label: string): Promise<boolean> {
-  const cfg = useConfigStore.getState().config;
-  if (!cfg?.terminal.session_log_enabled || isSessionLogging(sessionId)) return false;
-  const directory = cfg.terminal.session_log_directory?.trim();
-  if (!directory) throw new Error('session log directory is empty');
-  const format = cfg.terminal.session_log_format ?? 'plain';
-  const path = await createSessionLogPath(directory, label, format);
-  await startSessionLog(sessionId, path, label, format);
-  return true;
-}
-
-export interface TerminalSshConfig {
-  host: string;
-  port: number;
-  username: string;
-  auth_type: string;
-  password?: string;
-  key_path?: string;
-  key_id?: string;
-  cert_path?: string;
-  cert_id?: string;
-  passphrase?: string;
-}
-
-export interface TerminalTelnetConfig {
-  host: string;
-  port: number;
-}
-
-export interface TerminalLocalConfig {
-  shell: string;
-  wslDistro?: string;
-  exePath?: string;
-}
-
-export interface TerminalSerialConfig {
-  port: string;
-  baudRate: number;
-  dataBits?: number;
-  stopBits?: number;
-  parity?: 'none' | 'odd' | 'even' | 'mark' | 'space';
-  flowControl?: 'none' | 'hardware' | 'software';
-  /** 设备端字符集（默认 utf-8；gb18030/big5/latin1 等 encoding_rs 标签） */
-  charset?: string;
 }
 
 interface TerminalViewProps {
@@ -667,10 +505,16 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
         const isLocal = !!localConfig && !sshConfig && !telnetConfig && !serialConfig && !moshConfig;
         const isSerial = !!serialConfig && !sshConfig && !telnetConfig && !localConfig && !moshConfig;
         const isMosh = !!moshConfig && !sshConfig && !telnetConfig && !localConfig && !serialConfig;
-        setSessionType(
-          sessionId,
-          isTelnet ? 'telnet' : isLocal ? 'local' : isSerial ? 'serial' : isMosh ? 'mosh' : 'ssh',
-        );
+        const mode: TerminalConnectMode = isTelnet
+          ? 'telnet'
+          : isLocal
+            ? 'local'
+            : isSerial
+              ? 'serial'
+              : isMosh
+                ? 'mosh'
+                : 'ssh';
+        setSessionType(sessionId, mode);
 
         // 附加到 DOM
         attachTerminal(sessionId, terminalRef.current);
@@ -691,178 +535,33 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
 
         // 连接函数：每次挂载都重新定义并保存到终端池，供断线自动重连 / 手动重试使用。
         // 分屏合并/移出导致组件重挂载后，这里会覆盖掉旧实例的 stale 闭包。
-        const connectSSH = async () => {
-          cancelConnectionRef.current = false;
-          const silentReconnect = getSilentReconnect(sessionId);
-          setIsConnectingState(true);
-          let autoLogStarted = false;
+        // SSH 输出二进制 IPC 通道：Raw 字节 → ArrayBuffer → 统一输出入口。
+        // 后端批量器保证每条消息都是完整 UTF-8，TextDecoder 非流式解码安全。
+        const utf8 = new TextDecoder();
+        const onSshOutput = (chunk: ArrayBuffer) => deliverOutput(sessionId, utf8.decode(chunk));
 
-          // 重置并初始化连接步骤
-          const mode: TerminalConnectMode = isTelnet ? 'telnet' : isLocal ? 'local' : isSerial ? 'serial' : isMosh ? 'mosh' : 'ssh';
-          const steps: ConnectionStep[] = buildConnectionSteps(
-            mode,
-            {
-              telnetHost: telnetConfig?.host,
-              shell: localConfig?.shell,
-              authType: sshConfig?.auth_type ?? moshConfig?.auth_type,
-              serialPort: serialConfig?.port,
-            },
-            t,
-          );
-
-          setConnectionStepsLocal(steps);
-          if (!silentReconnect) {
-            setShowProgress(true);
-          }
-
-          try {
-            // 标记第一步为进行中，后续阶段由后端 Progress 事件真实驱动
-            updateStep('tcp', 'loading');
-
-            // 确保终端尺寸正确（在连接前再次 fit）
-            try {
-              fitTerminal(sessionId);
-              // 等待一帧确保尺寸更新
-              await new Promise((resolve) => requestAnimationFrame(resolve));
-            } catch (e) {
-              console.warn('Fit error before connection:', e);
-            }
-
-            const cols = terminal.cols;
-            const rows = terminal.rows;
-
-            if (cancelConnectionRef.current) throw new Error(t('connection.cancelledByUser'));
-
-            // 在发起连接前开始记录，避免漏掉登录提示等早期输出。
-            if ((sshConfig || moshConfig) && useConfigStore.getState().config?.terminal.session_log_enabled) {
-              try {
-                autoLogStarted = await startConfiguredSshLog(sessionId, sessionLabel);
-              } catch (e) {
-                // 日志是可选能力，落盘失败不阻断 SSH 连接。
-                console.warn('[terminal] 自动开始 SSH 日志失败:', e);
-              }
-            }
-
-            let connectResult;
-            if (isTelnet) {
-              // telnet 无认证、无主机密钥确认
-              connectResult = await telnetConnect(sessionId, { host: telnetConfig!.host, port: telnetConfig!.port });
-            } else if (isSerial) {
-              // 串口无认证、无主机密钥确认（端口/波特率由配置携带）
-              connectResult = await serialConnect(sessionId, {
-                port: serialConfig!.port,
-                baudRate: serialConfig!.baudRate,
-                dataBits: serialConfig!.dataBits,
-                stopBits: serialConfig!.stopBits,
-                parity: serialConfig!.parity,
-                flowControl: serialConfig!.flowControl,
-                charset: serialConfig!.charset,
-              });
-            } else if (isLocal) {
-              // 本地 shell 无认证、无主机密钥确认
-              connectResult = await localShellConnect(
-                sessionId,
-                { shell: localConfig!.shell, wslDistro: localConfig!.wslDistro, exePath: localConfig!.exePath },
-                cols,
-                rows,
-              );
-            } else if (isMosh) {
-              // MOSH：SSH 引导（含主机密钥确认），数据面走 UDP
-              connectResult = await connectMoshWithHostKeyApproval(sessionId, moshConfig!, cols, rows, t);
-            } else {
-              connectResult = await connectSshWithHostKeyApproval(sessionId, sshConfig!, cols, rows, t);
-            }
-            if (connectResult.status !== 'connected') {
-              throw new Error(t('connection.connectionFailedStatus', { status: connectResult.status }));
-            }
-            // 取消已触发：后端可能已完成建连，主动断开避免孤儿会话
-            if (cancelConnectionRef.current) {
-              if (isTelnet) {
-                await telnetDisconnect(sessionId).catch(() => {});
-              } else if (isSerial) {
-                await serialDisconnect(sessionId).catch(() => {});
-              } else if (isLocal) {
-                await localShellDisconnect(sessionId).catch(() => {});
-              } else if (isMosh) {
-                await moshDisconnect(sessionId).catch(() => {});
-              } else {
-                await disconnectSsh(sessionId).catch(() => {});
-              }
-              throw new Error(t('connection.cancelledByUser'));
-            }
-
-            // 连接进度已由后端 Progress 事件推进到 ready，直接进入后续处理
-
-            // 标记为已连接，成功连接后重置自动重连计数（避免跨多次断连累计）
-            markConnected(true);
-            setIsConnectingState(false);
-            resetReconnectAttempts(sessionId);
-            // 最近连接时间落库（SSH 会话）；在线状态由标签树派生（useActiveSshTargets）
-            if (sshConfig?.host) {
-              if (!silentReconnect) {
-                touchHostLastConnected(sshConfig.host, sshConfig.port).catch(() => {});
-              }
-            } else if (moshConfig?.host) {
-              if (!silentReconnect) {
-                touchHostLastConnected(moshConfig.host, moshConfig.port).catch(() => {});
-              }
-            }
-            if (silentReconnect) {
-              setSilentReconnect(sessionId, false);
-              // 重连成功：右下角 toast 提示，不在终端打印
-              toast.success(t('connection.reconnectSuccess'), {
-                id: `reconnect-${sessionId}`,
-              });
-            }
-
-            // 延迟关闭进度窗口，让用户看到成功状态
-            setTimeout(() => {
-              setShowProgress(false);
-
-              // 关闭进度窗口后重新调整终端大小
-              // 使用 requestAnimationFrame 确保 DOM 完全更新后再 fit
-              requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                  const poolItem = createOrGetTerminal(sessionId);
-                  if (poolItem && poolItem.fit) {
-                    try {
-                      fitTerminal(sessionId);
-                    } catch (e) {
-                      console.warn('Failed to resize terminal:', e);
-                    }
-                  }
-                });
-              });
-            }, 1500);
-          } catch (error) {
-            if (autoLogStarted) forceStopSessionLog(sessionId);
-            const wasSilentReconnect = getSilentReconnect(sessionId);
-            setSilentReconnect(sessionId, false);
-            resetReconnectAttempts(sessionId);
-            setIsConnectingState(false);
-            const cmdErr = toCommandError(error);
-
-            // 标记当前正在执行的步骤为失败（读最新状态，避免使用初始化时的 stale 数组）
-            const latest = getConnectionSteps(sessionId) || steps;
-            const currentStepId = latest.find((s) => s.status === 'loading')?.id || 'auth';
-            updateStep(currentStepId, 'error', cmdErr.message);
-
-            // 静默重连失败：显示进度窗口，便于用户手动重试
-            if (wasSilentReconnect) {
-              setShowProgress(true);
-            }
-
-            // 连接失败：右下角 toast 提示（终端保持干净，不打印错误文本）
-            toast.error(t('connection.failed'), {
-              description: cmdErr.message,
-              id: `conn-${sessionId}`,
-              duration: 6000,
-            });
-            console.error('SSH connection error:', cmdErr.code ?? 'unknown', cmdErr.message);
-
-            // 失败后不自动关闭，等待用户操作
-          }
-        };
+        // 连接函数：每次挂载都重新构建并存入终端池，供断线自动重连 / 手动重试使用。
+        // 分屏合并/移出导致组件重挂载后，这里会覆盖掉旧实例的 stale 闭包。
+        const connectSSH = createTerminalConnect({
+          sessionId,
+          mode,
+          sshConfig,
+          telnetConfig,
+          localConfig,
+          serialConfig,
+          moshConfig,
+          sessionLabel,
+          getTerminalSize: () => ({ cols: terminal.cols, rows: terminal.rows }),
+          fitTerminalNow: () => fitTerminal(sessionId),
+          cancelRef: cancelConnectionRef,
+          setConnecting: setIsConnectingState,
+          updateStep,
+          setProgressVisible: setShowProgress,
+          setSteps: setConnectionStepsLocal,
+          markConnected,
+          onSshOutput,
+          t,
+        });
 
         // 绑定用户输入（幂等，只绑定一次）
         if (!isOnDataBound(sessionId)) {

@@ -8,6 +8,7 @@ import { SplitView } from '../components/SplitView';
 import { QuickConnect } from './QuickConnect';
 import { useTabStore, Tab } from '../store/tabStore';
 import { hasSidePanel } from '../extensions/protocols';
+import { PAGES, getPage, pageLoaders } from '../extensions/pages';
 import { useAppConnecting } from '../store/appConnecting';
 import { useUiPage } from '../store/uiPage';
 import { ReplayView } from '../components/ReplayView';
@@ -25,82 +26,48 @@ const RdpView = lazy(() =>
 
 // 侧边栏管理页全部按需加载：home 首标签只带 hosts chunk，其余菜单首次访问才拉取
 // （配合下方 mountedPages 过滤：挂载即触发 import，未访问的页面不进首包）。
-const LazyHosts = lazy(() => import('./Hosts').then((m) => ({ default: m.Hosts })));
-const LazyAccount = lazy(() => import('./Account').then((m) => ({ default: m.AccountPage })));
-const LazyRemote = lazy(() => import('./Remote').then((m) => ({ default: m.Remote })));
-const LazyKeys = lazy(() => import('./Keys').then((m) => ({ default: m.Keys })));
-const LazyCertificates = lazy(() => import('./Certificates').then((m) => ({ default: m.Certificates })));
-const LazyKnownHosts = lazy(() => import('./KnownHosts').then((m) => ({ default: m.KnownHosts })));
-const LazyPortForwarding = lazy(() => import('./PortForwarding').then((m) => ({ default: m.PortForwarding })));
-const LazySftp = lazy(() => import('./Sftp').then((m) => ({ default: m.Sftp })));
-const LazySnippets = lazy(() => import('./Snippets').then((m) => ({ default: m.Snippets })));
-const LazyLogs = lazy(() => import('./Logs').then((m) => ({ default: m.Logs })));
-const LazyMonitor = lazy(() => import('./Monitor').then((m) => ({ default: m.Monitor })));
-const LazySettings = lazy(() => import('./Settings').then((m) => ({ default: m.SettingsPage })));
+// 清单来源：extensions/pages（PAGES + pageLoaders），加页只改注册表 + 此处加一行 lazy。
+const PAGE_IMPORTS = pageLoaders();
+const LazyHosts = lazy(PAGE_IMPORTS.Hosts);
+const LazyAccount = lazy(PAGE_IMPORTS.Account);
+const LazyRemote = lazy(PAGE_IMPORTS.Remote);
+const LazyKeys = lazy(PAGE_IMPORTS.Keys);
+const LazyCertificates = lazy(PAGE_IMPORTS.Certificates);
+const LazyKnownHosts = lazy(PAGE_IMPORTS.KnownHosts);
+const LazyPortForwarding = lazy(PAGE_IMPORTS.PortForwarding);
+const LazySftp = lazy(PAGE_IMPORTS.Sftp);
+const LazySnippets = lazy(PAGE_IMPORTS.Snippets);
+const LazyLogs = lazy(PAGE_IMPORTS.Logs);
+const LazyMonitor = lazy(PAGE_IMPORTS.Monitor);
+const LazySettings = lazy(PAGE_IMPORTS.Settings);
+
+// 页面 id → lazy 组件（与 PAGES.component 对齐，加页时同步加一行）。
+const PAGE_COMPONENTS: Record<string, React.LazyExoticComponent<React.ComponentType>> = {
+  Hosts: LazyHosts,
+  Account: LazyAccount,
+  Remote: LazyRemote,
+  Keys: LazyKeys,
+  Certificates: LazyCertificates,
+  KnownHosts: LazyKnownHosts,
+  PortForwarding: LazyPortForwarding,
+  Sftp: LazySftp,
+  Snippets: LazySnippets,
+  Logs: LazyLogs,
+  Monitor: LazyMonitor,
+  Settings: LazySettings,
+};
 
 // home 侧边栏页面（首次访问才挂载，按 currentPage 显隐，保留各页面内部状态）
-const HOME_PAGES: Record<string, ReactNode> = {
-  hosts: (
-    <Suspense fallback={<PageLoading />}>
-      <LazyHosts />
-    </Suspense>
-  ),
-  account: (
-    <Suspense fallback={<PageLoading />}>
-      <LazyAccount />
-    </Suspense>
-  ),
-  remote: (
-    <Suspense fallback={<PageLoading />}>
-      <LazyRemote />
-    </Suspense>
-  ),
-  keys: (
-    <Suspense fallback={<PageLoading />}>
-      <LazyKeys />
-    </Suspense>
-  ),
-  certificates: (
-    <Suspense fallback={<PageLoading />}>
-      <LazyCertificates />
-    </Suspense>
-  ),
-  knownhosts: (
-    <Suspense fallback={<PageLoading />}>
-      <LazyKnownHosts />
-    </Suspense>
-  ),
-  portforwarding: (
-    <Suspense fallback={<PageLoading />}>
-      <LazyPortForwarding />
-    </Suspense>
-  ),
-  sftp: (
-    <Suspense fallback={<PageLoading />}>
-      <LazySftp />
-    </Suspense>
-  ),
-  snippets: (
-    <Suspense fallback={<PageLoading />}>
-      <LazySnippets />
-    </Suspense>
-  ),
-  logs: (
-    <Suspense fallback={<PageLoading />}>
-      <LazyLogs />
-    </Suspense>
-  ),
-  monitor: (
-    <Suspense fallback={<PageLoading />}>
-      <LazyMonitor />
-    </Suspense>
-  ),
-  settings: (
-    <Suspense fallback={<PageLoading />}>
-      <LazySettings />
-    </Suspense>
-  ),
-};
+const HOME_PAGES: Record<string, ReactNode> = Object.fromEntries(
+  PAGES.map((p) => {
+    const C = PAGE_COMPONENTS[p.component];
+    return [p.id, (
+      <Suspense fallback={<PageLoading />}>
+        <C />
+      </Suspense>
+    )];
+  }),
+);
 
 /** 页面 chunk 加载中的占位。 */
 function PageLoading() {
@@ -109,9 +76,10 @@ function PageLoading() {
 
 export function Home() {
   const { activeTabId, tabs } = useTabStore();
-  const [currentPage, setCurrentPage] = useState<string>('hosts');
+  const defaultPage = PAGES.find((p) => p.preload)?.id ?? PAGES[0]?.id ?? 'hosts';
+  const [currentPage, setCurrentPage] = useState<string>(defaultPage);
   // 首次访问才挂载，之后 keep-alive（避免启动时一次性加载全部页面数据）
-  const [mountedPages, setMountedPages] = useState<Set<string>>(() => new Set(['hosts']));
+  const [mountedPages, setMountedPages] = useState<Set<string>>(() => new Set([defaultPage]));
 
   const homeTab = tabs.find((t: Tab) => t.type === 'home');
   const isHomeActive = activeTabId === (homeTab?.id ?? 'home-tab');
@@ -131,6 +99,7 @@ export function Home() {
   const sessionTabs = tabs.filter((t: Tab) => t.type !== 'home');
 
   const handleMenuItemClick = (itemId: string) => {
+    if (!getPage(itemId)) return;
     setCurrentPage(itemId);
     setMountedPages((prev) => {
       if (prev.has(itemId)) return prev;

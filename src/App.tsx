@@ -21,9 +21,10 @@ import { useConfigStore } from './store/config';
 import { usePanelStore } from './store/panelStore';
 import { initTransferProgressListener } from './store/transferStore';
 import { useTabStore, type Tab } from './store/tabStore';
+import { isTerminalLike } from './extensions/protocols';
 import { loadOpenSessions, saveOpenSessions, getHosts } from './services/dataService';
 import { checkForAppUpdates } from './services/updaterService';
-import i18next from './i18n/i18n';
+import i18next, { ensureEnLoaded } from './i18n/i18n';
 
 function App() {
   const loadConfig = useConfigStore((state) => state.loadConfig);
@@ -42,7 +43,7 @@ function App() {
     if (wasOpen && !aiOpen) {
       const { tabs, activeTabId } = useTabStore.getState();
       const tab = tabs.find((t) => t.id === activeTabId);
-      if (tab?.sessionId && ['terminal', 'telnet', 'local', 'serial', 'mosh'].includes(tab.type)) {
+      if (tab?.sessionId && isTerminalLike(tab.type)) {
         focusTerminal(tab.sessionId);
       }
     }
@@ -129,10 +130,14 @@ function App() {
     return () => document.removeEventListener('keydown', blockNativeKeys, true);
   }, []);
 
-  // 语言设置响应式生效：启动加载与设置修改都会触发切换
+  // 语言设置响应式生效：启动加载与设置修改都会触发切换。
+  // en-US 资源按需装载：非默认语言先 await 资源就绪再切换，避免 key 闪现。
   useEffect(() => {
     if (config?.appearance?.language) {
-      void i18next.changeLanguage(config.appearance.language);
+      void (async () => {
+        if (config.appearance.language !== 'zh-CN') await ensureEnLoaded();
+        await i18next.changeLanguage(config.appearance.language);
+      })();
     }
   }, [config?.appearance?.language]);
 

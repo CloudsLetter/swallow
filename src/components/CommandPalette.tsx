@@ -3,20 +3,10 @@ import { useTranslation } from 'react-i18next';
 import {
   Search as IconSearch,
   Terminal as IconTerminal,
-  Monitor as IconDeviceDesktop,
-  User as IconUser,
-  ArrowLeftRight as IconForward,
-  Key as IconKey,
-  FileBadge as IconCert,
-  Lock as IconLock,
-  Folder as IconFolder,
-  FileText as IconFileText,
-  Settings as IconSettings,
-  Activity as IconActivity,
   Zap as IconZap,
-  ScreenShare as IconScreenShare,
 } from 'lucide-react';
 import { getProtocol } from '../extensions/protocols';
+import { PAGES } from '../extensions/pages';
 import {
   getHosts,
   getAccounts,
@@ -54,20 +44,7 @@ interface PaletteItem {
   run: () => void | Promise<void>;
 }
 
-const PAGE_ITEMS: { id: string; labelKey: string; Icon: typeof IconDeviceDesktop }[] = [
-  { id: 'hosts', labelKey: 'menu.hosts', Icon: IconDeviceDesktop },
-  { id: 'remote', labelKey: 'menu.desktop', Icon: IconScreenShare },
-  { id: 'account', labelKey: 'menu.account', Icon: IconUser },
-  { id: 'portforwarding', labelKey: 'menu.portForwarding', Icon: IconForward },
-  { id: 'keys', labelKey: 'menu.keys', Icon: IconKey },
-  { id: 'certificates', labelKey: 'menu.certificates', Icon: IconCert },
-  { id: 'knownhosts', labelKey: 'menu.knownHosts', Icon: IconLock },
-  { id: 'sftp', labelKey: 'menu.sftp', Icon: IconFolder },
-  { id: 'snippets', labelKey: 'menu.snippets', Icon: IconTerminal },
-  { id: 'monitor', labelKey: 'menu.monitor', Icon: IconActivity },
-  { id: 'logs', labelKey: 'menu.logs', Icon: IconFileText },
-  { id: 'settings', labelKey: 'menu.settings', Icon: IconSettings },
-];
+const PAGE_ITEMS = PAGES;
 
 /** 标签类型 → 图标（快速切换器显示协议识别，来源与 TabBar 同一注册表）。 */
 function tabTypeIcon(type: string): typeof IconTerminal {
@@ -221,18 +198,21 @@ export function CommandPalette() {
 
     const pageItems: PaletteItem[] = PAGE_ITEMS.filter(
       (page) => !q || t(page.labelKey).toLowerCase().includes(q) || page.id.includes(q),
-    ).map((page) => ({
-      id: `page-${page.id}`,
-      group: 'pages' as const,
-      icon: (
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-          <page.Icon size={13} strokeWidth={2} />
-        </span>
-      ),
-      label: t(page.labelKey),
-      keywords: `${t(page.labelKey)} ${page.id}`,
-      run: () => navigateTo(page.id),
-    }));
+    ).map((page) => {
+      const PageIcon = page.icon;
+      return {
+        id: `page-${page.id}`,
+        group: 'pages' as const,
+        icon: (
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+            <PageIcon size={13} strokeWidth={2} />
+          </span>
+        ),
+        label: t(page.labelKey),
+        keywords: `${t(page.labelKey)} ${page.id}`,
+        run: () => navigateTo(page.id),
+      };
+    });
 
     const actionItems: PaletteItem[] = [
       {

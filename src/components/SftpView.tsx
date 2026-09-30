@@ -1,11 +1,9 @@
-import { Fragment, useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle, type ChangeEvent } from 'react';
+import { useState, useEffect, useRef, forwardRef, useImperativeHandle, type ChangeEvent } from 'react';
 import { copyText } from '../lib/clipboard';
 import { useTranslation } from 'react-i18next';
-import { once } from '@tauri-apps/api/event';
 import { join as joinPath, tempDir } from '@tauri-apps/api/path';
 import { openPath } from '@tauri-apps/plugin-opener';
 import {
-  Folder as IconFolder,
   File as IconFile,
   Download as IconDownload,
   Upload as IconUpload,
@@ -13,16 +11,11 @@ import {
   Home as IconHome,
   ArrowLeft as IconArrowLeft,
   FolderPlus as IconFolderPlus,
-  Pencil as IconPencil,
-  Shield as IconShield,
   Search as IconSearch,
-  Trash2 as IconTrash,
   ChevronRight as IconChevronRight,
   ArrowUpDown as IconArrowUpDown,
   ArrowUp as IconArrowUp,
   ArrowDown as IconArrowDown,
-  ClipboardCopy as IconClipboard,
-  FolderOpen as IconFolderOpen,
   X as IconX,
   AlertTriangle as IconAlert,
   HardDrive as IconDrive,
@@ -81,7 +74,6 @@ import {
   type FileItem,
 } from './sftpPool';
 import { Button } from './ui/button';
-import { Checkbox } from './ui/checkbox';
 import { Input } from './ui/input';
 import {
   Dialog,
@@ -90,9 +82,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
-import { ScrollArea } from './ui/scroll-area';
 import { LIST_COLS_FTP, LIST_COLS_PERM } from './sftpListColumns';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { SftpRemoteFileList, type SortKey } from './sftp/SftpRemoteFileList';
+import { ChmodMatrix } from './sftp/ChmodMatrix';
+import { collectDroppedFiles, requestOsFilePaths, type DroppedUpload } from './sftp/droppedFiles';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -124,142 +117,11 @@ interface SftpViewProps {
   };
 }
 
-type SortKey = 'name' | 'size' | 'modified';
-
 /** 分块传输的块大小（字节）。单次整传的上限与后端 MAX_FILE_TRANSFER_BYTES 一致。
  *  ⚠️ 4MB（非更大）：无 path 的 IPC 分块在慢链路上单块需在会话 60s 超时内完成，
  *  8MB 在低带宽（<130KB/s）下会超时失败。直读路径不受此限制（后端 1MB 块循环）。 */
 const TRANSFER_CHUNK = 4 * 1024 * 1024;
 const MAX_SINGLE_UPLOAD = 100 * 1024 * 1024;
-
-/** 拖拽收集到的待上传内容：需创建的目录（相对路径）+ 待上传的文件（相对路径）。 */
-interface DroppedUpload {
-  dirs: string[];
-  files: { relativePath: string; file: File }[];
-}
-
-/** 递归读取一个 FileSystemEntry（文件或目录），收集目录列表与文件列表。 */
-function readEntryTree(entry: FileSystemEntry, base: string, out: DroppedUpload): Promise<void> {
-  if (entry.isFile) {
-    return new Promise((resolve) => {
-      (entry as FileSystemFileEntry).file(
-        (file) => {
-          out.files.push({ relativePath: base ? `${base}/${entry.name}` : entry.name, file });
-          resolve();
-        },
-        () => resolve(),
-      );
-    });
-  }
-  if (entry.isDirectory) {
-    const dirPath = base ? `${base}/${entry.name}` : entry.name;
-    out.dirs.push(dirPath);
-    const reader = (entry as FileSystemDirectoryEntry).createReader();
-    return new Promise((resolve) => {
-      const readBatch = () => {
-        reader.readEntries(
-          async (entries) => {
-            if (entries.length === 0) {
-              resolve();
-              return;
-            }
-            for (const child of entries) {
-              await readEntryTree(child, dirPath, out);
-            }
-            // readEntries 每次最多返回 100 条，需循环直到为空
-            readBatch();
-          },
-          () => resolve(),
-        );
-      };
-      readBatch();
-    });
-  }
-  return Promise.resolve();
-}
-
-// WebView2 原生桥能力（postMessageWithAdditionalObjects → 宿主 AdditionalObjects → CoreWebView2File）
-interface ChromeWebviewHost {
-  postMessageWithAdditionalObjects?: (message: string, objects: ArrayLike<File>) => void;
-}
-declare global {
-  interface Window {
-    chrome?: { webview?: ChromeWebviewHost };
-  }
-}
-
-/**
- * 经 WebView2 原生桥（WebMessageObjects）获取拖入文件的真实本地路径。
- * DOM File 在 JS 层不暴露路径；宿主（os_drop_paths.rs）从 AdditionalObjects 提取
- * CoreWebView2File.Path 后以 `sftp-os-drop-paths` 事件回传（顺序与 files 一致）。
- * 能力不可用 / 宿主无响应（600ms）→ 全 undefined，调用方走 IPC 慢通道兜底。
- */
-async function requestOsFilePaths(files: File[]): Promise<(string | undefined)[]> {
-  const webview = window.chrome?.webview;
-  const canPost =
-    typeof webview?.postMessageWithAdditionalObjects === 'function' && files.length > 0;
-  if (!canPost) return files.map(() => undefined);
-
-  const requestId = `dp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  const fallback = files.map(() => undefined);
-  return new Promise<(string | undefined)[]>((resolve) => {
-    let settled = false;
-    let unlisten: (() => void) | undefined;
-    const finish = (paths: (string | undefined)[]) => {
-      if (settled) return;
-      settled = true;
-      window.clearTimeout(timer);
-      resolve(paths);
-    };
-    const timer = window.setTimeout(() => {
-      finish(fallback);
-      unlisten?.();
-    }, 600);
-    // 先注册一次性监听并 await 注册完成，再发消息——避免宿主回包早于监听注册而丢失
-    void once<{ requestId: string; paths: string[] }>('sftp-os-drop-paths', (e) => {
-      if (settled || e.payload.requestId !== requestId) return;
-      const { paths } = e.payload;
-      finish(files.map((_, i) => paths[i]));
-    }).then((un) => {
-      if (settled) {
-        un();
-        return;
-      }
-      unlisten = un;
-      try {
-        webview!.postMessageWithAdditionalObjects!(`swallow-os-files::${requestId}`, files);
-      } catch {
-        finish(fallback);
-        un();
-      }
-    });
-  });
-}
-
-/** 从拖拽数据收集待上传内容（文件 + 目录树，递归遍历）。 */
-async function collectDroppedFiles(dataTransfer: DataTransfer): Promise<DroppedUpload> {
-  const out: DroppedUpload = { dirs: [], files: [] };
-  const items = Array.from(dataTransfer.items ?? []);
-  if (items.length > 0) {
-    for (const item of items) {
-      if (item.kind !== 'file') continue;
-      const entry = item.webkitGetAsEntry?.();
-      if (entry) {
-        await readEntryTree(entry, '', out);
-      } else {
-        const file = item.getAsFile();
-        if (file) out.files.push({ relativePath: file.name, file });
-      }
-    }
-  }
-  // items 不可用或未读到任何内容时，回退到 files 列表
-  if (out.dirs.length === 0 && out.files.length === 0) {
-    for (const file of Array.from(dataTransfer.files ?? [])) {
-      out.files.push({ relativePath: file.name, file });
-    }
-  }
-  return out;
-}
 
 /** 双栏复用的远端文件浏览器实例句柄：组合层跨栏操作时通过 ref 调用。 */
 export interface SftpPaneHandle {
@@ -281,66 +143,6 @@ interface SftpPaneProps {
   windowDragUploads?: boolean;
   /** 工具栏最左侧插入的自定义区（左栏远端源切换下拉用，不破坏两栏对等布局） */
   toolbarPrefix?: React.ReactNode;
-}
-
-/** chmod 三栏勾选矩阵：所有者/组/其他 × 读/写/执行，实时回写八进制（如 755）。 */
-function ChmodMatrix({ value, onChange }: { value: string; onChange: (octal: string) => void }) {
-  const { t } = useTranslation();
-  // 8 进制 → [所有者 r,w,x, 组 r,w,x, 其他 r,w,x]
-  const bits = useMemo(() => {
-    const digits = value.replace(/[^0-7]/g, '').slice(-3).padStart(3, '0').split('').map(Number);
-    const out: boolean[] = [];
-    for (const d of digits) {
-      out.push((d & 4) !== 0, (d & 2) !== 0, (d & 1) !== 0);
-    }
-    return out;
-  }, [value]);
-
-  const toggle = (idx: number) => {
-    const next = [...bits];
-    next[idx] = !next[idx];
-    const digits = [0, 1, 2].map(
-      (g) => (next[g * 3] ? 4 : 0) + (next[g * 3 + 1] ? 2 : 0) + (next[g * 3 + 2] ? 1 : 0),
-    );
-    onChange(digits.join(''));
-  };
-
-  const symbolic = (digit: number) => `${digit & 4 ? 'r' : '-'}${digit & 2 ? 'w' : '-'}${digit & 1 ? 'x' : '-'}`;
-  const digits = value.replace(/[^0-7]/g, '').slice(-3).padStart(3, '0').split('').map(Number);
-  const rows: { label: string; offset: number }[] = [
-    { label: t('sftp.permRead'), offset: 0 },
-    { label: t('sftp.permWrite'), offset: 1 },
-    { label: t('sftp.permExecute'), offset: 2 },
-  ];
-
-  return (
-    <div>
-      <div className="grid grid-cols-[3.5rem_1fr_1fr_1fr] items-center gap-y-2 text-sm">
-        <span />
-        <span className="text-center font-medium text-muted-foreground">{t('sftp.permOwner')}</span>
-        <span className="text-center font-medium text-muted-foreground">{t('sftp.permGroup')}</span>
-        <span className="text-center font-medium text-muted-foreground">{t('sftp.permOther')}</span>
-        {rows.map((row) => (
-          <Fragment key={row.offset}>
-            <span className="flex items-center gap-1.5">{row.label}</span>
-            {[0, 3, 6].map((group) => (
-              <span key={`${group}-${row.offset}`} className="flex justify-center">
-                <Checkbox
-                  checked={bits[group + row.offset]}
-                  onCheckedChange={() => toggle(group + row.offset)}
-                />
-              </span>
-            ))}
-          </Fragment>
-        ))}
-      </div>
-      <div className="mt-3 flex items-center justify-end gap-3 font-mono text-xs text-muted-foreground">
-        <span>{t('sftp.chmod')}:</span>
-        <span>{digits.join('')}</span>
-        <span>{digits.map(symbolic).join('')}</span>
-      </div>
-    </div>
-  );
 }
 
 /**
@@ -1434,16 +1236,6 @@ const SftpPane = forwardRef<SftpPaneHandle, SftpPaneProps>(function SftpPane(
     return sortAsc ? cmp : -cmp;
   });
 
-  // 大目录虚拟滚动：只渲染视口内的行（10k 条目目录不再生成十万级 DOM 节点）。
-  // 行高固定 36px（min-h-9 + truncate 单行），measureElement 兜底精确测量。
-  const listViewportRef = useRef<HTMLDivElement | null>(null);
-  const rowVirtualizer = useVirtualizer({
-    count: sortedFiles.length,
-    getScrollElement: () => listViewportRef.current,
-    estimateSize: () => 36,
-    overscan: 14,
-  });
-
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
       setSortAsc((prev) => !prev);
@@ -1714,181 +1506,34 @@ const SftpPane = forwardRef<SftpPaneHandle, SftpPaneProps>(function SftpPane(
                     </Button>
                   </div>
                 )}
-                <ScrollArea
-                  className="min-h-0 w-full flex-1"
-                  viewportRef={listViewportRef}
-                  viewportClassName="[&>div]:!block"
-                >
-                {loading && files.length === 0 ? (
-                  <div className="flex h-full w-full items-center justify-center text-muted-foreground">{t('common.loading')}</div>
-                ) : files.length === 0 ? (
-                  <div className="flex h-full w-full items-center justify-center px-4 text-center text-muted-foreground">
-                    {t('sftp.emptyDir')}
-                    {isConnected(sessionId ?? '') ? t('sftp.emptyDirDropHint') : ''}
-                  </div>
-                ) : (
-                  <div className="flex min-w-0 flex-col">
-                    {/* 表头（与左栏同构：行式表头 + 共享列模板 → 无固定整表宽，永不横向溢出） */}
-                    <div
-                      className={cn(
-                        'grid h-9 shrink-0 items-center gap-2 border-b border-border px-3 text-xs font-medium text-muted-foreground',
-                        listCols,
-                      )}
-                    >
-                      <span className="min-w-0" />
-                      <button
-                        type="button"
-                        className="flex min-w-0 items-center gap-1 overflow-hidden text-left transition-colors hover:text-foreground"
-                        onClick={() => toggleSort('name')}
-                      >
-                        <span className="truncate">{t('sftp.tableName')}</span>
-                        <span className="shrink-0">{sortIndicator('name')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex min-w-0 items-center gap-1 overflow-hidden text-left transition-colors hover:text-foreground"
-                        onClick={() => toggleSort('size')}
-                      >
-                        <span className="truncate">{t('sftp.tableSize')}</span>
-                        <span className="shrink-0">{sortIndicator('size')}</span>
-                      </button>
-                      {!isFtp && (
-                        <button
-                          type="button"
-                          className="flex min-w-0 items-center gap-1 overflow-hidden text-left transition-colors hover:text-foreground"
-                          onClick={() => toggleSort('modified')}
-                        >
-                          <span className="truncate">{t('sftp.tableModified')}</span>
-                          <span className="shrink-0">{sortIndicator('modified')}</span>
-                        </button>
-                      )}
-                      {!isFtp && <span className="truncate">{t('sftp.tablePermissions')}</span>}
-                    </div>
-                      <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
-                      {rowVirtualizer.getVirtualItems().map((vi) => {
-                        const file = sortedFiles[vi.index];
-                        const multiSelected = selectedFiles.has(file.name) && selectedFiles.size > 1;
-                        const selected = selectedFiles.has(file.name);
-                        return (
-                          <div
-                            key={file.name}
-                            ref={rowVirtualizer.measureElement}
-                            data-index={vi.index}
-                            style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}
-                          >
-                          <ContextMenu>
-                            <ContextMenuTrigger asChild>
-                            <div
-                              draggable={file.type !== 'directory'}
-                              onContextMenu={(e) => {
-                                // 行右键只开行级菜单：阻断冒泡到外层「空白区」ContextMenuTrigger，
-                                // 否则两个嵌套 trigger 都响应 contextmenu，外层后开会把行菜单顶掉
-                                e.stopPropagation();
-                              }}
-                              onDragStart={(e) => {
-                                if (file.type === 'directory') return;
-                                e.dataTransfer.setData(dragMime, file.name);
-                                e.dataTransfer.setData('text/plain', file.name);
-                                e.dataTransfer.effectAllowed = 'copy';
-                              }}
-                              onDoubleClick={(e) => {
-                                // 双击落在交互元素（复选框/操作按钮）上时不触发行级双击，避免与单击冲突
-                                if ((e.target as HTMLElement).closest('button')) return;
-                                handleDoubleClick(file);
-                              }}
-                              className={cn(
-                                'group grid min-h-9 items-center gap-2 border-b border-border/70 px-3 text-sm transition-colors',
-                                listCols,
-                                selected ? 'bg-primary/10 hover:bg-primary/10' : 'hover:bg-accent/40',
-                              )}
-                            >
-                              <div className="flex min-w-0 items-center">
-                                <Checkbox
-                                  checked={selected}
-                                  onCheckedChange={() => toggleSelection(file.name)}
-                                />
-                              </div>
-                              <div className="flex min-w-0 items-center gap-2" title={file.name}>
-                                {file.type === 'directory' ? (
-                                  <IconFolder size={16} className="shrink-0 text-warning" strokeWidth={2} />
-                                ) : (
-                                  <IconFile size={16} className="shrink-0 text-muted-foreground" strokeWidth={2} />
-                                )}
-                                <span className="min-w-0 truncate text-sm">{file.name}</span>
-                              </div>
-                              <div className="min-w-0 truncate text-sm tabular-nums text-muted-foreground">
-                                {file.type === 'directory' ? '—' : formatFileSize(file.size)}
-                              </div>
-                              {!isFtp && (
-                                <div className="min-w-0 truncate text-sm text-muted-foreground" title={file.modified}>
-                                  {file.modified.trim() && file.modified !== '-' ? file.modified : '—'}
-                                </div>
-                              )}
-                              {!isFtp && (
-                                <div
-                                  className="min-w-0 truncate font-mono text-sm text-muted-foreground"
-                                  title={file.permissions}
-                                >
-                                  {file.permissions.trim() && file.permissions !== '-' ? file.permissions : '—'}
-                                </div>
-                              )}
-                            </div>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent className="w-52">
-                              {file.type === 'directory' ? (
-                                <>
-                                  <ContextMenuItem onClick={() => handleDoubleClick(file)}>
-                                    <IconFolderOpen size={15} className="mr-2" /> {t('sftp.open')}
-                                  </ContextMenuItem>
-                                  <ContextMenuItem onClick={() => void handleDownloadDir(file)}>
-                                    <IconDownload size={15} className="mr-2" /> {t('sftp.downloadDir')}
-                                  </ContextMenuItem>
-                                </>
-                              ) : (
-                                <ContextMenuItem onClick={() => handleDownload(file)}>
-                                  <IconDownload size={15} className="mr-2" /> {t('sftp.download')}
-                                </ContextMenuItem>
-                              )}
-                              {selectedFileCount > 1 && (
-                                <ContextMenuItem onClick={() => void handleDownloadSelected()}>
-                                  <IconDownload size={15} className="mr-2" /> {t('sftp.downloadSelectedN', { count: selectedFileCount })}
-                                </ContextMenuItem>
-                              )}
-                              <ContextMenuItem onClick={() => copyRemotePath(file.name)}>
-                                <IconClipboard size={15} className="mr-2" /> {t('sftp.copyRemotePath')}
-                              </ContextMenuItem>
-                              <ContextMenuSeparator />
-                              {multiSelected && (
-                                <ContextMenuItem
-                                  className="text-destructive"
-                                  onClick={() => void handleDeleteSelected()}
-                                >
-                                  <IconTrash size={15} className="mr-2" /> {t('sftp.deleteSelectedN', { count: selectedFiles.size })}
-                                </ContextMenuItem>
-                              )}
-                              <ContextMenuItem onClick={() => handleRename(file)}>
-                                <IconPencil size={15} className="mr-2" /> {t('sftp.rename')}
-                              </ContextMenuItem>
-                              {!isFtp && (
-                                <ContextMenuItem onClick={() => handleChmod(file)}>
-                                  <IconShield size={15} className="mr-2" /> {t('sftp.chmod')}
-                                </ContextMenuItem>
-                              )}
-                              <ContextMenuItem
-                                className="text-destructive"
-                                onClick={() => void handleDelete(file)}
-                              >
-                                <IconTrash size={15} className="mr-2" /> {t('common.delete')}
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-                          </div>
-                        );
-                      })}
-                      </div>
-                  </div>
-                )}
-                </ScrollArea>
+                <SftpRemoteFileList
+                  sortedFiles={sortedFiles}
+                  loading={loading}
+                  emptyHint={
+                    <>
+                      {t('sftp.emptyDir')}
+                      {isConnected(sessionId ?? '') ? t('sftp.emptyDirDropHint') : ''}
+                    </>
+                  }
+                  isFtp={isFtp}
+                  listCols={listCols}
+                  dragMime={dragMime}
+                  onToggleSort={toggleSort}
+                  sortIndicator={sortIndicator}
+                  selectedFiles={selectedFiles}
+                  selectedFileCount={selectedFileCount}
+                  onToggleSelection={toggleSelection}
+                  onOpen={handleDoubleClick}
+                  onDownload={handleDownload}
+                  onDownloadDir={handleDownloadDir}
+                  onDownloadSelected={handleDownloadSelected}
+                  onCopyRemotePath={copyRemotePath}
+                  onDeleteSelected={handleDeleteSelected}
+                  onRename={handleRename}
+                  onChmod={handleChmod}
+                  onDelete={handleDelete}
+                  formatFileSize={formatFileSize}
+                />
               </div>
             </ContextMenuTrigger>
             <ContextMenuContent className="w-52">
