@@ -51,6 +51,41 @@
 }
 
 /* ============================================================
+   内置可选终端主字体：Source Code Pro（Adobe，OFL-1.1）
+
+   为什么内置：设置页「终端 → 字体」下拉里本来就有 `'Source Code Pro', monospace`
+   这一项，但字体并不随应用分发 —— 用户选了它只会**静默回退到 monospace**
+   （Windows 上 = Consolas，正好缺 ▽△），等于绕一圈又踩回溢出。
+   内置后该预设才名副其实。**无需改下拉 value**：文档内 @font-face 声明的家族
+   优先于系统同名字体，因此即便用户机器上装了正版也不冲突。
+
+   为什么它是终端安全字体（实测 `.workbuddy/tools/font-glyph-probe.py`）：
+     U+25BD ▽ / U+25B3 △ **存在且为 1.00 单宽**（Consolas 与 Fira Code 都缺这两个）
+     30 个终端高频符号中仅缺 `✗`(U+2717) `⚡`(U+26A1) —— 由上面的符号回退字体补
+     advance = 0.6000 em，与内置符号字体一致；无中文，中文照旧走系统回退
+
+   ⚠️ 刻意**不写 size-adjust**：它是「主字体」，单元格宽度本就该由它自己的
+   0.6em advance 决定；缩放它只会让整个终端栅格变形。size-adjust 只属于
+   为别的主字体做兜底的符号字体。
+
+   ⚠️⚠️ `font-weight: 200 900` 不可省：该变量字体的 **wght 默认实例是 200
+   （ExtraLight）**，若省略（等价于 400）会用默认实例渲染，整屏字重异常偏细。
+   （对照：内置的 JetBrains Mono 变量字体默认是 400，无此陷阱。）
+
+   ⚠️ 与 src/hooks/terminalOptions.ts 的 BUNDLED_PRIMARY_FONTS 必须同串。
+   ============================================================ */
+@font-face {
+  font-family: "Source Code Pro";
+  /* 同上的 format("truetype")：旧关键字 "truetype-variations" 有静默失败风险 */
+  src: url("./assets/fonts/SourceCodePro-Variable.ttf") format("truetype");
+  /* 变量轴 200~900（ExtraLight~Black），必须显式声明以避开默认的 200 实例 */
+  font-weight: 200 900;
+  font-style: normal;
+  /* 不写 unicode-range：否则只覆盖声明范围，其余码位仍走回退 */
+  font-display: block;
+}
+
+/* ============================================================
    Swallow
    Tailwind CSS v4
    ============================================================ */

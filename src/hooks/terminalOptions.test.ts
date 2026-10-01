@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { BUNDLED_SYMBOL_FONT, preloadBundledSymbolFont, withSymbolFallback } from './terminalOptions';
+import {
+  BUNDLED_PRIMARY_FONTS,
+  BUNDLED_SYMBOL_FONT,
+  preloadBundledFonts,
+  withSymbolFallback,
+} from './terminalOptions';
 
 /** 内置字体（随应用打包，一定存在），回退链首位。 */
 const BUNDLED = BUNDLED_SYMBOL_FONT;
@@ -110,8 +115,42 @@ describe('withSymbolFallback', () => {
   });
 });
 
-describe('preloadBundledSymbolFont', () => {
+describe('preloadBundledFonts', () => {
   it('任何环境下都不抛错，且一定 resolve（带超时兜底）', async () => {
-    await expect(preloadBundledSymbolFont(30)).resolves.toBeUndefined();
+    await expect(preloadBundledFonts(30)).resolves.toBeUndefined();
+  });
+});
+
+describe('BUNDLED_PRIMARY_FONTS（随应用分发的可选主字体）', () => {
+  /**
+   * ⚠️ 与 src/pages/settingsComponents/TerminalSettings.tsx 的下拉 value 对应。
+   * 字体名必须与 index.css 中 @font-face 的 font-family **同串**，否则浏览器按
+   * 「该字体不存在」处理，静默回退到 monospace（Windows 上 = Consolas，缺 ▽△）——
+   * 内置等于白做，且症状与修复前完全一样，极难发现。
+   */
+  const PRESET_BY_FAMILY: Record<string, string> = {
+    'Source Code Pro': "'Source Code Pro', monospace",
+  };
+
+  it.each(BUNDLED_PRIMARY_FONTS)('「%s」与设置页下拉 value 同串', (family) => {
+    const preset = PRESET_BY_FAMILY[family];
+    expect(preset, `缺少 ${family} 对应的下拉预设记录（请同步本表）`).toBeDefined();
+    const first = preset.split(',')[0].trim().replace(/^["']|["']$/g, '');
+    expect(first).toBe(family);
+  });
+
+  it.each(BUNDLED_PRIMARY_FONTS)('选中「%s」时仍补入符号回退（覆盖它缺的 ✗ ⚡）', (family) => {
+    const out = withSymbolFallback(PRESET_BY_FAMILY[family]);
+    expect(out.startsWith(`'${family}'`)).toBe(true);
+    expect(out).toContain(`'${BUNDLED}'`);
+    expectSafe(out);
+  });
+
+  it('内置主字体不会被误当作符号回退字体插入', () => {
+    // 符号回退链只应含 BUNDLED_SYMBOL_FONT，主字体由用户显式选择才生效。
+    const out = withSymbolFallback('Consolas, monospace');
+    for (const family of BUNDLED_PRIMARY_FONTS) {
+      expect(out).not.toContain(`'${family}'`);
+    }
   });
 });

@@ -13,6 +13,20 @@ import type { Terminal } from '../types/config';
 export const BUNDLED_SYMBOL_FONT = 'JetBrains Mono Symbol';
 
 /**
+ * 随应用打包的「可选主字体」家族名，与设置页（TerminalSettings）下拉里的预设一一对应。
+ *
+ * 这些字体随应用分发（见 index.css 中的同名 @font-face），因此**用户无需自行安装**；
+ * 名字必须与下拉 value 的第一个 token 同串，否则会被当作缺失而回退到 monospace
+ * （Windows 上 = Consolas，缺 ▽△），也就是白白内置。
+ *
+ * ⚠️ 必须与 index.css 中对应 @font-face 的 font-family 完全一致。
+ */
+export const BUNDLED_PRIMARY_FONTS = ['Source Code Pro'];
+
+/** 全部内置字体家族：创建任何 xterm 实例前都必须预载。 */
+const BUNDLED_FONT_FAMILIES = [BUNDLED_SYMBOL_FONT, ...BUNDLED_PRIMARY_FONTS];
+
+/**
  * 终端缺字形时的符号回退字体链（按优先级）。
  *
  * ⚠️ 首位是随应用打包的内置字体（JetBrains Mono Variable，296KB，
@@ -28,22 +42,26 @@ const SYMBOL_FALLBACK_FONTS = [
 ];
 
 /**
- * 预加载内置字体，解析后表示字形可安全用于测量。
+ * 预加载**全部内置字体**，解析后表示字形可安全用于测量。
  *
  * ⚠️ 必须在创建任何 xterm 实例之前 await：xterm 6.0 的代码里**完全没有**
  * document.fonts 相关逻辑（已核对 node_modules 产物），也就是说异步字体在首次
  * 测量之后才加载完成，它也**不会重新测量单元格宽度** —— 后果就是列宽按回退
  * 字体算出来、渲染却用内置字体，出现错位（正是我们要修的那类问题）。
+ * 可选主字体（Source Code Pro）同理：它在设置里被选中时若尚未加载，栅格会先按
+ * 兜底字体的格宽建好，尤其换字体是运行时发生的，所以这里一并预载。
  *
  * 内置字体是本地资源（已嵌入应用），正常在毫秒级完成；仍加超时兜底，
  * 避免字体损坏时把启动流程卡死。
  */
-export function preloadBundledSymbolFont(timeoutMs = 2000): Promise<void> {
+export function preloadBundledFonts(timeoutMs = 3000): Promise<void> {
   if (typeof document === 'undefined' || !document.fonts) return Promise.resolve();
-  const load = Promise.all([
-    document.fonts.load(`400 14px "${BUNDLED_SYMBOL_FONT}"`),
-    document.fonts.load(`700 14px "${BUNDLED_SYMBOL_FONT}"`),
-  ])
+  const load = Promise.all(
+    BUNDLED_FONT_FAMILIES.flatMap((family) => [
+      document.fonts.load(`400 14px "${family}"`),
+      document.fonts.load(`700 14px "${family}"`),
+    ]),
+  )
     .then(() => document.fonts.ready)
     .then(() => undefined)
     .catch(() => undefined);
