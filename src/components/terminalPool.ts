@@ -26,6 +26,7 @@ import type { SessionEvent } from '../types/session';
 import { useConfigStore } from '../store/config';
 import { matchesShortcut, shortcutOrDefault } from '../lib/hotkeys';
 import { appendOutput, appendInput, forceStopSessionLog } from './sessionLog';
+import { withSymbolFallback } from '../hooks/terminalOptions';
 
 export interface ConnectionStep {
   id: string;
@@ -188,7 +189,7 @@ export function createOrGetTerminal(
   const terminal = new Terminal({
     cursorBlink: true,
     fontSize: 14,
-    fontFamily: 'Consolas, "Courier New", monospace',
+    fontFamily: withSymbolFallback(),
     allowProposedApi: true,
     ...options,
   });

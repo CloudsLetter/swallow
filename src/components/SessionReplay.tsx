@@ -15,6 +15,7 @@ import { Button } from './ui/button';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Slider } from './ui/slider';
 import type { SessionReplayData } from '../services/sessionReplay';
+import { withSymbolFallback } from '../hooks/terminalOptions';
 
 interface SessionReplayProps {
   open: boolean;
@@ -95,7 +96,7 @@ export function SessionReplayPlayer({ open, path, replay }: SessionReplayPlayerP
       disableStdin: true,
       convertEol: true,
       scrollback: 10000,
-      fontFamily: 'Consolas, "Courier New", monospace',
+      fontFamily: withSymbolFallback(),
       fontSize: 14,
       theme: {
         background: '#0f172a',

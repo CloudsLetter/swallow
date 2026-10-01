@@ -853,7 +853,10 @@ impl Default for Terminal {
 		Self {
 			active_theme_id: "default".into(),
 			themes: builtin_terminal_themes(),
-			font_family: "Consolas".into(),
+			// 与 TerminalSettings 下拉首项保持一致，否则全新用户的下拉显示不出选中项。
+			// 符号回退（Cascadia Mono 等）由前端 withSymbolFallback 在渲染层追加，
+			// 不写进默认值，以免用户配置里出现「看不见」的字体。
+			font_family: "Consolas, 'Courier New', monospace".into(),
 			font_size: 14,
 			line_height: 1.2,
 			font_weight: 400,

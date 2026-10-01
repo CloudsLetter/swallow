@@ -4,6 +4,53 @@
 @import "@fontsource-variable/geist-mono";
 
 /* ============================================================
+   内置终端符号回退字体（JetBrains Mono Variable，OFL-1.1）
+
+   为什么不走 @fontsource：fontsource 按 subset 切分并用 unicode-range 限定，
+   而它的 latin/latin-ext 只声明到 U+2191/U+2193 等箭头，**从不声明 U+25xx
+   几何图形区** → 浏览器不会用它渲染 ▽△▼▲□■ 这些终端高频符号，等于白装。
+   所以这里直连上游变量字体，不写 unicode-range，覆盖字体实际拥有的全部码位。
+
+   为什么需要它：等宽正文字体普遍只画实心几何图形（▼▲），缺空心变体（▽△）；
+   缺字形时 Chromium 会回退到按全角设计的 CJK 字体（1.6~2 格宽）→ 溢出撑破
+   右侧单元格（典型现场：htop 排序箭头）。
+
+   ⚠️⚠️ 为什么必须带 size-adjust（最容易漏的一环）：
+   浏览器的字形回退是**按字符选字体**，回退字形用**它自己的 advance** 渲染，
+   **不会**缩放到主字体的格宽。JetBrains Mono 的 advance 是 0.6em，而默认主字体
+   Consolas 是 0.5498em → 直接塞进来反而会有 0.6/0.5498 = **1.091 格，照样溢出 9%**。
+   故按 Consolas 反算缩放：0.5498 / 0.6 = **91.634%**。
+   此时内置字形宽 0.6×0.91634 = 0.549805em ＝ Consolas 的格宽 → **恰好 1.000 格**。
+
+   各主字体下的实际结果（0.6×0.91634 ÷ 该字体 advance）：
+     Consolas     0.54980em → 1.000 格  ✅ 恰好（默认字体，最常用路径）
+     Cascadia     0.58594em → 0.938 格  （略小 6%，**不会**溢出）
+     DejaVu/Cour  0.60000em → 0.916 格  （略小 8%，**不会**溢出）
+     主字体未安装 → 单元格由本字体自身定义 → 恒为 1.000 格 ✅
+   取舍：宁可略小也不溢出 —— 溢出会撑破 htop 高亮块，略小只是符号细一点。
+   （若日后要逐字体精确，可声明多个同文件、不同 size-adjust 的家族名 + 运行时按
+   量到的主字体格宽挑一个；当前无此必要。）
+
+   为什么单文件变量字体：一个文件覆盖 100~800 全部字重，比两个静态字重
+   （267+271KB）更省，且能跟随用户自定义的 font_weight。
+   ⚠️ 与 src/hooks/terminalOptions.ts 的 BUNDLED_SYMBOL_FONT 必须同名。
+   ============================================================ */
+@font-face {
+  font-family: "JetBrains Mono Symbol";
+  /* ⚠️ 用通用的 format("truetype")：已废弃的 "truetype-variations" 旧关键字
+     若不被 WebView2 认，@font-face 会**静默加载失败**（表现为「改了没效果」）。
+     变量轴由字体文件自身识别，不依赖 format 提示。 */
+  src: url("./assets/fonts/JetBrainsMono-Variable.ttf") format("truetype");
+  /* 变量轴 100~800：跟随 config.toml 的 font_weight / font_weight_bold */
+  font-weight: 100 800;
+  font-style: normal;
+  /* ⚠️ 见上方说明：把 0.6em 的 advance 缩到 Consolas 的 0.5498em，使其恰好占 1 格 */
+  size-adjust: 91.634%;
+  /* 不写 unicode-range：让浏览器对整个字体做字形级回退（含 U+25BD 等） */
+  font-display: block;
+}
+
+/* ============================================================
    Swallow
    Tailwind CSS v4
    ============================================================ */
@@ -84,12 +131,21 @@
     system-ui,
     sans-serif;
 
-  /* 数据字体：IP / 端口 / 路径 / 时间戳等一律等宽（Termius/Warp 风格的关键信号） */
+  /* 数据字体：IP / 端口 / 路径 / 时间戳等一律等宽（Termius/Warp 风格的关键信号）。
+     末尾的 Cascadia / DejaVu 是「符号回退」：Consolas、ui-monospace 缺 ▽△ 等
+     空心几何符号（htop 排序箭头），缺字形时会一路回退到全角 CJK 字体而溢出。
+     仅对前面所有字体都没有的字符生效，正文观感不变。
+     终端网格自身的字体栈由 src/hooks/terminalOptions.ts 的 withSymbolFallback 处理。 */
   --font-mono:
     "Geist Mono Variable",
+    /* 内置字体：紧跟在主字体之后，符号缺失时优先于系统字体兜底（跨平台一致） */
+    "JetBrains Mono Symbol",
     ui-monospace,
     SFMono-Regular,
     Menlo,
+    "Cascadia Mono",
+    "Cascadia Code",
+    "DejaVu Sans Mono",
     Consolas,
     monospace;
 
