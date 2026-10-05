@@ -100,20 +100,34 @@ fn take_pending_host_key(token: &str) -> Option<(SshConfig, PendingBackend)> {
 
 /// 记录待确认主机并返回 HostKeyApprovalRequired（ssh2 路径：SSH/SFTP 等）。
 pub(crate) fn require_approval(config: SshConfig, fingerprint: String) -> anyhow::Error {
+    require_approval_typed(config, fingerprint).into()
+}
+
+/// 同 `require_approval`，但返回**具体类型**而非 `anyhow::Error`。
+///
+/// ⚠️ 供返回 `Box<dyn Error + Send + Sync>` 的模块（如 SFTP）使用：`anyhow::Error`
+/// 转进 `Box<dyn Error>` 后，Box 内的具体类型是 `anyhow::Error` 本身，上层
+/// `downcast_ref::<HostKeyApprovalRequired>()` 必然失败 —— 错误被静默降级成普通
+/// 连接失败，前端不弹主机密钥确认框（SFTP 首次连接实证）。
+/// 用 `Box::new(具体类型)` 才能保住类型信息与 downcast。
+pub(crate) fn require_approval_typed(
+    config: SshConfig,
+    fingerprint: String,
+) -> HostKeyApprovalRequired {
     require_approval_backend(config, fingerprint, PendingBackend::Ssh2)
 }
 
 /// russh 路径的待确认记录：确认时用 russh 重建连接，
 /// 保证 expected 指纹与首次连接协商到的是同一把主机密钥。
 pub(crate) fn require_approval_russh(config: SshConfig, fingerprint: String) -> anyhow::Error {
-    require_approval_backend(config, fingerprint, PendingBackend::Russh)
+    require_approval_backend(config, fingerprint, PendingBackend::Russh).into()
 }
 
 fn require_approval_backend(
     config: SshConfig,
     fingerprint: String,
     backend: PendingBackend,
-) -> anyhow::Error {
+) -> HostKeyApprovalRequired {
     let token = register_pending_host_key(config.clone(), backend);
     HostKeyApprovalRequired {
         fingerprint,
@@ -121,7 +135,6 @@ fn require_approval_backend(
         port: config.port,
         token,
     }
-    .into()
 }
 
 /// 校验主机密钥（ssh2 会话侧入口）：匹配放行，未知返回指纹（不自动写入），
@@ -295,4 +308,37 @@ fn host_key_fingerprint(session: &Session) -> String {
 pub(crate) fn fingerprint_from_blob(blob: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     format!("SHA256:{}", STANDARD_NO_PAD.encode(Sha256::digest(blob)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 锁定「待确认主机密钥能穿过 Box<dyn Error>」这条契约。
+    /// 返回 `Box<dyn Error + Send + Sync>` 的模块（SFTP）靠
+    /// `downcast_ref::<HostKeyApprovalRequired>()` 决定是否让前端弹确认框；
+    /// 若先用 `anyhow::Error` 包一层再装箱，Box 内具体类型变成 `anyhow::Error`，
+    /// downcast 必然失败 → 前端只看到普通连接错误、不弹框（SFTP 首次连接实证）。
+    #[test]
+    fn boxed_host_key_approval_keeps_downcast() {
+        let approval = HostKeyApprovalRequired {
+            fingerprint: "SHA256:test".into(),
+            host: "example.invalid".into(),
+            port: 22,
+            token: "hk-test-0".into(),
+        };
+        let boxed: Box<dyn std::error::Error + Send + Sync> = Box::new(approval);
+        assert!(
+            boxed.downcast_ref::<HostKeyApprovalRequired>().is_some(),
+            "具体类型装箱后必须仍能 downcast 出 HostKeyApprovalRequired"
+        );
+
+        // 反例（原 bug 成因）：anyhow::Error 装箱后具体类型丢失，downcast 失败
+        let via_anyhow: Box<dyn std::error::Error + Send + Sync> =
+            anyhow::anyhow!("Host key approval required").into();
+        assert!(
+            via_anyhow.downcast_ref::<HostKeyApprovalRequired>().is_none(),
+            "anyhow::Error 装箱后不应能 downcast（说明必须先解包成具体类型）"
+        );
+    }
 }

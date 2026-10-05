@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use crate::ssh::host_keys::{require_approval, verify_host_key, HostKeyCheck};
+use crate::ssh::host_keys::{require_approval_typed, verify_host_key, HostKeyCheck};
 use crate::ssh::session::{SshConfig, userauth_pubkey_from_content};
 use crate::utils::net::enable_tcp_keepalive;
 
@@ -509,7 +509,12 @@ impl SftpSession {
                     cert_private_key: None,
                     proxy: None,
                 };
-                return Err(require_approval(ssh_config, fingerprint).into());
+                // ⚠️ 必须 Box 具体类型：本函数返回 Box<dyn Error>，若先把
+                // anyhow::Error 装进 Box，commands/sftp.rs 的
+                // downcast_ref::<HostKeyApprovalRequired>() 会失败 → 前端不弹确认框
+                let approval: Box<dyn std::error::Error + Send + Sync> =
+                    Box::new(require_approval_typed(ssh_config, fingerprint));
+                return Err(approval);
             }
         }
 
