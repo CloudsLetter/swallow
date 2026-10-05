@@ -82,7 +82,7 @@ export function cleanTerminalText(data: string): string {
     } else {
       // 可打印字符（含多字节 UTF-8，charCodeAt 按码元取但这里仅作分类，
       // 追加时按原始字符串切片保证不拆坏代理对）
-      let start = i;
+      const start = i;
       i++;
       while (i < n) {
         const c = data.charCodeAt(i);

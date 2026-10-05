@@ -220,7 +220,7 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
     });
     observer.observe(el);
     return () => observer.disconnect();
-    // biome-ignore lint/correctness/useExhaustiveDependencies: 观察容器 resize 即可
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 观察容器 resize 即可，不跟随其它依赖
   }, [sessionId]);
 
   // 浮层渲染后：用真实面板高度校正——贴行下方会溢出容器底部时翻到输入行上方。
@@ -235,7 +235,7 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
     if (flipped !== suggest.top) {
       updateSuggest({ ...suggest, top: flipped });
     }
-    // biome-ignore lint/correctness/useExhaustiveDependencies: 每次浮层内容/位置变化都校正一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 每次浮层内容/位置变化都校正一次
   }, [suggest]);
 
   // SSH 日志由设置中的开关控制：连接前自动开始，断开时由生命周期收尾。
@@ -637,6 +637,7 @@ function TerminalViewImpl({ sessionId, sshConfig, telnetConfig, localConfig, ser
               enqueueWriteToTargets(targets, data);
               return;
             }
+            // eslint-disable-next-line no-control-regex -- 有意匹配 C0 控制字符，判断是否为控制序列
             if (data.startsWith('\x1b') || /[\x00-\x1f]/.test(data)) {
               // 控制序列（方向键/进入 vim 等全屏程序）或粘贴含换行：行语境不可追踪 → 放弃缓冲
               inputBufRef.current = '';

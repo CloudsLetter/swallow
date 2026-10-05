@@ -659,7 +659,7 @@ export function AiAssistant({ open, onOpenChange }: { open: boolean; onOpenChang
               const streamingHere = streaming && isLast && msg.role === 'assistant';
               return (
                 <div
-                  // biome-ignore lint/suspicious/noArrayIndexKey: 消息列表只追加
+                  // 消息列表只追加，索引作 key 稳定，不会错位复用
                   key={index}
                   className="group/msg flex gap-2"
                 >
@@ -687,7 +687,7 @@ export function AiAssistant({ open, onOpenChange }: { open: boolean; onOpenChang
                     {msg.toolCalls?.map((call) => {
                       const awaitingConfirm = pendingConfirmId === call.id;
                       return (
-                        // biome-ignore lint/suspicious/noArrayIndexKey: 工具卡片随消息静态追加
+                        // 工具卡片随消息静态追加，key 用的是 call.id
                         <div key={call.id} className="overflow-hidden rounded-lg border border-border/60 bg-background/50 text-[11px]">
                           <div className="flex items-center gap-1.5 px-2.5 py-1.5">
                             <IconWrench size={11} className="shrink-0 text-muted-foreground" />

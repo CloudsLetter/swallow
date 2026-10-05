@@ -7,8 +7,14 @@ import { applyThemeColors } from '../hooks/themeUtils';
 import { defaultColors } from '../default/themeColors';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 
-let _mql: MediaQueryList | null = null;
+let _mql: LegacyMediaQueryList | null = null;
 let _mqlHandler: ((e: MediaQueryListEvent) => void) | null = null;
+
+/** 旧 WebView 的 MediaQueryList 遗留 API：TS DOM lib 已移除，故显式声明以免用 any。 */
+type LegacyMediaQueryList = MediaQueryList & {
+  addListener?: (handler: (e: MediaQueryListEvent) => void) => void;
+  removeListener?: (handler: (e: MediaQueryListEvent) => void) => void;
+};
 
 /** 应用 WebView 界面缩放（1.0 = 100%）。失败静默（旧环境无该能力时 UI 仍可用）。 */
 export async function applyUiScale(scale: number) {
@@ -50,7 +56,7 @@ interface ThemeStore {
   setUiScale: (s: number) => void;
   setWindowEffect: (e: string) => void;
   syncFromConfig: () => void;
-  doAutoDetectTheme: (e: any) => void;
+  doAutoDetectTheme: (e: { matches: boolean }) => void;
   listenDarkModeChanges: () => void;
   unlistenDarkModeChanges: () => void;
   setAutoDetectSystemDarkMode: (e: boolean) => void;
@@ -124,7 +130,9 @@ export const useThemeStore = create<ThemeStore>()(
       // apply immediately
       try {
         document.documentElement.style.setProperty('--app-font-family', f);
-      } catch {}
+      } catch {
+        // 静默：自定义字体变量设不上时仍按默认字体渲染，不阻断设置保存
+      }
       set({ fontFamily: f });
     },
 
@@ -139,7 +147,9 @@ export const useThemeStore = create<ThemeStore>()(
       }
       try {
         document.documentElement.style.setProperty('--app-font-size', `${s}px`);
-      } catch {}
+      } catch {
+        // 静默：字号变量设不上时仍按默认字号渲染，不阻断设置保存
+      }
       set({ fontSize: s });
     },
 
@@ -186,17 +196,11 @@ export const useThemeStore = create<ThemeStore>()(
       void applyWindowEffect(a.window_effect ?? 'none');
     },
 
-    doAutoDetectTheme: (e: any) => {
+    doAutoDetectTheme: (e: { matches: boolean }) => {
       const cfg = useConfigStore.getState().config;
       if (!cfg?.appearance.auto_detect_system_theme) return;
 
-      let themeId = '';
-        if (e.matches) {
-          themeId = 'default-theme-dark';
-        } else {
-          themeId = 'default-theme-light';
-        }
-      get().setActiveThemeId(themeId);
+      get().setActiveThemeId(e.matches ? 'default-theme-dark' : 'default-theme-light');
     },
 
   listenDarkModeChanges: () => {
@@ -206,8 +210,8 @@ export const useThemeStore = create<ThemeStore>()(
 
   if (typeof _mql.addEventListener === 'function') {
     _mql.addEventListener('change', _mqlHandler);
-  } else if (typeof (_mql as any).addListener === 'function') {
-    (_mql as any).addListener(_mqlHandler);
+  } else {
+    _mql.addListener?.(_mqlHandler);
   }
 },
 
@@ -216,8 +220,8 @@ unlistenDarkModeChanges: () => {
 
   if (typeof _mql.removeEventListener === 'function') {
     _mql.removeEventListener('change', _mqlHandler);
-  } else if (typeof (_mql as any).removeListener === 'function') {
-    (_mql as any).removeListener(_mqlHandler);
+  } else {
+    _mql.removeListener?.(_mqlHandler);
   }
 
   _mql = null;

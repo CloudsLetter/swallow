@@ -393,7 +393,7 @@ export async function pasteToSession(sessionId: string): Promise<void> {
 }
 
 async function pasteToTerminal(terminal: Terminal) {
-  let text = '';
+  let text: string;
   try {
     text = await readText();
   } catch {
@@ -606,7 +606,7 @@ export async function attachListeners(sessionId: string) {
           break;
       }
     });
-  } catch (e) {
+  } catch {
     // ignore if not available in environment
   }
 }
@@ -811,7 +811,7 @@ function queueOutput(
 export function unattachListeners(sessionId: string) {
   const item = pool[sessionId];
   if (!item) return;
-  try { if (item.unlistenSession) item.unlistenSession(); } catch (e) {}
+  try { if (item.unlistenSession) item.unlistenSession(); } catch { /* 监听器可能已随会话销毁，忽略 */ }
   item.unlistenSession = undefined;
 }
 
@@ -989,7 +989,7 @@ export function disposeTerminal(sessionId: string) {
   forceStopSessionLog(sessionId);
   
   // 销毁终端实例
-  try { item.terminal.dispose(); } catch (e) {}
+  try { item.terminal.dispose(); } catch { /* 已销毁的终端再 dispose 会抛，忽略 */ }
   delete pool[sessionId];
   delete writeQueues[sessionId];
   delete sessionTypes[sessionId];

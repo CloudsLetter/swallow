@@ -18,10 +18,13 @@ async function resolveBackgroundImageUrl(path: string): Promise<string | null> {
 function parseThemeHex(color: string | null | undefined): { r: number; g: number; b: number } | null {
   if (!color) return null;
   const s = color.trim().toLowerCase();
-  let hex = '';
-  if (/^#[0-9a-f]{6}$/.test(s) || /^#[0-9a-f]{8}$/.test(s)) hex = s.slice(1, 7);
-  else if (/^#[0-9a-f]{3}$/.test(s)) hex = s.slice(1).split('').map((c) => c + c).join('');
-  else return null;
+  const hex =
+    /^#[0-9a-f]{6}$/.test(s) || /^#[0-9a-f]{8}$/.test(s)
+      ? s.slice(1, 7)
+      : /^#[0-9a-f]{3}$/.test(s)
+        ? s.slice(1).split('').map((c) => c + c).join('')
+        : null;
+  if (!hex) return null;
   const int = parseInt(hex, 16);
   return { r: (int >> 16) & 255, g: (int >> 8) & 255, b: int & 255 };
 }

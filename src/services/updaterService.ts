@@ -20,7 +20,7 @@ export async function checkForAppUpdates(options: { interactive?: boolean } = {}
   if (checking) return;
   checking = true;
 
-  let update: Awaited<ReturnType<typeof check>> = null;
+  let update: Awaited<ReturnType<typeof check>>;
   try {
     update = await check();
     if (!update) {

@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+# 仅检查暂存范围内的 ts/tsx —— 直接调 eslint，不经过 lint-staged。
+#
+# 为什么不用 lint-staged（2026-10-06 用 `lint-staged --debug` 定位）：
+# lint-staged 收尾时会 `git add` 它从**整份工作区 diff**（不只是它检查的暂存文件）
+# 里挑出的文件，于是会
+#   ① 试图 add 被 .gitignore 覆盖的 docs/*.md —— `.gitignore` 里有 `docs` 规则，
+#      而 docs/ 下的文件是「已跟踪但被 ignore 覆盖」的历史状态（见 AGENTS.md §5），
+#      git 直接拒绝：The following paths are ignored by one of your .gitignore files: docs
+#      → lint-staged 报 Failed to stage changes from tasks! → 钩子必失败。
+#      只要工作区里有 docs/*.md 的未暂存改动，任何提交都过不去。
+#   ② 把无关的未暂存文件一并暂存进来（实测踩过）。
+# 该行为与是否加 --fix、core.autocrlf 都无关。
+#
+# 直连 eslint：不碰暂存区/工作区，仍能拦住 lint error；要自动修复手动跑 pnpm lint:fix。
+git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx)$' | xargs -r pnpm exec eslint

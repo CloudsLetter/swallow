@@ -253,7 +253,6 @@ export function PortForwarding() {
     return () => {
       unlisten?.();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ============ 键盘快捷键 ============

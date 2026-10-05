@@ -48,8 +48,6 @@ export function ShortcutsSettings() {
     config?.shortcuts ? mergedShortcuts(config.shortcuts) : { ...DEFAULT_SHORTCUTS },
   );
 
-  if (!config) return null;
-
   useEffect(() => {
     if (config?.shortcuts) setLocalShortcuts(mergedShortcuts(config.shortcuts));
   }, [config?.shortcuts]);
@@ -61,6 +59,9 @@ export function ShortcutsSettings() {
       globalState.toggleShortcuts();
     };
   }, []);
+
+  // ⚠️ early return 必须排在所有 hook 之后：config 由 null 转非 null 时 hook 数量变化会触发 React 报错
+  if (!config) return null;
 
   const handleShortcutChange = (key: string, value: string) => {
     setLocalShortcuts((data) => ({ ...data, [key]: value }));

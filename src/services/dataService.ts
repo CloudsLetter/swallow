@@ -396,7 +396,8 @@ export async function removeSnippet(id: string): Promise<void> {
   await invoke('delete_snippet', { id });
 }
 
-export async function useSnippet(id: string): Promise<Snippet> {
+/** 标记片段被使用（写入 last_used_at）；刻意不叫 use* —— 非 hook，勿按 hook 语义使用。 */
+export async function markSnippetUsed(id: string): Promise<Snippet> {
   return invoke<Snippet>('mark_snippet_used', { id });
 }
 

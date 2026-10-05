@@ -1,0 +1,52 @@
+name: CI
+
+# PR 与 master 推送时跑前端静态检查。
+# 存在的意义：Release 只在 v* tag 时触发，TS6133（删代码后残留的未使用 import）这类问题
+# 此前要到发版才发现、直接把 Release 打红；本工作流把它挡在合并之前。
+# Rust 侧不在本文件覆盖范围内，仍由 release.yml 的构建步骤把关。
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+# 同一分支的新推送取消旧运行，避免排队积压
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # CI 不需要 git 钩子（pnpm install 会触发 husky 的 prepare 脚本）
+  HUSKY: 0
+
+jobs:
+  frontend-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node & pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm typecheck
+
+      # 只拦 error；react-hooks/exhaustive-deps 的 warning 不阻断（见 eslint.config.js 说明）
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit tests
+        run: pnpm test

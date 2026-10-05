@@ -36,14 +36,8 @@ export function AiSettings() {
 	const config = useConfigStore((state) => state.config);
 	const updateConfig = useConfigStore((state) => state.updateConfig);
 
-	if (!config) return null;
-	const ai = config.ai;
-
-	const updateAi = (updates: Partial<typeof ai>) => {
-		updateConfig({ ...config, ai: { ...ai, ...updates } });
-	};
-
 	// 旧配置迁移：老 config.toml 只有单档案字段，首次进入设置页自动转为第一个档案
+	// ⚠️ 必须留在 early return 之前：config 从 null 转非 null 时 hook 数量变化会触发 React 报错
 	useEffect(() => {
 		if (!config?.ai) return;
 		const legacy = config.ai;
@@ -58,8 +52,15 @@ export function AiSettings() {
 			};
 			updateConfig({ ...config, ai: { ...legacy, profiles: [profile], active_profile: profile.id } });
 		}
-		// biome-ignore lint/correctness/useExhaustiveDependencies: 仅在进入页面时尝试一次迁移
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在进入设置页时尝试一次迁移，不跟随 config 变化
 	}, []);
+
+	if (!config) return null;
+	const ai = config.ai;
+
+	const updateAi = (updates: Partial<typeof ai>) => {
+		updateConfig({ ...config, ai: { ...ai, ...updates } });
+	};
 
 	const profiles = ai.profiles ?? [];
 

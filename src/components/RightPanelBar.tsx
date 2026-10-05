@@ -27,7 +27,7 @@ import { buildPanelTheme } from './panelTheme';
 import { SwitchRow } from '../pages/settingsComponents/shared';
 import {
   getSnippets,
-  useSnippet as useSnippetApi,
+  markSnippetUsed,
   type Snippet,
 } from '../services/dataService';
 import {
@@ -174,7 +174,7 @@ function CommandsSection({ active }: { active: boolean }) {
         : [];
     if (targets.length === 0) return;
     enqueueWriteToTargets(targets, snippet.command.trimEnd() + '\r');
-    void useSnippetApi(snippet.id).catch(() => {});
+    void markSnippetUsed(snippet.id).catch(() => {});
   };
 
   return (

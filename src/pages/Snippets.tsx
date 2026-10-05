@@ -7,7 +7,7 @@ import {
   addSnippet,
   updateSnippet,
   removeSnippet,
-  useSnippet as useSnippetApi,
+  markSnippetUsed,
   type Snippet,
 } from '../services/dataService';
 import {
@@ -207,7 +207,7 @@ export function Snippets() {
       await copyText(snippet.command);
       setCopiedId(snippet.id);
       window.setTimeout(() => setCopiedId((current) => (current === snippet.id ? null : current)), 1500);
-      await useSnippetApi(snippet.id);
+      await markSnippetUsed(snippet.id);
       await loadSnippets();
     } catch (copyError) {
       console.error('Failed to copy snippet:', copyError);

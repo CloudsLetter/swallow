@@ -361,6 +361,7 @@ const SftpPane = forwardRef<SftpPaneHandle, SftpPaneProps>(function SftpPane(
             `${protocolName} · ${sftpConfig.username}@${sftpConfig.host}:${sftpConfig.port}`,
           );
         } catch (err: unknown) {
+          // eslint-disable-next-line preserve-caught-error -- tsconfig 的 lib 仍为 ES2020，ErrorOptions 不可用；原错误信息已并入 message
           throw new Error(t('connection.sftpConnectFailed', { protocol: protocolName, message: err instanceof Error ? err.message : String(err) }));
         }
 
@@ -541,7 +542,7 @@ const SftpPane = forwardRef<SftpPaneHandle, SftpPaneProps>(function SftpPane(
     // 目录不可下载；符号链接按文件处理（后端 sftp.open 会解引用到目标文件）
     if (item.type === 'directory' || !sessionId) return;
 
-    let target: string | null = null;
+    let target: string | null;
     try {
       target = await save({
         title: t('sftp.downloadTitle'),
@@ -671,7 +672,7 @@ const SftpPane = forwardRef<SftpPaneHandle, SftpPaneProps>(function SftpPane(
   // 下载目录：选择本地目标目录后递归下载
   const handleDownloadDir = async (item: FileItem) => {
     if (item.type !== 'directory' || !sessionId) return;
-    let targetDir: string | null = null;
+    let targetDir: string | null;
     try {
       targetDir = await open({ directory: true, title: t('sftp.downloadDirTitle') });
     } catch (error) {
@@ -1033,14 +1034,12 @@ const SftpPane = forwardRef<SftpPaneHandle, SftpPaneProps>(function SftpPane(
   const sortedFiles = [...files].sort((a, b) => {
     if (a.type === 'directory' && b.type !== 'directory') return -1;
     if (a.type !== 'directory' && b.type === 'directory') return 1;
-    let cmp = 0;
-    if (sortKey === 'name') {
-      cmp = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
-    } else if (sortKey === 'size') {
-      cmp = a.size - b.size;
-    } else {
-      cmp = a.modified.localeCompare(b.modified);
-    }
+    const cmp =
+      sortKey === 'name'
+        ? a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+        : sortKey === 'size'
+          ? a.size - b.size
+          : a.modified.localeCompare(b.modified);
     return sortAsc ? cmp : -cmp;
   });
 
