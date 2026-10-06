@@ -129,7 +129,7 @@ export function SftpTransferPanel({
       <div
         key={task.id}
         className={cn(
-          'flex w-full min-w-0 flex-col gap-1 rounded-md border p-2',
+          'flex w-full min-w-0 flex-col gap-1 rounded-md border p-1.5',
           isError
             ? 'border-destructive/30 bg-destructive/5'
             : isCancelled
@@ -198,7 +198,7 @@ export function SftpTransferPanel({
           ) : (
             <Progress value={percent} className="min-w-0 flex-1" />
           )}
-          <span className="w-32 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
+          <span className="w-24 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
             {isDone
               ? t('transfer.done')
               : isError
@@ -236,23 +236,28 @@ export function SftpTransferPanel({
     <Card
       size="sm"
       className={cn(
-        'w-[340px] gap-0 p-0 shadow-lg',
+        // 面板自管内边距：p-0/gap-0 清掉 Card 默认的 py-3 与 gap-3，避免页头与内容之间多出空档
+        'w-[300px] gap-0 p-0 shadow-lg',
         // 高度约束：面板绝不超出所在容器/视口（修复样式越界）
         variant === 'default'
-          ? 'absolute right-4 bottom-4 z-30 max-h-[calc(100%-2rem)] max-w-[calc(100%-2rem)]'
+          ? 'absolute right-3 bottom-3 z-30 max-h-[calc(100%-1.5rem)] max-w-[calc(100%-1.5rem)]'
           : 'fixed top-[45px] right-2 z-50 max-h-[calc(100vh-96px)] max-w-[calc(100vw-16px)]',
         className,
       )}
     >
-      {/* 头部：标题 + 计数（成功/失败小字 Badge）+ 全清（shadcn CardHeader/CardAction） */}
-      <CardHeader className="flex flex-row items-center justify-between gap-2 border-b border-border py-2 px-3">
-        <CardTitle className="text-xs font-semibold">
+      {/* 头部交给 shadcn 自带的 grid 布局（有 CardAction 时自动 [1fr_auto] 左标题右操作），
+          之前用 flex flex-row justify-between 覆盖它，与 CardHeader/CardsAction 的栅格语义打架 */}
+      <CardHeader className="border-b border-border py-2">
+        <CardTitle className="truncate text-xs font-semibold">
           {title ?? t('transfer.title')}
           {activeCount > 0 ? t('transfer.activeCountSuffix', { count: activeCount }) : ''}
         </CardTitle>
-        <CardAction className="flex items-center gap-1.5">
+        <CardAction className="flex items-center gap-1">
           {doneCount > 0 && (
-            <Badge className="h-4 gap-0.5 rounded-sm bg-success/10 px-1 text-[10px] font-medium text-success">
+            <Badge
+              variant="outline"
+              className="h-4 gap-0.5 rounded-sm border-success/30 bg-success/10 px-1 text-[10px] font-medium text-success"
+            >
               <IconCheck size={10} strokeWidth={2} /> {doneCount}
             </Badge>
           )}
@@ -274,9 +279,9 @@ export function SftpTransferPanel({
       </CardHeader>
 
       {/* 任务列表（原生滚动容器：宽度行为完全可控，杜绝横向溢出） */}
-      <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col p-2">
+      <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col px-3 pb-2">
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
-          <div className="flex w-full min-w-0 flex-col gap-2">
+          <div className="flex w-full min-w-0 flex-col gap-1.5">
             {isGlobal && groups ? (
               Array.from(groups.entries()).map(([sessionKey, groupTasks]) => (
                 <div key={sessionKey} className="flex w-full min-w-0 flex-col gap-1.5">

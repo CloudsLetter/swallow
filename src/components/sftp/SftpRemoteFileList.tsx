@@ -154,8 +154,18 @@ export function SftpRemoteFileList({
                         }}
                         onDragStart={(e) => {
                           if (file.type === 'directory') return;
-                          e.dataTransfer.setData(dragMime, file.name);
-                          e.dataTransfer.setData('text/plain', file.name);
+                          // 多选时把整批选中项一起带出（drop 侧按 \n 逐条处理）。
+                          // 只写 file.name 的话，选中 3 个却只拖走光标下这 1 个。
+                          // 目录行本身不可拖，选中集里的目录一并过滤
+                          const names =
+                            selectedFiles.size > 1 && selectedFiles.has(file.name)
+                              ? sortedFiles
+                                  .filter((f) => f.type !== 'directory' && selectedFiles.has(f.name))
+                                  .map((f) => f.name)
+                              : [file.name];
+                          const payload = names.join('\n');
+                          e.dataTransfer.setData(dragMime, payload);
+                          e.dataTransfer.setData('text/plain', payload);
                           e.dataTransfer.effectAllowed = 'copy';
                         }}
                         onDoubleClick={(e) => {

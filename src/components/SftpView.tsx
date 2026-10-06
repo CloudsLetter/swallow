@@ -1603,14 +1603,22 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
     toast.success(t('sftp.streamCopied', { name }));
   };
 
-  /** 左栏远端文件拖入右栏：流式复制到右栏当前目录（不落本地磁盘）。 */
+  /** 左栏远端文件拖入右栏：流式复制到右栏当前目录（不落本地磁盘）。
+   *  payload 是多选拼接的 \n 分隔列表，逐条复制；单条失败不中断后续 */
   const handleLeftRemoteDropToRight = async (raw: string) => {
     if (!sessionId || !leftRemote) return;
-    const name = raw.split('/').filter(Boolean).pop() ?? 'file';
+    const sources = raw.split('\n').filter(Boolean);
     const dstBase = getCurrentPath(sessionId) || '/';
-    const dst = dstBase === '/' ? `/${name}` : `${dstBase}/${name}`;
-    await sftpStreamCopy(leftRemote.sessionId, raw, sessionId, dst);
-    toast.success(t('sftp.streamCopied', { name }));
+    for (const src of sources) {
+      const name = src.split('/').filter(Boolean).pop() ?? 'file';
+      const dst = dstBase === '/' ? `/${name}` : `${dstBase}/${name}`;
+      try {
+        await sftpStreamCopy(leftRemote.sessionId, src, sessionId, dst);
+        toast.success(t('sftp.streamCopied', { name }));
+      } catch (err) {
+        toast.error(String(err));
+      }
+    }
     rightPaneRef.current?.refresh();
   };
 

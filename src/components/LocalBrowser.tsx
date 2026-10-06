@@ -218,11 +218,14 @@ export function LocalBrowser({
     }
   };
 
-  /** 左栏行拖出：本机文件 → MIME_LOCAL */
+  /** 左栏行拖出：本机文件 → MIME_LOCAL（多选时整批带出，drop 侧 split('\n') 逐条上传） */
   const handleDragStart = (e: DragEvent, row: Row) => {
     if (row.isDir) return;
-    e.dataTransfer.setData(MIME_LOCAL, row.fullPath);
-    e.dataTransfer.setData('text/plain', row.fullPath);
+    // 只写 fullPath 会导致「选中 3 个只拖走 1 个」；selectedLocalPaths 已排除目录
+    const paths = sel.size > 1 && sel.has(row.name) ? selectedLocalPaths : [row.fullPath];
+    const payload = paths.join('\n');
+    e.dataTransfer.setData(MIME_LOCAL, payload);
+    e.dataTransfer.setData('text/plain', payload);
     e.dataTransfer.effectAllowed = 'copy';
   };
 
