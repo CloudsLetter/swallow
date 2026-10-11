@@ -4,7 +4,7 @@
 
 import type { MutableRefObject } from 'react';
 import type { TFunction } from 'i18next';
-import { ask } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from '../components/ui/confirmDialog';
 import {
   acceptHostKey,
   disconnectSsh,
@@ -133,7 +133,7 @@ async function connectSshWithHostKeyApproval(
     const accepted = await dedupeHostKeyConfirm(
       `${result.host}:${result.port}:${fingerprint}`,
       () =>
-        ask(
+        confirmDialog(
           t('connection.hostKeyBody', { host: result.host, port: result.port, fingerprint }),
           {
             title: t('connection.hostKeyTitle'),
@@ -168,7 +168,7 @@ async function connectMoshWithHostKeyApproval(
     const accepted = await dedupeHostKeyConfirm(
       `${result.host}:${result.port}:${fingerprint}`,
       () =>
-        ask(
+        confirmDialog(
           t('connection.hostKeyBody', { host: result.host, port: result.port, fingerprint }),
           {
             title: t('connection.hostKeyTitle'),

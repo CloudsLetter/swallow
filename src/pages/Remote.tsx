@@ -22,7 +22,7 @@ import { Badge } from '../components/ui/badge';
 import { Skeleton } from '../components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '../components/ui/sheet';
-import { ask, message } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from '../components/ui/confirmDialog';
 import { cn } from '@/lib/utils';
 import {
   EmptyState,
@@ -117,7 +117,7 @@ export function Remote() {
   };
 
   const remove = async (item: RemoteConn) => {
-    const ok = await ask(t('remote.deleteConfirm', { name: item.name }), {
+    const ok = await confirmDialog(t('remote.deleteConfirm', { name: item.name }), {
       title: t('common.deleteConfirm'),
       kind: 'warning',
     });
@@ -152,7 +152,7 @@ export function Remote() {
       if (item.jumpHostId) {
         const jump = hosts.find((h) => h.id === item.jumpHostId) ?? (await getHosts()).find((h) => h.id === item.jumpHostId);
         if (!jump) {
-          void message(t('remote.jumpMissing'), { title: t('common.tip'), kind: 'warning' });
+          toast.warning(t('remote.jumpMissing'));
           return;
         }
         const [accounts, keys, certs]: [Account[], Key[], Certificate[]] = await Promise.all([
@@ -162,11 +162,11 @@ export function Remote() {
         ]);
         const auth = resolveHostSshAuth(jump, accounts, keys, certs);
         if (auth.error) {
-          void message(auth.error, { title: t('common.tip'), kind: 'warning' });
+          toast.warning(auth.error);
           return;
         }
         if (auth.authType === 'certificate' || auth.authType === 'none') {
-          void message(t('remote.jumpUnsupported'), { title: t('common.tip'), kind: 'warning' });
+          toast.warning(t('remote.jumpUnsupported'));
           return;
         }
         ssh = {

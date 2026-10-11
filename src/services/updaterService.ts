@@ -1,5 +1,5 @@
 import { check } from '@tauri-apps/plugin-updater';
-import { ask } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from '../components/ui/confirmDialog';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { toast } from 'sonner';
 import i18n from '../i18n/i18n';
@@ -42,7 +42,7 @@ export async function checkForAppUpdates(options: { interactive?: boolean } = {}
   }
 
   // 手动检查：确认后下载并安装
-  const confirmed = await ask(i18n.t('update.confirmBody', { version: update.version }), {
+  const confirmed = await confirmDialog(i18n.t('update.confirmBody', { version: update.version }), {
     title: i18n.t('update.confirmTitle'),
     kind: 'info',
     okLabel: i18n.t('update.confirmOk'),

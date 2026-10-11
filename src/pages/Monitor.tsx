@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { ask } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from '../components/ui/confirmDialog';
 import { dedupeHostKeyConfirm } from '../lib/hostKeyConfirm';
 import {
   Activity,
@@ -630,7 +630,7 @@ export function Monitor() {
           const accepted = await dedupeHostKeyConfirm(
             `${result.host}:${result.port}:${fingerprint}`,
             () =>
-              ask(
+              confirmDialog(
                 t('connection.hostKeyBody', { host: result.host, port: result.port, fingerprint }),
                 {
                   title: t('connection.hostKeyTitle'),

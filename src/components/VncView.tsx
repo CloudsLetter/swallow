@@ -3,7 +3,7 @@ import RFB from '@novnc/novnc';
 import { useTranslation } from 'react-i18next';
 import { readText } from '@tauri-apps/plugin-clipboard-manager';
 import { copyText } from '../lib/clipboard';
-import { ask } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from './ui/confirmDialog';
 import { dedupeHostKeyConfirm } from '../lib/hostKeyConfirm';
 import { acceptHostKey, vncConnect, vncDisconnect } from '../services/sessionService';
 import type { VncTabConfig } from '../store/tabStore';
@@ -112,7 +112,7 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
         const confirmed = await dedupeHostKeyConfirm(
           `${result.host ?? ''}:${result.port ?? ''}:${result.fingerprint || ''}`,
           () =>
-            ask(
+            confirmDialog(
               `${t('vnc.hostKeyFingerprint')}\n${result.fingerprint || ''}\n\n${result.host ?? ''}:${result.port ?? ''}`,
               {
                 title: t('vnc.hostKeyTitle'),

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
-import { message } from '@tauri-apps/plugin-dialog';
+import { toast } from 'sonner';
 import type { QuickConnectCardProps } from './types';
 
 /** Telnet 快速连接（无认证，明文协议）。 */
@@ -14,7 +14,7 @@ export function TelnetCard({ onOpenSession }: Pick<QuickConnectCardProps, 'onOpe
   const handleConnect = async () => {
     const trimmed = host.trim();
     if (!trimmed) {
-      await message(t('quickConnect.telnetHostRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('quickConnect.telnetHostRequired'));
       return;
     }
     onOpenSession(`telnet:${trimmed}`, 'telnet', { telnetConfig: { host: trimmed, port } });

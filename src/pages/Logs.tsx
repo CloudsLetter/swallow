@@ -12,7 +12,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Skeleton } from '../components/ui/skeleton';
 import { RefreshCw as IconRefresh, Trash2 as IconTrash, ScrollText as IconScrollText, AlertTriangle as IconAlert } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { message, ask, open as dialogOpen } from '@tauri-apps/plugin-dialog';
+import { open as dialogOpen } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from '../components/ui/confirmDialog';
+import { toast } from 'sonner';
 import {
   EmptyState,
   ErrorState,
@@ -131,7 +133,7 @@ export function Logs() {
   };
 
   const handleClear = async () => {
-    const confirmed = await ask(t('logs.clearConfirmBody', { count: logs.length }), {
+    const confirmed = await confirmDialog(t('logs.clearConfirmBody', { count: logs.length }), {
       title: t('common.clearConfirm'),
       kind: 'warning',
     });
@@ -141,7 +143,7 @@ export function Logs() {
       await loadLogs();
     } catch (clearError) {
       console.error('Failed to clear logs:', clearError);
-      await message(t('logs.clearFailed'), { title: t('common.error'), kind: 'error' });
+      toast.error(t('logs.clearFailed'));
     }
   };
 
@@ -162,7 +164,7 @@ export function Logs() {
       });
     } catch (openError) {
       console.error('Failed to open session replay:', openError);
-      await message(t('logs.replayOpenFailed'), { title: t('common.error'), kind: 'error' });
+      toast.error(t('logs.replayOpenFailed'));
     }
   };
 

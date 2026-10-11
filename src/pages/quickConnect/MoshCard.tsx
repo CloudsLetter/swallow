@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useConfigStore } from '../../store/config';
 import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
-import { message } from '@tauri-apps/plugin-dialog';
+import { toast } from 'sonner';
 import type { QuickConnectCardProps } from './types';
 
 /** MOSH 快速连接（SSH 引导：密码认证；密钥/证书走 Hosts 页入口）。 */
@@ -19,11 +19,11 @@ export function MoshCard({ onOpenSession }: Pick<QuickConnectCardProps, 'onOpenS
     const trimmedHost = host.trim();
     const trimmedUser = username.trim();
     if (!trimmedHost) {
-      void message(t('quickConnect.moshHostRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('quickConnect.moshHostRequired'));
       return;
     }
     if (!trimmedUser) {
-      void message(t('quickConnect.moshUsernameRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('quickConnect.moshUsernameRequired'));
       return;
     }
     onOpenSession(`mosh:${trimmedHost}:${port}`, 'mosh', {

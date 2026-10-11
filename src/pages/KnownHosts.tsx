@@ -41,7 +41,8 @@ import {
   SectionHeading,
   ViewToggle,
 } from '../components/PageHeader';
-import { message, ask } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from '../components/ui/confirmDialog';
+import { toast } from 'sonner';
 
 type ViewMode = 'grid' | 'list';
 
@@ -116,7 +117,7 @@ export function KnownHosts() {
 
   // ============ 操作逻辑 ============
   const handleDelete = async (host: KnownHost) => {
-    const confirmed = await ask(t('knownHosts.deleteConfirmBody', { host: host.host }), {
+    const confirmed = await confirmDialog(t('knownHosts.deleteConfirmBody', { host: host.host }), {
       title: t('common.deleteConfirm'),
       kind: 'warning',
     });
@@ -126,12 +127,12 @@ export function KnownHosts() {
       await loadKnownHosts();
     } catch (removeError) {
       console.error('Failed to delete known host:', removeError);
-      await message(t('common.deleteFailed'), { title: t('common.error'), kind: 'error' });
+      toast.error(t('common.deleteFailed'));
     }
   };
 
   const handleDeleteAll = async () => {
-    const confirmed = await ask(t('knownHosts.clearConfirmBody', { count: hosts.length }), {
+    const confirmed = await confirmDialog(t('knownHosts.clearConfirmBody', { count: hosts.length }), {
       title: t('common.clearConfirm'),
       kind: 'warning',
     });
@@ -141,7 +142,7 @@ export function KnownHosts() {
       await loadKnownHosts();
     } catch (clearError) {
       console.error('Failed to clear known hosts:', clearError);
-      await message(t('knownHosts.clearFailed'), { title: t('common.error'), kind: 'error' });
+      toast.error(t('knownHosts.clearFailed'));
     }
   };
 
@@ -167,7 +168,7 @@ export function KnownHosts() {
       window.setTimeout(() => setCopiedId((current) => (current === host.id ? null : current)), 1500);
     } catch (copyError) {
       console.error('Failed to copy fingerprint:', copyError);
-      await message(t('knownHosts.copyFailed'), { title: t('common.error'), kind: 'error' });
+      toast.error(t('knownHosts.copyFailed'));
     }
   };
 
@@ -184,7 +185,7 @@ export function KnownHosts() {
       window.setTimeout(() => setCopiedRaw(false), 1500);
     } catch (copyError) {
       console.error('Failed to copy raw line:', copyError);
-      await message(t('knownHosts.copyFailed'), { title: t('common.error'), kind: 'error' });
+      toast.error(t('knownHosts.copyFailed'));
     }
   };
 

@@ -2,7 +2,7 @@ import { useConfigStore } from '../../store/config';
 import { useTranslation } from 'react-i18next';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { ask } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from '../../components/ui/confirmDialog';
 import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
 import { Label } from '../../components/ui/label';
@@ -21,7 +21,7 @@ export function AdvancedSettings() {
   if (!config) return null;
 
   const runDanger = async (key: 'cache' | 'reset' | 'wipe', fn: () => Promise<string | void>, doneKey: string) => {
-    const confirmed = await ask(t(`settings.dangerConfirm_${key}`), {
+    const confirmed = await confirmDialog(t(`settings.dangerConfirm_${key}`), {
       title: t('settings.dangerZone'),
       kind: 'warning',
     });

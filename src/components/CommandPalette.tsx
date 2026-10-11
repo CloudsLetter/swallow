@@ -21,7 +21,7 @@ import { resolveHostSshAuth } from '../services/sshAuthResolver';
 import { useTabStore } from '../store/tabStore';
 import { isConnected } from './terminalPool';
 import { useUiPage } from '../store/uiPage';
-import { message } from '@tauri-apps/plugin-dialog';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Kbd } from './ui/kbd';
 
@@ -108,7 +108,7 @@ export function CommandPalette() {
   const connectHost = async (host: Host) => {
     const auth = resolveHostSshAuth(host, accounts, keys, certs);
     if (auth.error) {
-      await message(auth.error, { title: t('quickConnect.cannotConnect'), kind: 'warning' });
+      toast.warning(t('quickConnect.cannotConnect'), { description: auth.error });
       return;
     }
     createTab({

@@ -92,7 +92,8 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from './ui/context-menu';
-import { ask, save, open } from '@tauri-apps/plugin-dialog';
+import { save, open } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from './ui/confirmDialog';
 import { dedupeHostKeyConfirm } from '../lib/hostKeyConfirm';
 import { toast } from 'sonner';
 import { useTransferStore, isCancelRequested } from '../store/transferStore';
@@ -331,7 +332,7 @@ const SftpPane = forwardRef<SftpPaneHandle, SftpPaneProps>(function SftpPane(
             const accepted = await dedupeHostKeyConfirm(
               `${connectResult.host}:${connectResult.port}:${fingerprint}`,
               () =>
-                ask(
+                confirmDialog(
                   t('connection.hostKeyBody', {
                     host: connectResult.host,
                     port: connectResult.port,
@@ -560,7 +561,7 @@ const SftpPane = forwardRef<SftpPaneHandle, SftpPaneProps>(function SftpPane(
     if (item.size > 0) {
       const localSize = await localFileSize(target).catch(() => 0);
       if (localSize > 0 && localSize < item.size) {
-        const resume = await ask(
+        const resume = await confirmDialog(
           t('sftp.resumeDownloadPrompt', { name: item.name, done: localSize, total: item.size }),
           { title: t('sftp.downloadTitle'), kind: 'info', okLabel: t('sftp.resume'), cancelLabel: t('sftp.overwrite') },
         );
@@ -741,7 +742,7 @@ const SftpPane = forwardRef<SftpPaneHandle, SftpPaneProps>(function SftpPane(
   /** 把「本机编辑」后的临时文件回传到远程（覆盖确认后执行）。 */
   const handleSaveBack = async (edit: { id: string; remotePath: string; name: string }) => {
     if (!sessionId) return;
-    const ok = await ask(t('sftp.saveBackConfirm', { name: edit.name }), {
+    const ok = await confirmDialog(t('sftp.saveBackConfirm', { name: edit.name }), {
       title: t('sftp.downloadTitle'),
       kind: 'warning',
     });
@@ -790,7 +791,7 @@ const SftpPane = forwardRef<SftpPaneHandle, SftpPaneProps>(function SftpPane(
     if (item.size > 0) {
       const localSize = await localFileSize(target).catch(() => 0);
       if (localSize > 0 && localSize < item.size) {
-        const resume = await ask(t('sftp.resumeDownloadPrompt', { name: item.name, done: localSize, total: item.size }), {
+        const resume = await confirmDialog(t('sftp.resumeDownloadPrompt', { name: item.name, done: localSize, total: item.size }), {
           title: t('sftp.downloadTitle'),
           kind: 'info',
           okLabel: t('sftp.resume'),
@@ -848,7 +849,7 @@ const SftpPane = forwardRef<SftpPaneHandle, SftpPaneProps>(function SftpPane(
     if (!sessionId) return;
     const isDir = item.type === 'directory';
     // 目录用更明确的递归删除提示（会连同所有子项一起删除）
-    const ok = await ask(
+    const ok = await confirmDialog(
       isDir
         ? t('sftp.deleteDirConfirmBody', { name: item.name })
         : t('sftp.deleteFileConfirmBody', { name: item.name }),
@@ -875,7 +876,7 @@ const SftpPane = forwardRef<SftpPaneHandle, SftpPaneProps>(function SftpPane(
     if (!sessionId) return;
     const selected = files.filter((file) => selectedFiles.has(file.name));
     if (selected.length === 0) return;
-    const ok = await ask(t('sftp.deleteSelectedConfirm', { count: selected.length }), { title: t('common.deleteConfirm'), kind: 'warning' });
+    const ok = await confirmDialog(t('sftp.deleteSelectedConfirm', { count: selected.length }), { title: t('common.deleteConfirm'), kind: 'warning' });
     if (!ok) return;
 
     let success = 0;

@@ -4,12 +4,12 @@ import { useEffect, useRef, useState } from 'react';
 import { I18nextProvider } from 'react-i18next';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { ask } from '@tauri-apps/plugin-dialog';
 
 import { Layout } from './components/Layout';
 import { Home } from './pages/Home';
 import { focusTerminal, isConnected, listPool } from './components/terminalPool';
 import { Toaster } from './components/ui/sonner';
+import { ConfirmDialogHost, confirmDialog } from './components/ui/confirmDialog';
 import { OnboardingDialog } from './components/OnboardingDialog';
 import { SessionNotifications } from './components/SessionNotifications';
 import { DebugConsole } from './components/DebugConsole';
@@ -283,7 +283,7 @@ function App() {
       const active = listPool().filter((id) => isConnected(id)).length;
       if (active === 0) return;
       event.preventDefault();
-      const confirmed = await ask(String(i18next.t('settings.confirmExitMessage', { count: active })), {
+      const confirmed = await confirmDialog(String(i18next.t('settings.confirmExitMessage', { count: active })), {
         title: String(i18next.t('settings.confirmExit')),
         kind: 'warning',
       });
@@ -301,6 +301,7 @@ function App() {
           <Home />
         </Layout>
         <Toaster position="top-center" />
+        <ConfirmDialogHost />
         <SessionNotifications />
         <OnboardingDialog
           open={showOnboarding}

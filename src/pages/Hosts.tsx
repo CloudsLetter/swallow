@@ -62,7 +62,7 @@ import {
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { message, ask } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from '../components/ui/confirmDialog';
 import { toast } from 'sonner';
 import {
   EmptyState,
@@ -233,7 +233,7 @@ export function Hosts() {  const { t } = useTranslation();
   const handleConnect = async (host: Host) => {
     const auth = resolveHostSshAuth(host, accounts, keys, certs);
     if (auth.error) {
-      await message(auth.error, { title: t('hosts.cannotConnect'), kind: 'warning' });
+      toast.warning(t('hosts.cannotConnect'), { description: auth.error });
       return;
     }
 
@@ -378,7 +378,7 @@ export function Hosts() {  const { t } = useTranslation();
       // 引用检查失败不阻塞删除流程
     }
 
-    const confirmed = await ask(`${refNote}${t('hosts.deleteConfirmBody')}`, { title: t('common.deleteConfirm'), kind: 'warning' });
+    const confirmed = await confirmDialog(`${refNote}${t('hosts.deleteConfirmBody')}`, { title: t('common.deleteConfirm'), kind: 'warning' });
     if (confirmed) {
       await removeHost(id);
       await loadHosts();
@@ -494,21 +494,21 @@ export function Hosts() {  const { t } = useTranslation();
     const nextName = name.trim();
     const nextHost = host.trim();
     if (!nextName) {
-      await message(t('hosts.formNameRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('hosts.formNameRequired'));
       return;
     }
     if (!nextHost) {
-      await message(t('hosts.formHostRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('hosts.formHostRequired'));
       return;
     }
     if (!port || port < 1 || port > 65535) {
-      await message(t('hosts.formPortInvalid'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('hosts.formPortInvalid'));
       return;
     }
 
     // 认证校验
     if (authSource === 'account' && !selectedAccount) {
-      await message(t('hosts.formAccountRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('hosts.formAccountRequired'));
       return;
     }
 
@@ -518,15 +518,15 @@ export function Hosts() {  const { t } = useTranslation();
     const nextManualCertId = manualCertId.trim();
 
     if (authSource !== 'account' && !nextManualUsername) {
-      await message(t('hosts.formUsernameRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('hosts.formUsernameRequired'));
       return;
     }
     if (authSource !== 'account' && manualAuthType === 'key' && !nextManualKeyId) {
-      await message(t('hosts.formKeyRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('hosts.formKeyRequired'));
       return;
     }
     if (authSource !== 'account' && manualAuthType === 'certificate' && !nextManualCertId) {
-      await message(t('hosts.formCertRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('hosts.formCertRequired'));
       return;
     }
 
@@ -534,28 +534,28 @@ export function Hosts() {  const { t } = useTranslation();
     if (useProxy) {
       if (proxyMode === 'existing') {
         if (!selectedProxyHostId) {
-          await message(t('hosts.formProxyHostRequired'), { title: t('common.tip'), kind: 'warning' });
+          toast.warning(t('hosts.formProxyHostRequired'));
           return;
         }
       } else {
         if (!proxyHost.trim()) {
-          await message(t('hosts.formProxyAddressRequired'), { title: t('common.tip'), kind: 'warning' });
+          toast.warning(t('hosts.formProxyAddressRequired'));
           return;
         }
         if (!proxyPort || proxyPort < 1 || proxyPort > 65535) {
-          await message(t('hosts.formProxyPortInvalid'), { title: t('common.tip'), kind: 'warning' });
+          toast.warning(t('hosts.formProxyPortInvalid'));
           return;
         }
         if (!proxyUsername.trim()) {
-          await message(t('hosts.formProxyUsernameRequired'), { title: t('common.tip'), kind: 'warning' });
+          toast.warning(t('hosts.formProxyUsernameRequired'));
           return;
         }
         if (proxyAuthType === 'key' && !proxyKeyId.trim()) {
-          await message(t('hosts.formProxyKeyRequired'), { title: t('common.tip'), kind: 'warning' });
+          toast.warning(t('hosts.formProxyKeyRequired'));
           return;
         }
         if (proxyAuthType === 'certificate' && !proxyCertId.trim()) {
-          await message(t('hosts.formProxyCertRequired'), { title: t('common.tip'), kind: 'warning' });
+          toast.warning(t('hosts.formProxyCertRequired'));
           return;
         }
       }

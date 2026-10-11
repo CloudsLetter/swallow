@@ -1,7 +1,8 @@
 import { useTranslation } from 'react-i18next';
 import { Download as IconDownload, Upload as IconUpload } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
-import { ask, open, save } from '@tauri-apps/plugin-dialog';
+import { open, save } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from './ui/confirmDialog';
 import { toast } from 'sonner';
 
 import { Button } from './ui/button';
@@ -54,7 +55,7 @@ export function CategoryTransferButtons({
 
       let includeSecrets = false;
       if (hasSecrets) {
-        includeSecrets = await ask(t('importExport.secretsDetail'), {
+        includeSecrets = await confirmDialog(t('importExport.secretsDetail'), {
           title: t('importExport.secretsQuestion'),
           kind: 'warning',
           okLabel: t('importExport.includeSecrets'),

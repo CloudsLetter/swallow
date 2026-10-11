@@ -136,6 +136,15 @@ Channel / Stream 的 `flush` 语义是「**丢弃接收缓冲**」而非刷出 �
 
 `src/extensions/protocols.ts` 是「type → icon / terminalLike / sidePanel」的**唯一来源**（TabBar、命令面板、AI 工具、Home 侧栏都用它），加协议只改这一处。⚠️ 删掉旧的散落映射表后，**记得清理变成未使用的图标 import**（否则 TS6133 → Release CI 红）。
 
+### 4.11 系统弹窗已废弃 → 一律走 shadcn
+
+- `@tauri-apps/plugin-dialog` **只允许用 `open` / `save`**（文件选择器，shadcn 无对应物，必须保留系统原生）。capability 已同步收紧为 `dialog:allow-open` + `dialog:allow-save`（不再给 `dialog:default`）。
+- **确认框**：用 `confirmDialog(message, options)`（`src/components/ui/confirmDialog.tsx`），签名与旧 `ask()` 完全一致 —— 保留 `await` 返回 `Promise<boolean>`。本文件**无任何 `open()` 导出**（`open` 是 Radix 的 `<AlertDialog open={...}>` 属性，别误当 API）。`<ConfirmDialogHost />` 已挂在 `App.tsx`（与 `<Toaster />` 并列），**不要再加第二个宿主**；`kind: 'warning' | 'error'` 会自动把确认按钮渲染成 destructive，`kind: 'info'` 走默认样式。
+- **信息 / 表单校验 / 失败提示**：用 `sonner` 的 `toast.warning / error / info`，**不要**再用系统的 `message()`。title 若是「提示 / 错误」这类通用词就丢弃（图标已表达级别），有信息量的才留作 `toast.x(title, { description: body })`。
+- ⚠️ **新增 shadcn 组件时不要直接跑 `pnpm exec shadcn add`**：实测本项目的注册表返回的 `button.tsx` 会**覆盖掉定制的胶囊按钮设计**，还会往 `package.json` 塞进错包 `cn@0.4.0`。正确做法：`pnpm exec shadcn add <名> --view <名>.tsx` 取源码 → 落盘 → 把 `import { cn } from "cn"` 改成 `from "@/lib/utils"` → 用 `pnpm typecheck` 收尾。
+  `alert-dialog.tsx` / `confirmDialog.tsx` 即按此流程落地（`confirmDialog` 是纯手写封装，非注册表产物）。
+
+
 ---
 
 ## 5. 提交与协作纪律

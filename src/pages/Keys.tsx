@@ -50,7 +50,8 @@ import {
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { message, ask, save } from '@tauri-apps/plugin-dialog';
+import { save } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from '../components/ui/confirmDialog';
 import {
   EmptyState,
   ErrorState,
@@ -211,16 +212,16 @@ export function Keys() {
   const handleSave = async () => {
     const nextName = name.trim();
     if (!nextName) {
-      await message(t('keys.formNameRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('keys.formNameRequired'));
       return;
     }
     if (actionMode === 'import') {
       if (importMethod === 'file' && !privateFile && !publicFile) {
-        await message(t('keys.formFileRequired'), { title: t('common.tip'), kind: 'warning' });
+        toast.warning(t('keys.formFileRequired'));
         return;
       }
       if (importMethod === 'text' && !privateText.trim() && !publicText.trim()) {
-        await message(t('keys.formTextRequired'), { title: t('common.tip'), kind: 'warning' });
+        toast.warning(t('keys.formTextRequired'));
         return;
       }
     }
@@ -259,7 +260,7 @@ export function Keys() {
       await loadKeys();
     } catch (saveError) {
       console.error('Failed to save key:', saveError);
-      await message(t('keys.saveFailed', { message: String(saveError) }), { title: t('common.error'), kind: 'error' });
+      toast.error(t('keys.saveFailed', { message: String(saveError) }));
     }
   };
 
@@ -281,7 +282,7 @@ export function Keys() {
       // 引用检查失败不阻塞删除流程
     }
 
-    const confirmed = await ask(`${refNote}${t('keys.deleteConfirmBody', { name: key.name })}`, { title: t('common.deleteConfirm'), kind: 'warning' });
+    const confirmed = await confirmDialog(`${refNote}${t('keys.deleteConfirmBody', { name: key.name })}`, { title: t('common.deleteConfirm'), kind: 'warning' });
     if (!confirmed) {
       return;
     }
@@ -290,7 +291,7 @@ export function Keys() {
       await loadKeys();
     } catch (removeError) {
       console.error('Failed to remove key:', removeError);
-      await message(t('common.deleteFailed'), { title: t('common.error'), kind: 'error' });
+      toast.error(t('common.deleteFailed'));
     }
   };
 
@@ -305,7 +306,7 @@ export function Keys() {
       await exportKeyFileTo(key.id, target);
     } catch (exportError) {
       console.error('Failed to export key:', exportError);
-      await message(t('keys.exportFailed'), { title: t('common.error'), kind: 'error' });
+      toast.error(t('keys.exportFailed'));
     }
   };
 

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
-import { message } from '@tauri-apps/plugin-dialog';
+import { toast } from 'sonner';
 import type { QuickConnectCardProps } from './types';
 
 /** RDP 快速连接（NLA 认证：用户名/密码必填；初始分辨率由 RdpView 按容器尺寸决定）。 */
@@ -17,11 +17,11 @@ export function RdpCard({ onOpenSession }: Pick<QuickConnectCardProps, 'onOpenSe
     const trimmedHost = host.trim();
     const trimmedUser = username.trim();
     if (!trimmedHost) {
-      void message(t('quickConnect.rdpHostRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('quickConnect.rdpHostRequired'));
       return;
     }
     if (!trimmedUser) {
-      void message(t('quickConnect.rdpUsernameRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('quickConnect.rdpUsernameRequired'));
       return;
     }
     onOpenSession(`rdp:${trimmedHost}:${port}`, 'rdp', {

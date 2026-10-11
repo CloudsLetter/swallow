@@ -30,7 +30,9 @@ import {
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { message, ask, save } from '@tauri-apps/plugin-dialog';
+import { save } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from '../components/ui/confirmDialog';
+import { toast } from 'sonner';
 import {
   EmptyState,
   ManageCard,
@@ -127,11 +129,11 @@ export function Certificates() {
   const handleImport = async () => {
     const nextName = name.trim();
     if (!nextName) {
-      await message(t('certificates.formNameRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('certificates.formNameRequired'));
       return;
     }
     if (!certFile) {
-      await message(t('certificates.formFileRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('certificates.formFileRequired'));
       return;
     }
 
@@ -148,7 +150,7 @@ export function Certificates() {
       setSheetOpen(false);
     } catch (error) {
       console.error('Failed to import certificate:', error);
-      await message(t('certificates.importFailed', { message: String(error) }), { title: t('common.error'), kind: 'error' });
+      toast.error(t('certificates.importFailed', { message: String(error) }));
     }
   };
 
@@ -170,7 +172,7 @@ export function Certificates() {
       // 引用检查失败不阻塞删除流程
     }
 
-    const confirmed = await ask(
+    const confirmed = await confirmDialog(
       `${refNote}${t('certificates.deleteConfirmBody')}`,
       { title: t('common.deleteConfirm'), kind: 'warning' },
     );
@@ -180,7 +182,7 @@ export function Certificates() {
       await loadCertificates();
     } catch (error) {
       console.error('Failed to remove certificate:', error);
-      await message(t('common.deleteFailed'), { title: t('common.error'), kind: 'error' });
+      toast.error(t('common.deleteFailed'));
     }
   };
 
@@ -195,7 +197,7 @@ export function Certificates() {
       await exportCertificateFileTo(cert.id, target);
     } catch (error) {
       console.error('Failed to export certificate:', error);
-      await message(t('certificates.exportFailed'), { title: t('common.error'), kind: 'error' });
+      toast.error(t('certificates.exportFailed'));
     }
   };
 

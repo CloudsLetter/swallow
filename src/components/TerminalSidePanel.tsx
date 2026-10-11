@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollArea } from './ui/scroll-area';
 import { focusTerminal } from './terminalPool';
 import { useTranslation } from 'react-i18next';
-import { ask, save } from '@tauri-apps/plugin-dialog';
+import { save } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from './ui/confirmDialog';
 import { dedupeHostKeyConfirm } from '../lib/hostKeyConfirm';
 import {
   Activity as IconActivity,
@@ -361,7 +362,7 @@ function StatusSection({ sshConfig, active, tabActive, autoConnect }: StatusSect
           const accepted = await dedupeHostKeyConfirm(
             `${result.host}:${result.port}:${fingerprint}`,
             () =>
-              ask(
+              confirmDialog(
                 t('connection.hostKeyBody', {
                   host: result.host,
                   port: result.port,
@@ -755,7 +756,7 @@ function FilesSection({ sessionId, sshConfig, active, autoConnect }: FilesSectio
         const accepted = await dedupeHostKeyConfirm(
           `${result.host}:${result.port}:${fingerprint}`,
           () =>
-            ask(
+            confirmDialog(
               t('connection.hostKeyBody', {
                 host: result.host,
                 port: result.port,

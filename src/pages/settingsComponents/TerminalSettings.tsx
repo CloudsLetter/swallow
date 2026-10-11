@@ -15,7 +15,8 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '../../components/ui/sheet';
 import type { TerminalThemePreset, TerminalThemeColors, Config } from '../../types/config';
 import { cn } from '@/lib/utils';
-import { ask, open } from '@tauri-apps/plugin-dialog';
+import { open } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from '../../components/ui/confirmDialog';
 import { SectionTitle, SwitchRow } from './shared';
 
 const STANDARD_ANSI_KEYS = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white'] as const;
@@ -277,7 +278,7 @@ export function TerminalSettings() {
                         className="text-destructive"
                         onClick={async (e) => {
                           e.stopPropagation();
-                          if (await ask(t('settings.deleteColorSchemeConfirm', { name: theme.name }), { title: t('settings.deleteConfirm'), kind: 'warning' })) {
+                          if (await confirmDialog(t('settings.deleteColorSchemeConfirm', { name: theme.name }), { title: t('settings.deleteConfirm'), kind: 'warning' })) {
                             deleteTheme(theme.id);
                           }
                         }}

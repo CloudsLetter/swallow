@@ -49,7 +49,7 @@ import {
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { ask } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from '../components/ui/confirmDialog';
 import { toast } from 'sonner';
 import {
   EmptyState,
@@ -385,7 +385,7 @@ export function Sftp() {
   };
 
   const handleRemove = async (conn: SftpConnection) => {
-    const confirmed = await ask(t('sftp.deleteConfirmBody', { name: conn.name }), { title: t('common.deleteConfirm'), kind: 'warning' });
+    const confirmed = await confirmDialog(t('sftp.deleteConfirmBody', { name: conn.name }), { title: t('common.deleteConfirm'), kind: 'warning' });
     if (!confirmed) return;
     try {
       await removeSftpConnection(conn.id);

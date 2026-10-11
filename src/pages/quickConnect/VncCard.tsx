@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { message } from '@tauri-apps/plugin-dialog';
+import { toast } from 'sonner';
 import type { VncTabConfig } from '../../store/tabStore';
 import { resolveHostSshAuth } from '../../services/sshAuthResolver';
 import { cn } from '@/lib/utils';
@@ -21,23 +21,23 @@ export function VncCard({ onOpenSession, hosts, accounts, keys, certs }: QuickCo
   const handleConnect = async () => {
     const trimmed = host.trim();
     if (!trimmed) {
-      void message(t('quickConnect.vncHostRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('quickConnect.vncHostRequired'));
       return;
     }
     let sshConfig: VncTabConfig['ssh'];
     if (viaSsh) {
       const jump = hosts.find((h) => h.id === sshHostId);
       if (!jump) {
-        void message(t('quickConnect.vncJumpRequired'), { title: t('common.tip'), kind: 'warning' });
+        toast.warning(t('quickConnect.vncJumpRequired'));
         return;
       }
       const auth = resolveHostSshAuth(jump, accounts, keys, certs);
       if (auth.error) {
-        void message(auth.error, { title: t('common.tip'), kind: 'warning' });
+        toast.warning(auth.error);
         return;
       }
       if (auth.authType === 'certificate' || auth.authType === 'none') {
-        void message(t('quickConnect.vncJumpUnsupported'), { title: t('common.tip'), kind: 'warning' });
+        toast.warning(t('quickConnect.vncJumpUnsupported'));
         return;
       }
       sshConfig = {

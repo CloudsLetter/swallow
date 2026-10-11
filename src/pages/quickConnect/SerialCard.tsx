@@ -9,7 +9,7 @@ import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { serialListPorts } from '../../services/sessionService';
-import { message } from '@tauri-apps/plugin-dialog';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import type { QuickConnectCardProps } from './types';
 
@@ -102,7 +102,7 @@ export function SerialCard({ onOpenSession, highlight }: QuickConnectCardProps) 
   const handleConnect = () => {
     const trimmed = port.trim();
     if (!trimmed) {
-      void message(t('quickConnect.serialPortRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('quickConnect.serialPortRequired'));
       return;
     }
     onOpenSession(`serial:${trimmed}`, 'serial', {

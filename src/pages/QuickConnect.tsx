@@ -23,7 +23,7 @@ import { cn } from '@/lib/utils';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { message } from '@tauri-apps/plugin-dialog';
+import { toast } from 'sonner';
 import { LocalShellChips } from './quickConnect/LocalShellChips';
 import { PROTOCOL_TILES, getProtocolTile } from '../extensions/quickConnect';
 import type { QuickConnectCardProps } from './quickConnect/types';
@@ -86,7 +86,7 @@ export function QuickConnect() {
   const handleConnectHost = async (host: Host) => {
     const auth = resolveHostSshAuth(host, accounts, keys, certs);
     if (auth.error) {
-      await message(auth.error, { title: t('quickConnect.cannotConnect'), kind: 'warning' });
+      toast.warning(t('quickConnect.cannotConnect'), { description: auth.error });
       return;
     }
     openSessionTab(host.name, 'terminal', {

@@ -49,7 +49,7 @@ import {
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { ask } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from '../components/ui/confirmDialog';
 import { dedupeHostKeyConfirm } from '../lib/hostKeyConfirm';
 import { toast } from 'sonner';
 import {
@@ -389,7 +389,7 @@ export function PortForwarding() {
   };
 
   const handleRemove = async (rule: PortForwarding) => {
-    const confirmed = await ask(t('portForwarding.deleteConfirmBody', { name: rule.name }), {
+    const confirmed = await confirmDialog(t('portForwarding.deleteConfirmBody', { name: rule.name }), {
       title: t('common.deleteConfirm'),
       kind: 'warning',
     });
@@ -464,7 +464,7 @@ export function PortForwarding() {
         const accepted = await dedupeHostKeyConfirm(
           `${result.host}:${result.port}:${fingerprint}`,
           () =>
-            ask(
+            confirmDialog(
               t('connection.hostKeyBody', { host: result.host, port: result.port, fingerprint }),
               {
                 title: t('connection.hostKeyTitle'),

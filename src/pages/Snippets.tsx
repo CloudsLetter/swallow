@@ -41,7 +41,8 @@ import {
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { message, ask } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from '../components/ui/confirmDialog';
+import { toast } from 'sonner';
 import {
   EmptyState,
   ErrorState,
@@ -156,15 +157,15 @@ export function Snippets() {
     const nextCommand = form.command.trim();
     const nextCategory = form.category.trim();
     if (!nextName) {
-      await message(t('snippets.formNameRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('snippets.formNameRequired'));
       return;
     }
     if (!nextCommand) {
-      await message(t('snippets.formCommandRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('snippets.formCommandRequired'));
       return;
     }
     if (!nextCategory) {
-      await message(t('snippets.formCategoryRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('snippets.formCategoryRequired'));
       return;
     }
 
@@ -186,19 +187,19 @@ export function Snippets() {
       await loadSnippets();
     } catch (saveError) {
       console.error('Failed to save snippet:', saveError);
-      await message(t('common.saveFailed'), { title: t('common.error'), kind: 'error' });
+      toast.error(t('common.saveFailed'));
     }
   };
 
   const handleRemove = async (snippet: Snippet) => {
-    const confirmed = await ask(t('snippets.deleteConfirmBody', { name: snippet.name }), { title: t('common.deleteConfirm'), kind: 'warning' });
+    const confirmed = await confirmDialog(t('snippets.deleteConfirmBody', { name: snippet.name }), { title: t('common.deleteConfirm'), kind: 'warning' });
     if (!confirmed) return;
     try {
       await removeSnippet(snippet.id);
       await loadSnippets();
     } catch (removeError) {
       console.error('Failed to remove snippet:', removeError);
-      await message(t('common.deleteFailed'), { title: t('common.error'), kind: 'error' });
+      toast.error(t('common.deleteFailed'));
     }
   };
 
@@ -211,7 +212,7 @@ export function Snippets() {
       await loadSnippets();
     } catch (copyError) {
       console.error('Failed to copy snippet:', copyError);
-      await message(t('snippets.copyFailed'), { title: t('common.error'), kind: 'error' });
+      toast.error(t('snippets.copyFailed'));
     }
   };
 

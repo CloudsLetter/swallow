@@ -3,7 +3,7 @@ import { useConfigStore } from '../../store/config';
 import { useTranslation } from 'react-i18next';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { ask } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from '../../components/ui/confirmDialog';
 import { Switch } from '../../components/ui/switch';
 import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
@@ -43,7 +43,7 @@ export function CloudSettings() {
     if (syncingRef.current) return;
     // 下载/双向会覆盖本地数据，二次确认
     if (direction !== 'upload') {
-      const confirmed = await ask(t('settings.cloudConfirmDownload'), {
+      const confirmed = await confirmDialog(t('settings.cloudConfirmDownload'), {
         title: t('settings.cloudConfirmTitle'),
         kind: 'warning',
       });

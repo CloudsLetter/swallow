@@ -23,7 +23,7 @@ import { colorGroups } from '../../exam/ColorGroups';
 import { defaultColors } from '../../default/themeColors';
 import { applyThemeColors } from '../../hooks/themeUtils';
 import { cn } from '@/lib/utils';
-import { ask } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from '../../components/ui/confirmDialog';
 
 const THEME_PREVIEW_KEYS: (keyof ThemeColors)[] = [
   'primary',
@@ -214,7 +214,7 @@ export function AppearanceSettings() {
                         className="text-muted-foreground"
                         onClick={async (e) => {
                           e.stopPropagation();
-                          if (await ask(t('settings.deleteThemeConfirm', { name: theme.name }), { title: t('settings.deleteConfirm'), kind: 'warning' })) {
+                          if (await confirmDialog(t('settings.deleteThemeConfirm', { name: theme.name }), { title: t('settings.deleteConfirm'), kind: 'warning' })) {
                             deleteTheme(theme.id);
                           }
                         }}

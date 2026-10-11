@@ -22,7 +22,8 @@ import {
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { message, ask } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from '../components/ui/confirmDialog';
+import { toast } from 'sonner';
 import {
   EmptyState,
   ManageCard,
@@ -158,19 +159,19 @@ export function AccountPage() {
     const nextUsername = form.username.trim();
 
     if (!nextName) {
-      await message(t('account.formNameRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('account.formNameRequired'));
       return;
     }
     if (!nextUsername) {
-      await message(t('account.formUsernameRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('account.formUsernameRequired'));
       return;
     }
     if (authType === 'key' && !form.keyId.trim()) {
-      await message(t('account.formKeyRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('account.formKeyRequired'));
       return;
     }
     if (authType === 'certificate' && !form.certificateId.trim()) {
-      await message(t('account.formCertRequired'), { title: t('common.tip'), kind: 'warning' });
+      toast.warning(t('account.formCertRequired'));
       return;
     }
 
@@ -196,7 +197,7 @@ export function AccountPage() {
       setEditingAccount(null);
     } catch (error) {
       console.error('Failed to save account:', error);
-      await message(t('common.saveFailed'), { title: t('common.error'), kind: 'error' });
+      toast.error(t('common.saveFailed'));
     }
   };
 
@@ -215,7 +216,7 @@ export function AccountPage() {
       // 引用检查失败不阻塞删除流程
     }
 
-    const confirmed = await ask(refNote + t('account.deleteConfirmBody', { name: account.name }), {
+    const confirmed = await confirmDialog(refNote + t('account.deleteConfirmBody', { name: account.name }), {
       title: t('common.deleteConfirm'),
       kind: 'warning',
     });
@@ -225,7 +226,7 @@ export function AccountPage() {
       await loadAccounts();
     } catch (error) {
       console.error('Failed to remove account:', error);
-      await message(t('common.deleteFailed'), { title: t('common.error'), kind: 'error' });
+      toast.error(t('common.deleteFailed'));
     }
   };
 
