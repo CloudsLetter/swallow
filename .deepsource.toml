@@ -11,7 +11,6 @@
 # 本仓库是 polyglot 单体仓，所以启用两个 analyzer：
 #   src/**              React 19 + TypeScript 前端（~700 文件，Vite + Zustand + xterm）
 #   src-tauri/src/**    Rust 后端（106 文件，含 18 个内联测试模块）
-#   cloud-server/**     零依赖 Node 参考服务器（server.cjs，665 行）
 # javascript analyzer 覆盖 ts / tsx / js / cjs；rust analyzer 只吃 .rs。
 
 version = 1
@@ -39,9 +38,8 @@ exclude_patterns = [
   ".vscode/**",
   ".idea/**",
 
-  # —— 文档与测试用密文数据 ——
+  # —— 文档（设计文档不参与分析）——
   "docs/**",
-  "cloud-server/data/**",
 ]
 
 test_patterns = [
@@ -72,9 +70,9 @@ enabled = true
   #    的缺陷埋掉。以后若引入 ESLint 配置，DeepSource 会尊重它——ESLint 里
   #    显式禁用的规则它也不会报。
   #
-  # ⚠️ `module_system` 是 analyzer 级、不能按文件区分：根目录是 ESM，而
-  #    cloud-server/server.cjs 是 CommonJS。若首轮跑完发现 .cjs 上出现
-  #    「require 不被允许」这类误报，就把 cloud-server/** 加进 exclude_patterns。
+  # ⚠️ `module_system` 是 analyzer 级、不能按文件区分：本仓库根目录是 ESM
+  #    （package.json "type": "module"）。若将来引入 CommonJS（.cjs）文件
+  #    且被「require 不被允许」这类误报缠上，就把该目录加进 exclude_patterns。
   #
   # 复杂度阈值先用默认 "high"；若首轮噪音大，可放宽：
   # cyclomatic_complexity_threshold = "very-high"

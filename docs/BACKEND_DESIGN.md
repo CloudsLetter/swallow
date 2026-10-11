@@ -329,17 +329,17 @@ russh client Config（`russh_backend.rs`）：`nodelay: true`、`keepalive_inter
 
 ## 14. 各协议模块速览
 
-| 模块       | 后端文件                                      | 要点                                                                           |
-| -------- | ----------------------------------------- | ---------------------------------------------------------------------------- |
-| SFTP     | `sftp/*` + `commands/sftp.rs`             | `SftpManager` 会话表；直读上传/分块/断点续传/`transfer_cancels` 取消；FTP 共用通道（`protocol` 区分） |
-| Telnet   | `telnet/*`                                | 明文无认证；无 PTY resize 语义                                                        |
-| 本地 shell | `local/*`                                 | portable-pty；`local_file_size` 供断点续传                                         |
-| 串口       | `serial/*`                                | serialport 枚举 + encoding_rs 字符集；写即时不批                                        |
-| 监控       | `monitor/*` + `services/monitor_state.rs` | 独立 SSH 会话采集，2s 轮询（前端并发窗 3），阈值告警在前端做                                          |
-| VNC/RDP  | `vnc/*` + `rdp/*`                         | Rust 起本地 loopback 桥，前端经 WebSocket 收发；`generation` 代际防旧代误杀                    |
-| MOSH     | `mosh/*`                                  | SSH 引导（`mosh-server new`）+ UDP 数据面；认证链路与 ssh 共用                              |
-| AI       | `commands/ai.rs`                          | OpenAI 兼容协议透传，多 profile 在配置层                                                 |
-| 杂项       | `commands/misc.rs` + `services/transfer.rs`                          | config 读写、图片 dataURL、**分类导入导出（8 类目，默认脱敏）**、危险区（清缓存/重置/删全量） |
+| 模块       | 后端文件                                        | 要点                                                                           |
+| -------- | ------------------------------------------- | ---------------------------------------------------------------------------- |
+| SFTP     | `sftp/*` + `commands/sftp.rs`               | `SftpManager` 会话表；直读上传/分块/断点续传/`transfer_cancels` 取消；FTP 共用通道（`protocol` 区分） |
+| Telnet   | `telnet/*`                                  | 明文无认证；无 PTY resize 语义                                                        |
+| 本地 shell | `local/*`                                   | portable-pty；`local_file_size` 供断点续传                                         |
+| 串口       | `serial/*`                                  | serialport 枚举 + encoding_rs 字符集；写即时不批                                        |
+| 监控       | `monitor/*` + `services/monitor_state.rs`   | 独立 SSH 会话采集，2s 轮询（前端并发窗 3），阈值告警在前端做                                          |
+| VNC/RDP  | `vnc/*` + `rdp/*`                           | Rust 起本地 loopback 桥，前端经 WebSocket 收发；`generation` 代际防旧代误杀                    |
+| MOSH     | `mosh/*`                                    | SSH 引导（`mosh-server new`）+ UDP 数据面；认证链路与 ssh 共用                              |
+| AI       | `commands/ai.rs`                            | OpenAI 兼容协议透传，多 profile 在配置层                                                 |
+| 杂项       | `commands/misc.rs` + `services/transfer.rs` | config 读写、图片 dataURL、**分类导入导出（8 类目，默认脱敏）**、危险区（清缓存/重置/删全量）                   |
 
 ### 14.1 各模块的实现陷阱（实证）
 
@@ -388,18 +388,18 @@ russh client Config（`russh_backend.rs`）：`nodelay: true`、`keepalive_inter
 
 ## 18. 附录：关键文件索引
 
-| 关心…       | 看这里                                                                      |
-| --------- | ------------------------------------------------------------------------ |
-| 启动/注册表    | `src/lib.rs`（AppState/run/invoke_handler）                                |
-| SSH 装配/回退 | `src/commands/ssh.rs`、`src/commands/tunnel.rs:is_ssh2_fallback_eligible` |
-| russh 交互  | `src/ssh/russh_shell.rs`（读写分离/输出泵/写分片）                                   |
-| ssh2 交互   | `src/ssh/session.rs`（读线程/写退避/OS 探测，930 行核心）                              |
-| 主机密钥      | `src/ssh/host_keys.rs`、`src/services/known_hosts.rs`                     |
-| 事件契约      | `src/session_events.rs`                                                  |
-| 前端写入/渲染   | `src/components/terminalPool.ts`（直发/串行队列/rAF 合并）                         |
-| DB 表/迁移   | `src/utils/sqlite.rs:init_database`                                      |
-| 密钥链       | `src/utils/secrets.rs`、`src/services/common.rs`                          |
-| 云同步       | `src/services/cloud_sync.rs`（packet v2/双向合并/skip）                        |
+| 关心…       | 看这里                                                                               |
+| --------- | --------------------------------------------------------------------------------- |
+| 启动/注册表    | `src/lib.rs`（AppState/run/invoke_handler）                                         |
+| SSH 装配/回退 | `src/commands/ssh.rs`、`src/commands/tunnel.rs:is_ssh2_fallback_eligible`          |
+| russh 交互  | `src/ssh/russh_shell.rs`（读写分离/输出泵/写分片）                                            |
+| ssh2 交互   | `src/ssh/session.rs`（读线程/写退避/OS 探测，930 行核心）                                       |
+| 主机密钥      | `src/ssh/host_keys.rs`、`src/services/known_hosts.rs`                              |
+| 事件契约      | `src/session_events.rs`                                                           |
+| 前端写入/渲染   | `src/components/terminalPool.ts`（直发/串行队列/rAF 合并）                                  |
+| DB 表/迁移   | `src/utils/sqlite.rs:init_database`                                               |
+| 密钥链       | `src/utils/secrets.rs`、`src/services/common.rs`                                   |
+| 云同步       | `src/services/cloud_sync.rs`（packet v2/双向合并/skip）                                 |
 | 云同步服务端    | `cloud-server/server.cjs`（665 行，v2）；实现对照说明见 `docs/CLOUD_SERVER_IMPLEMENTATION.md` |
-| 配置        | `src/models/config.rs`、`src/config/global_config.rs`                     |
-| 迁移史       | `docs/SSH_BACKEND_MIGRATION.md`（双后端决策背景）                                 |
+| 配置        | `src/models/config.rs`、`src/config/global_config.rs`                              |
+| 迁移史       | `docs/SSH_BACKEND_MIGRATION.md`（双后端决策背景）                                          |

@@ -12,7 +12,6 @@
 ### 目标
 
 - **零知识**：自建服务器只保存密文，无法读取主机、凭据、密钥、配置任何明文。
-- **一条密钥搞定**：用户只填「服务器地址 + 服务器密钥」，`server_key` 同时承担**寻址鉴权**与**密钥派生输入**两个职责。
 - **多设备收敛**：同一 `server_key` 的任意设备之间，能力范围内做到最终一致（主机 / 账号 / 密钥 / 证书 / SFTP / 转发 / 片段 / 桌面连接 / 已知主机 / 监控 / 配置）。
 - **凭据不落在同步通道之外**：跨设备恢复后密码立即可用（走 keyring），而 DB 列与落盘 JSON 永不含明文。
 
@@ -26,13 +25,13 @@
 
 ### 术语
 
-| 术语 | 含义 |
-| --- | --- |
-| `server_key` | 用户自定密钥。既是 URL 路径段（寻址 + 弱鉴权），又是 PBKDF2 的口令输入 |
-| packet | 一次同步的载荷：全部类目的 JSON 快照（`CloudPacket`） |
-| blob | 服务器上的密文文件，文件名 = `server_key` 的 URL 安全编码 |
-| 方向 | `upload` / `download` / `bidirectional` 三选一 |
-| 类目 | packet 内的一个 `Vec`/`Option` 字段（hosts / keys / settings …） |
+| 术语           | 含义                                                       |
+| ------------ | -------------------------------------------------------- |
+| `server_key` | 用户自定密钥。既是 URL 路径段（寻址 + 弱鉴权），又是 PBKDF2 的口令输入              |
+| packet       | 一次同步的载荷：全部类目的 JSON 快照（`CloudPacket`）                     |
+| blob         | 服务器上的密文文件，文件名 = `server_key` 的 URL 安全编码                  |
+| 方向           | `upload` / `download` / `bidirectional` 三选一              |
+| 类目           | packet 内的一个 `Vec`/`Option` 字段（hosts / keys / settings …） |
 
 ---
 
@@ -80,14 +79,14 @@ cloud_sync_now("upload")                       cloud_sync.rs:1127
 
 ### 1.3 关键设计决策一览
 
-| 决策 | 选择 | 理由 |
-| --- | --- | --- |
-| 传输形态 | 全量 JSON 快照 | 实现简单、无状态；代价是随数据量线性增长（见 §13） |
-| 加密边界 | 客户端加密，服务器零知识 | 自建服务器的信任模型最弱假设 |
-| 密钥来源 | `server_key` 单密钥 | 少一个需要用户保管的秘密；代价是无法轮换（§11） |
-| 合并粒度 | 条目级（按 `id`），无字段级 | 数据本身是「行」语义，字段级合并需要 per-field 时间戳 |
+| 决策   | 选择                       | 理由                                   |
+| ---- | ------------------------ | ------------------------------------ |
+| 传输形态 | 全量 JSON 快照               | 实现简单、无状态；代价是随数据量线性增长（见 §13）          |
+| 加密边界 | 客户端加密，服务器零知识             | 自建服务器的信任模型最弱假设                       |
+| 密钥来源 | `server_key` 单密钥         | 少一个需要用户保管的秘密；代价是无法轮换（§11）            |
+| 合并粒度 | 条目级（按 `id`），无字段级         | 数据本身是「行」语义，字段级合并需要 per-field 时间戳     |
 | 冲突策略 | 同 id 不让双方互相覆盖（方向相关，见 §7） | 无法比较「谁更新」（packet 无 per-item 时间戳），故保守 |
-| 恢复落点 | DB 行 + keyring（密码类） | 与项目既有凭据模型一致：DB 列恒空串占位 |
+| 恢复落点 | DB 行 + keyring（密码类）      | 与项目既有凭据模型一致：DB 列恒空串占位                |
 
 ---
 
@@ -99,12 +98,12 @@ cloud_sync_now("upload")                       cloud_sync.rs:1127
 v1.{salt_b64}.{nonce_b64}.{cipher_b64}
 ```
 
-| 字段 | 长度 | 说明 |
-| --- | --- | --- |
-| `v1` | 字面量 | 加密封装版本。`decrypt` 严格要求 `parts.len() == 4 && parts[0] == "v1"` |
-| salt | 16 B 随机（`OsRng`） | PBKDF2 的 salt，**每次加密都重新生成** |
-| nonce | 12 B 随机（`OsRng`） | AES-GCM nonce |
-| cipher | 变长 | AES-256-GCM 密文（含 GCM tag） |
+| 字段     | 长度               | 说明                                                           |
+| ------ | ---------------- | ------------------------------------------------------------ |
+| `v1`   | 字面量              | 加密封装版本。`decrypt` 严格要求 `parts.len() == 4 && parts[0] == "v1"` |
+| salt   | 16 B 随机（`OsRng`） | PBKDF2 的 salt，**每次加密都重新生成**                                  |
+| nonce  | 12 B 随机（`OsRng`） | AES-GCM nonce                                                |
+| cipher | 变长               | AES-256-GCM 密文（含 GCM tag）                                    |
 
 ### 2.2 密钥派生
 
@@ -160,12 +159,12 @@ struct CloudPacket {
 
 ### 3.2 版本矩阵
 
-| packet 版本 | 本客户端 | 说明 |
-| --- | --- | --- |
-| 无 / v0 | ❌ 解析失败 | `version` 无默认值 |
-| v1 | ✅ 可读（`MIN_READABLE_VERSION = 1`） | 缺 `remote_conns`/`known_hosts`/`monitor_state`/`settings`，按空处理 |
-| **v2** | ✅ 读写（`PACKET_VERSION = 2`） | 当前版本 |
-| v3+ | ❌ 报错拒收 | 版本闸门在解密解析**之后**、apply **之前**（`cloud_sync.rs:1183`、`:1220`） |
+| packet 版本 | 本客户端                             | 说明                                                             |
+| --------- | -------------------------------- | -------------------------------------------------------------- |
+| 无 / v0    | ❌ 解析失败                           | `version` 无默认值                                                 |
+| v1        | ✅ 可读（`MIN_READABLE_VERSION = 1`） | 缺 `remote_conns`/`known_hosts`/`monitor_state`/`settings`，按空处理 |
+| **v2**    | ✅ 读写（`PACKET_VERSION = 2`）       | 当前版本                                                           |
+| v3+       | ❌ 报错拒收                           | 版本闸门在解密解析**之后**、apply **之前**（`cloud_sync.rs:1183`、`:1220`）     |
 
 老客户端读取新包：v3 包的 `version` 能解析出来 → 命中 `packet.version > PACKET_VERSION` → 返回「云端数据版本不兼容：本地支持 v1-v2，云端 v3」。
 
@@ -177,19 +176,19 @@ struct CloudPacket {
 
 `Config.cloud`（`models/config.rs:42`）的 4 个布尔量决定 packet 里出现哪些类目，**收集与恢复两侧都按同一批开关判断**——这是保证「关掉某类目后两个方向都不动它」的关键。
 
-| 开关 | 类目（packet 字段） | counts key | 来源 | 凭据落点（keyring key） |
-| --- | --- | --- | --- | --- |
-| `sync_hosts` | `hosts` | `hosts` | `services::hosts::list_hosts` | `hosts/{id}/password`、`hosts/{id}/proxy_password` |
-| 〃 | `accounts` | `accounts` | `services::accounts::list_accounts` | `accounts/{id}/password` |
-| 〃 | `sftp_connections` | `sftpConnections` | `services::sftp_connections::list_sftp_connections` | `sftp/{id}/password`、`sftp/{id}/passphrase` |
-| 〃 | `port_forwardings` | `portForwardings` | 本文件 `collect_port_forwardings`（直查 SQL） | `portforwardings/{id}/socks_password` |
-| 〃 | `remote_conns` | `remoteConns` | `services::remotes::list_remote_conns` | `remote/{id}/password` |
-| 〃 | `known_hosts` | `knownHosts` | 本文件 `collect_known_hosts`（直查 SQL） | — |
-| 〃 | `monitor_state` | `monitor` | `services::monitor_state::monitor_get_state` | — |
-| `sync_keys` | `keys` | `keys` | 本文件 `collect_keys` + `keys::load_key_content` | — （内容在 packet 里） |
-| 〃 | `certificates` | `certificates` | 本文件 `collect_certificates` | — |
-| `sync_snippets` | `snippets` | `snippets` | `services::snippets::list_snippets` | — |
-| `sync_settings` | `settings` | `settings`（恒记 1） | 本文件 `collect_settings` | — （`cloud` 段永不进包） |
+| 开关              | 类目（packet 字段）      | counts key        | 来源                                                  | 凭据落点（keyring key）                                 |
+| --------------- | ------------------ | ----------------- | --------------------------------------------------- | ------------------------------------------------- |
+| `sync_hosts`    | `hosts`            | `hosts`           | `services::hosts::list_hosts`                       | `hosts/{id}/password`、`hosts/{id}/proxy_password` |
+| 〃               | `accounts`         | `accounts`        | `services::accounts::list_accounts`                 | `accounts/{id}/password`                          |
+| 〃               | `sftp_connections` | `sftpConnections` | `services::sftp_connections::list_sftp_connections` | `sftp/{id}/password`、`sftp/{id}/passphrase`       |
+| 〃               | `port_forwardings` | `portForwardings` | 本文件 `collect_port_forwardings`（直查 SQL）              | `portforwardings/{id}/socks_password`             |
+| 〃               | `remote_conns`     | `remoteConns`     | `services::remotes::list_remote_conns`              | `remote/{id}/password`                            |
+| 〃               | `known_hosts`      | `knownHosts`      | 本文件 `collect_known_hosts`（直查 SQL）                   | —                                                 |
+| 〃               | `monitor_state`    | `monitor`         | `services::monitor_state::monitor_get_state`        | —                                                 |
+| `sync_keys`     | `keys`             | `keys`            | 本文件 `collect_keys` + `keys::load_key_content`       | — （内容在 packet 里）                                  |
+| 〃               | `certificates`     | `certificates`    | 本文件 `collect_certificates`                          | —                                                 |
+| `sync_snippets` | `snippets`         | `snippets`        | `services::snippets::list_snippets`                 | —                                                 |
+| `sync_settings` | `settings`         | `settings`（恒记 1）  | 本文件 `collect_settings`                              | — （`cloud` 段永不进包）                                 |
 
 ### 4.2 凭据模型（本模块的隐式契约）
 
@@ -227,23 +226,23 @@ struct CloudPacket {
 
 **客户端实际使用的端点**：
 
-| 端点 | 方法 | 用途 | 客户端实现 | 参考服务器 |
-| --- | --- | --- | --- | --- |
-| `/{server_key}` | POST | 上传密文（body 即密文文本） | `upload_packet` :968 | ✅ |
-| `/{server_key}` | GET | 下载密文 | `download_packet` :994 | ✅ |
-| `/{server_key}/meta` | GET | 服务端元信息（version/updated_at/size） | `fetch_meta` :1040 | ✅（v2 已补） |
-| `/{root}/healthz` | GET | 连通性探测 | `cloud_test_connection` :1054 | ✅（v2 已补） |
+| 端点                   | 方法   | 用途                              | 客户端实现                         | 参考服务器    |
+| -------------------- | ---- | ------------------------------- | ----------------------------- | -------- |
+| `/{server_key}`      | POST | 上传密文（body 即密文文本）                | `upload_packet` :968          | ✅        |
+| `/{server_key}`      | GET  | 下载密文                            | `download_packet` :994        | ✅        |
+| `/{server_key}/meta` | GET  | 服务端元信息（version/updated_at/size） | `fetch_meta` :1040            | ✅（v2 已补） |
+| `/{root}/healthz`    | GET  | 连通性探测                           | `cloud_test_connection` :1054 | ✅（v2 已补） |
 
 **参考服务器额外提供、客户端尚未使用的端点**（curl 或后续 UI 可用）：
 
-| 端点 | 方法 | 用途 |
-| --- | --- | --- |
-| `/{server_key}` | HEAD | 只取元信息响应头，不传 body |
-| `/{server_key}` | DELETE | 删除当前密文（先归档，仍可回滚恢复） |
-| `/{server_key}/versions` | GET | 版本列表（含当前版本，倒序） |
-| `/{server_key}/versions/{version}` | GET | 取指定版本的密文 |
-| `/{server_key}/rollback?version=N` | POST | 回滚到指定版本（追加为新版本，不丢历史） |
-| `/` | GET | 服务描述与端点清单（免鉴权，便于排障） |
+| 端点                                 | 方法     | 用途                   |
+| ---------------------------------- | ------ | -------------------- |
+| `/{server_key}`                    | HEAD   | 只取元信息响应头，不传 body     |
+| `/{server_key}`                    | DELETE | 删除当前密文（先归档，仍可回滚恢复）   |
+| `/{server_key}/versions`           | GET    | 版本列表（含当前版本，倒序）       |
+| `/{server_key}/versions/{version}` | GET    | 取指定版本的密文             |
+| `/{server_key}/rollback?version=N` | POST   | 回滚到指定版本（追加为新版本，不丢历史） |
+| `/`                                | GET    | 服务描述与端点清单（免鉴权，便于排障）  |
 
 **并发控制**：上传可带 `If-Match: "v{n}"`（乐观锁，不匹配 → `412`）或 `If-None-Match: *`（仅当云端无数据才允许写）；下载带 `If-None-Match` 命中 → `304`。见 §14 第 3、9 步，客户端接线尚未开始。
 
@@ -268,11 +267,11 @@ struct CloudPacket {
 
 ### 6.1 对照表
 
-| 方向 | 读云端 | 写本地 | 写云端 | 同 id 冲突 |
-| --- | --- | --- | --- | --- |
-| `upload` | — | — | ✅ 覆盖（服务端整文件覆写） | 不涉及（不读云端） |
-| `download` | ✅ | ✅ **upsert，云端为准** | — | **云端覆盖本地** |
-| `bidirectional` | ✅ | ✅ **仅新增**（本地已有则跳过） | ✅ 覆盖 | **保留本地**，计入 `skipped` |
+| 方向              | 读云端 | 写本地                | 写云端            | 同 id 冲突               |
+| --------------- | --- | ------------------ | -------------- | --------------------- |
+| `upload`        | —   | —                  | ✅ 覆盖（服务端整文件覆写） | 不涉及（不读云端）             |
+| `download`      | ✅   | ✅ **upsert，云端为准**  | —              | **云端覆盖本地**            |
+| `bidirectional` | ✅   | ✅ **仅新增**（本地已有则跳过） | ✅ 覆盖           | **保留本地**，计入 `skipped` |
 
 ⚠️ **这是本模块最需要记住的一点：两个「下载类」方向的冲突语义是相反的。**
 
@@ -316,14 +315,14 @@ struct CloudPacket {
 
 ## 7. 合并与冲突策略（逐类目）
 
-| 类目 | `download`（云端为准） | `bidirectional`（本地优先） | 特殊规则 |
-| --- | --- | --- | --- |
-| hosts / accounts / sftp / forwardings / remote_conns | `ON CONFLICT(id) DO UPDATE` 全字段覆盖 | 仅插入本地不存在的 id | 覆盖含 `group_name/tags/favorite/backend/algo_profile/os_auto` 等本地偏好字段 |
-| keys / certificates | upsert 记录 + 覆盖内容列 | 仅新增 id | 恢复时把 `*_path` 置 NULL，只留内容列（与「材料入 DB」的既有约定一致） |
-| snippets | upsert 全字段 | 仅新增 | — |
-| known_hosts | 见下 | 同左 | 按 `host + key_type` 去重，本地已存在则跳过 |
-| monitor_state | 见下 | 同左 | 引用校验后整行覆盖 |
-| settings | 八段整段覆盖 | 八段整段覆盖 | 无 id，无法「仅新增」 |
+| 类目                                                   | `download`（云端为准）                  | `bidirectional`（本地优先） | 特殊规则                                                                |
+| ---------------------------------------------------- | --------------------------------- | --------------------- | ------------------------------------------------------------------- |
+| hosts / accounts / sftp / forwardings / remote_conns | `ON CONFLICT(id) DO UPDATE` 全字段覆盖 | 仅插入本地不存在的 id          | 覆盖含 `group_name/tags/favorite/backend/algo_profile/os_auto` 等本地偏好字段 |
+| keys / certificates                                  | upsert 记录 + 覆盖内容列                 | 仅新增 id                | 恢复时把 `*_path` 置 NULL，只留内容列（与「材料入 DB」的既有约定一致）                        |
+| snippets                                             | upsert 全字段                        | 仅新增                   | —                                                                   |
+| known_hosts                                          | 见下                                | 同左                    | 按 `host + key_type` 去重，本地已存在则跳过                                     |
+| monitor_state                                        | 见下                                | 同左                    | 引用校验后整行覆盖                                                           |
+| settings                                             | 八段整段覆盖                            | 八段整段覆盖                | 无 id，无法「仅新增」                                                        |
 
 ### 7.1 known_hosts 的特例
 
@@ -361,12 +360,12 @@ struct CloudPacket {
 
 位于 `utils::path::app_data_dir()`（即系统 data 目录下的应用目录），由 `read_sync_state` / `write_sync_state`（`:1101`、`:1109`）读写。
 
-| 字段 | 写入时机 | 当前用途 |
-| --- | --- | --- |
-| `last_sync_at` | 每个方向成功后 | 设置页显示「上次同步时间」 |
-| `last_direction` | 同上 | 仅记录 |
+| 字段                      | 写入时机                     | 当前用途                 |
+| ----------------------- | ------------------------ | -------------------- |
+| `last_sync_at`          | 每个方向成功后                  | 设置页显示「上次同步时间」        |
+| `last_direction`        | 同上                       | 仅记录                  |
 | `last_cloud_updated_at` | download / bidirectional | 仅记录（服务端 /meta 缺失时恒空） |
-| `last_cloud_version` | download / bidirectional | 仅记录（同上恒 0） |
+| `last_cloud_version`    | download / bidirectional | 仅记录（同上恒 0）           |
 
 ⚠️ 该文件**只用于展示**，不参与任何决策：没有「云端版本变了才同步」的判断，也没有用它做冲突裁决。写入失败被 `let _ =` 吞掉（`:1112`），不影响同步结果。`upload` 方向会把 `last_cloud_*` 显式重置为空/0。
 
@@ -397,11 +396,11 @@ struct CloudPacket {
 
 ### 9.1 三条命令（`lib.rs:224-226`）
 
-| 命令 | 签名 | 返回 | 说明 |
-| --- | --- | --- | --- |
-| `cloud_sync_now` | `(app, config_state, direction: String)` | `SyncReport` | 主入口；`direction` 非法值返回「不支持的同步方向：{x}」 |
-| `cloud_sync_state` | `()` | `SyncStateFile` | 读状态文件，供设置页展示 |
-| `cloud_test_connection` | `(config_state)` | `CloudMeta` | 连通性探测 |
+| 命令                      | 签名                                       | 返回              | 说明                                  |
+| ----------------------- | ---------------------------------------- | --------------- | ----------------------------------- |
+| `cloud_sync_now`        | `(app, config_state, direction: String)` | `SyncReport`    | 主入口；`direction` 非法值返回「不支持的同步方向：{x}」 |
+| `cloud_sync_state`      | `()`                                     | `SyncStateFile` | 读状态文件，供设置页展示                        |
+| `cloud_test_connection` | `(config_state)`                         | `CloudMeta`     | 连通性探测                               |
 
 前置校验（`cloud_sync_now`）：`enabled == false` → 「云同步未启用，请先在设置中开启」；`server_key` 空 → 「未配置服务器密钥（server_key）」。
 
@@ -418,8 +417,8 @@ SyncSkipped { category, name, reason }
 
 ### 9.3 事件
 
-| 事件 | 触发 | 消费方 |
-| --- | --- | --- |
+| 事件                     | 触发                                         | 消费方                                                                   |
+| ---------------------- | ------------------------------------------ | --------------------------------------------------------------------- |
 | `cloud-config-changed` | download / bidirectional 且包里含 `settings` 时 | `App.tsx:141-150` → `loadConfig()` 重读配置，使主题 / 字体 / 快捷键等**即时生效**（无需重启） |
 
 设计要点：`restore_settings` 已经**同时**更新内存态 `GlobaConfig` 与落盘 `config.toml`，事件只负责驱动前端 UI 重读——所以「恢复后不重启也生效」是内存态更新保证的，事件是补充而不是前提。
@@ -437,21 +436,21 @@ SyncSkipped { category, name, reason }
 
 ### 10.1 文案对照（后端 → 用户可见）
 
-| 触发点 | 文案 |
-| --- | --- |
-| 未启用 | 云同步未启用，请先在设置中开启 |
-| 缺 server_key | 未配置服务器密钥（server_key） |
-| 缺服务器地址 | 未配置服务器地址 |
-| 加密前密钥为空 | 服务器密钥为空，无法加密 / 无法解密 |
-| 上传非 2xx | 上传失败：服务器返回 HTTP {code} |
-| 下载非 2xx | 下载失败：服务器返回 HTTP {code} |
-| 网络层 | 上传失败/下载失败: {reqwest error} |
-| 密文格式不对 | 数据包格式无效（分段数 ≠ 4 或前缀非 v1） |
-| base64 解码失败 | salt / nonce / 密文解码失败: {e} |
-| GCM 认证失败 | 解密失败：服务器密钥不匹配或数据已损坏 |
-| JSON 解析失败 | 云端数据解析失败（版本不兼容或密钥不匹配） |
-| 版本越界 | 云端数据版本不兼容：本地支持 v{min}-v{max}，云端 v{n} |
-| 方向非法 | 不支持的同步方向：{x} |
+| 触发点          | 文案                                   |
+| ------------ | ------------------------------------ |
+| 未启用          | 云同步未启用，请先在设置中开启                      |
+| 缺 server_key | 未配置服务器密钥（server_key）                 |
+| 缺服务器地址       | 未配置服务器地址                             |
+| 加密前密钥为空      | 服务器密钥为空，无法加密 / 无法解密                  |
+| 上传非 2xx      | 上传失败：服务器返回 HTTP {code}               |
+| 下载非 2xx      | 下载失败：服务器返回 HTTP {code}               |
+| 网络层          | 上传失败/下载失败: {reqwest error}           |
+| 密文格式不对       | 数据包格式无效（分段数 ≠ 4 或前缀非 v1）             |
+| base64 解码失败  | salt / nonce / 密文解码失败: {e}           |
+| GCM 认证失败     | 解密失败：服务器密钥不匹配或数据已损坏                  |
+| JSON 解析失败    | 云端数据解析失败（版本不兼容或密钥不匹配）                |
+| 版本越界         | 云端数据版本不兼容：本地支持 v{min}-v{max}，云端 v{n} |
+| 方向非法         | 不支持的同步方向：{x}                         |
 
 ### 10.2 现状问题
 
@@ -465,15 +464,15 @@ SyncSkipped { category, name, reason }
 
 ### 11.1 威胁模型与对策
 
-| 威胁 | 现状 | 评价 |
-| --- | --- | --- |
-| 服务器被拖库 | 只有密文，AES-256-GCM + PBKDF2-SHA256(100k) | 达标（前提：`server_key` 足够强） |
-| 中间人 | 依赖 TLS；未提供 `https://` 前缀时也默认走 https | 部分达标：**没有证书固定（pinning）**；用户若填 `http://` 则完全明文暴露密文与 key（key 在 URL 路径里） |
-| 密钥爆破 | 无长度/强度校验，任意字符串皆可 | ⚠️ `server_key` 同时是**URL 路径**，弱 key（如 `123456`）可被离线爆破 100k PBKDF2 后解密 |
-| 重放 / 换包 | 无 nonce 计数、无 AAD、无时间戳校验 | 见 §2.3，同信任域内可接受 |
-| 越权访问 | 猜测/遍历 `server_key` 即可读写 | ⚠️ 参考服务器 v2 提供**可选的写限流**（`RATE_LIMIT`）与 **Bearer 鉴权**（`REQUIRE_TOKEN`），但**默认都关闭**；路径仍是凭据，开启鉴权后路径 key 依旧是解密密钥 |
-| 本地落盘 | DB 列空串 + keyring；同步状态文件不含秘密 | 同步状态侧达标；⚠️ 但 `server_key` 本身明文存于 `config.toml`——见 §11.3 末条 |
-| 内存残留 | 明文（密码、私钥 PEM）在 `String` 中不擦除 | ⚠️ 与 `BACKEND_DESIGN.md` §10 同一待办：`zeroize::Zeroizing` |
+| 威胁      | 现状                                     | 评价                                                                                                           |
+| ------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 服务器被拖库  | 只有密文，AES-256-GCM + PBKDF2-SHA256(100k) | 达标（前提：`server_key` 足够强）                                                                                      |
+| 中间人     | 依赖 TLS；未提供 `https://` 前缀时也默认走 https    | 部分达标：**没有证书固定（pinning）**；用户若填 `http://` 则完全明文暴露密文与 key（key 在 URL 路径里）                                        |
+| 密钥爆破    | 无长度/强度校验，任意字符串皆可                       | ⚠️ `server_key` 同时是**URL 路径**，弱 key（如 `123456`）可被离线爆破 100k PBKDF2 后解密                                        |
+| 重放 / 换包 | 无 nonce 计数、无 AAD、无时间戳校验                | 见 §2.3，同信任域内可接受                                                                                              |
+| 越权访问    | 猜测/遍历 `server_key` 即可读写                | ⚠️ 参考服务器 v2 提供**可选的写限流**（`RATE_LIMIT`）与 **Bearer 鉴权**（`REQUIRE_TOKEN`），但**默认都关闭**；路径仍是凭据，开启鉴权后路径 key 依旧是解密密钥 |
+| 本地落盘    | DB 列空串 + keyring；同步状态文件不含秘密            | 同步状态侧达标；⚠️ 但 `server_key` 本身明文存于 `config.toml`——见 §11.3 末条                                                   |
+| 内存残留    | 明文（密码、私钥 PEM）在 `String` 中不擦除           | ⚠️ 与 `BACKEND_DESIGN.md` §10 同一待办：`zeroize::Zeroizing`                                                       |
 
 ### 11.2 设计上值得肯定的两点
 
@@ -491,14 +490,14 @@ SyncSkipped { category, name, reason }
 
 参考服务器 v2 引入版本历史、条件请求、鉴权与限流。**零知识模型未被削弱**——所有归档都是完整密文，服务器依旧无法解密任何一份——但有几条事实要在 UI 与文档层向用户讲清：
 
-| 能力 | 安全性质 | 需要澄清的点 |
-| --- | --- | --- |
-| 版本历史（`HISTORY_KEEP`，默认 20） | 归档与当前 blob 同为密文，格式、加密强度完全一致 | 磁盘占用按份数线性增长；**「已经删掉的数据」在保留窗口内仍留在磁盘上** |
-| `DELETE /{key}` | **软删除**：先把当前 blob 归档进 `.history/`，再移除当前文件 | 它保证的是「可回滚」，**不是「擦除」**。要真正抹除需手工清空 `DATA_DIR`，或用加密卷 |
-| `POST /{key}/rollback` | 把历史版本**追加为新版本**，历史只增不减 | 回滚不是「撤销」，误回滚本身也会新增一版；这是有意设计（否则回滚不可逆） |
-| `If-Match` / `If-None-Match` | 只比较版本号（`"v{n}"`），**不含内容哈希** | 能防「基于过期版本的盲覆盖」，防不了同版本号下的内容替换——§2.3 的换包威胁仍在 |
-| `REQUIRE_TOKEN` | 鉴权与加密**正交**：token 决定「能不能读写」，`server_key` 决定「能不能解密」 | 开启后仍应做 §11.3 的「key 挪出 URL」，否则反代日志里留的依旧是解密密钥 |
-| `RATE_LIMIT` | **单进程内存态**计数，进程重启即清零 | 多实例部署或容器频繁重启时限制会失效；要硬限流请在反代层做 |
+| 能力                           | 安全性质                                               | 需要澄清的点                                            |
+| ---------------------------- | -------------------------------------------------- | ------------------------------------------------- |
+| 版本历史（`HISTORY_KEEP`，默认 20）   | 归档与当前 blob 同为密文，格式、加密强度完全一致                        | 磁盘占用按份数线性增长；**「已经删掉的数据」在保留窗口内仍留在磁盘上**             |
+| `DELETE /{key}`              | **软删除**：先把当前 blob 归档进 `.history/`，再移除当前文件          | 它保证的是「可回滚」，**不是「擦除」**。要真正抹除需手工清空 `DATA_DIR`，或用加密卷 |
+| `POST /{key}/rollback`       | 把历史版本**追加为新版本**，历史只增不减                             | 回滚不是「撤销」，误回滚本身也会新增一版；这是有意设计（否则回滚不可逆）              |
+| `If-Match` / `If-None-Match` | 只比较版本号（`"v{n}"`），**不含内容哈希**                        | 能防「基于过期版本的盲覆盖」，防不了同版本号下的内容替换——§2.3 的换包威胁仍在        |
+| `REQUIRE_TOKEN`              | 鉴权与加密**正交**：token 决定「能不能读写」，`server_key` 决定「能不能解密」 | 开启后仍应做 §11.3 的「key 挪出 URL」，否则反代日志里留的依旧是解密密钥       |
+| `RATE_LIMIT`                 | **单进程内存态**计数，进程重启即清零                               | 多实例部署或容器频繁重启时限制会失效；要硬限流请在反代层做                     |
 
 另有一条与「拖库」直接相关、亦写入 `cloud-server/README.md` 的事实：**磁盘文件名是 `server_key` 的 URL 编码而非哈希**，因此能读 `DATA_DIR` 的人可还原出 key 并解密全部历史版本。改成哈希会让既有部署找不到旧数据，故未默认启用——在意这一点时请在文件系统层做权限隔离。
 
@@ -506,10 +505,10 @@ SyncSkipped { category, name, reason }
 
 ## 12. 测试现状
 
-| 位置 | 用例 | 覆盖 |
-| --- | --- | --- |
+| 位置                        | 用例                                                                             | 覆盖               |
+| ------------------------- | ------------------------------------------------------------------------------ | ---------------- |
 | `cloud_sync.rs:1443-1465` | `url_encode_path_segment_encodes_unsafe_chars`、`build_base_url_handles_scheme` | URL 编码、scheme 补全 |
-| `utils/crypto.rs:90-121` | roundtrip、错误 key 失败、空 key 拒绝、salt/nonce 随机 | 加密封装本体 |
+| `utils/crypto.rs:90-121`  | roundtrip、错误 key 失败、空 key 拒绝、salt/nonce 随机                                     | 加密封装本体           |
 
 **完全缺失**（与 `BACKEND_DESIGN.md` §16 的建议一致）：
 
@@ -530,20 +529,20 @@ SyncSkipped { category, name, reason }
 
 ## 13. 缺陷与偏差清单
 
-| # | 问题 | 影响 | 建议 |
-| --- | --- | --- | --- |
-| 1 | ~~参考服务器未实现 `/healthz` / `/meta`~~ **已修复（2026-09-17）** | ~~「测试连接」对参考实现必失败；云端版本信息恒空~~ | ✅ `server.cjs` v2 已补全 `/healthz`、`/{key}/meta`（双拼写）、版本历史与回滚、ETag/条件请求、DELETE、鉴权与限流。详见 §5.2 |
-| 2 | `apply_packet` 逐条 `execute`，**无事务** | 中途失败（磁盘满/约束冲突）会留下「一半云端、一半本地」的混合态，且已写入部分不回滚 | 包一层 `conn.transaction()`；或先解析校验全部记录再统一写入 |
-| 3 | 后端无同步互斥 | 两个调用并发时互相覆盖（定时器 + 手动点击在 UI 层已挡，但后端不设防） | `AppState` 加 `Mutex<()>`/`AtomicBool` 同步闸门，忙时直接返回「同步进行中」 |
-| 4 | `resolve_secret` keyring 失败静默 | 密码可能不进 packet，但报告显示成功 → 跨设备恢复后「主机在、密码丢」 | 收集阶段统计「密码缺失」条数并放进 `SyncReport.skipped`，让用户可见 |
-| 5 | 无删除传播（无 tombstone） | A 设备删除主机后同步，B 设备上该主机**依然存在**，并被回传复活 | packet 增加 `deleted: [{table, id, at}]`，配合 `updated_at` 做墓碑回收 |
-| 6 | 无 per-item `updated_at` | 双向合并只能「本地优先」，无法做真正的时间序 LWW；多设备交替编辑会长期分叉 | 各表加 `updated_at`（或 `rev`），packet 携带，双向合并按时间戳裁决 |
-| 7 | `KeyRecordForSync` 重复声明 `KeyRecord` 字段 | 两处定义易不同步（新增字段只改一处 → 静默丢字段） | 直接复用 `models::data::KeyRecord`，用 `#[serde(rename = "type")]` 处理关键字 |
-| 8 | `CloudMeta` 缺 `rename_all = "camelCase"` | 序列化为 `updated_at`，前端读 `meta.updatedAt` 恒 undefined → 「服务器 OK（含元信息）」分支永不显示 | 加 `#[serde(rename_all = "camelCase")]`（正是项目 IPC 铁律的漏网点） |
-| 9 | `download_packet` 的 `/meta` 探测重复发两次请求 | `meta` 变量先探测再丢弃、随后 `fetch_meta` 又请求一次 | 探测结果直接解析使用，去掉 `fetch_meta` 的重复调用 |
-| 10 | 全量快照上传 | 数据量增大后每次同步的加密 + 上传成本线性上升；参考服务器 50 MB 上限 | 中期做按类目/按条目的增量协商；至少先加 gzip（JSON 压缩率通常 > 80%） |
-| 11 | `settings` 在双向合并中是整段覆盖 | 多设备时配置段互相覆盖，非「字段级合并」 | 若需要，按字段做 diff merge（每段是 `Value`，可递归合并） |
-| 12 | PBKDF2 在主线程跑 | 数据量大时阻塞 async 执行器 | 挪进 `spawn_blocking`；或缓存派生密钥（同一次同步内 salt 固定，本可复用） |
+| #   | 问题                                                    | 影响                                                                        | 建议                                                                                         |
+| --- | ----------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| 1   | ~~参考服务器未实现 `/healthz` / `/meta`~~ **已修复（2026-09-17）** | ~~「测试连接」对参考实现必失败；云端版本信息恒空~~                                               | ✅ `server.cjs` v2 已补全 `/healthz`、`/{key}/meta`（双拼写）、版本历史与回滚、ETag/条件请求、DELETE、鉴权与限流。详见 §5.2 |
+| 2   | `apply_packet` 逐条 `execute`，**无事务**                   | 中途失败（磁盘满/约束冲突）会留下「一半云端、一半本地」的混合态，且已写入部分不回滚                                | 包一层 `conn.transaction()`；或先解析校验全部记录再统一写入                                                   |
+| 3   | 后端无同步互斥                                               | 两个调用并发时互相覆盖（定时器 + 手动点击在 UI 层已挡，但后端不设防）                                    | `AppState` 加 `Mutex<()>`/`AtomicBool` 同步闸门，忙时直接返回「同步进行中」                                   |
+| 4   | `resolve_secret` keyring 失败静默                         | 密码可能不进 packet，但报告显示成功 → 跨设备恢复后「主机在、密码丢」                                   | 收集阶段统计「密码缺失」条数并放进 `SyncReport.skipped`，让用户可见                                               |
+| 5   | 无删除传播（无 tombstone）                                    | A 设备删除主机后同步，B 设备上该主机**依然存在**，并被回传复活                                       | packet 增加 `deleted: [{table, id, at}]`，配合 `updated_at` 做墓碑回收                               |
+| 6   | 无 per-item `updated_at`                               | 双向合并只能「本地优先」，无法做真正的时间序 LWW；多设备交替编辑会长期分叉                                   | 各表加 `updated_at`（或 `rev`），packet 携带，双向合并按时间戳裁决                                             |
+| 7   | `KeyRecordForSync` 重复声明 `KeyRecord` 字段                | 两处定义易不同步（新增字段只改一处 → 静默丢字段）                                                | 直接复用 `models::data::KeyRecord`，用 `#[serde(rename = "type")]` 处理关键字                         |
+| 8   | `CloudMeta` 缺 `rename_all = "camelCase"`              | 序列化为 `updated_at`，前端读 `meta.updatedAt` 恒 undefined → 「服务器 OK（含元信息）」分支永不显示 | 加 `#[serde(rename_all = "camelCase")]`（正是项目 IPC 铁律的漏网点）                                    |
+| 9   | `download_packet` 的 `/meta` 探测重复发两次请求                 | `meta` 变量先探测再丢弃、随后 `fetch_meta` 又请求一次                                     | 探测结果直接解析使用，去掉 `fetch_meta` 的重复调用                                                           |
+| 10  | 全量快照上传                                                | 数据量增大后每次同步的加密 + 上传成本线性上升；参考服务器 50 MB 上限                                   | 中期做按类目/按条目的增量协商；至少先加 gzip（JSON 压缩率通常 > 80%）                                                |
+| 11  | `settings` 在双向合并中是整段覆盖                                | 多设备时配置段互相覆盖，非「字段级合并」                                                      | 若需要，按字段做 diff merge（每段是 `Value`，可递归合并）                                                     |
+| 12  | PBKDF2 在主线程跑                                          | 数据量大时阻塞 async 执行器                                                         | 挪进 `spawn_blocking`；或缓存派生密钥（同一次同步内 salt 固定，本可复用）                                           |
 
 ---
 
@@ -573,23 +572,23 @@ SyncSkipped { category, name, reason }
 
 所以「团队空间」不是孤立功能，而是**对 §14 第 7、8 步的组合消费**：
 
-| 依赖 | 为什么在团队场景是硬依赖 |
-| --- | --- |
+| 依赖                      | 为什么在团队场景是硬依赖             |
+| ----------------------- | ------------------------ |
 | §14-7 `updated_at` + 墓碑 | 多写者必须有时间序裁决与删除传播，否则必然丢数据 |
-| §14-8 信封加密 | 成员进出要能换密钥，而不能重传/重加密全量数据 |
+| §14-8 信封加密              | 成员进出要能换密钥，而不能重传/重加密全量数据  |
 
 ### 15.2 先选路线：L（多空间）还是 H（成员制）
 
-| | 路线 L：多空间 | 路线 H：成员制空间 |
-| --- | --- | --- |
-| 核心 | `Config.cloud` 从单份变多份，每个空间独立 `server_key` / 开关 / 方向 / 自动同步策略 | 一个空间多成员，各有独立凭据与权限 |
-| 服务器改动 | **零** | 成员表 + Bearer 鉴权 + 空间元数据 |
-| 加密改动 | **零** | 三层密钥（DEK + 每成员**公钥**封装；对称 KEK 为降级变体，见 §16.4） |
-| packet 改动 | **零** | v3（per-item 时间戳 + 墓碑） |
-| 能否撤销单人 | ❌ 换 key = 全员重配 | ✅ 重包 DEK |
-| 能否区分身份 / 审计 | ❌ | ✅ |
-| 前置依赖 | 无 | §14-7、§14-8 |
-| 改动面 | 配置层 + 设置页（约一屏 UI + 配置迁移） | 服务端 + 加密 + 合并算法，跨三层 |
+|             | 路线 L：多空间                                                     | 路线 H：成员制空间                                   |
+| ----------- | ------------------------------------------------------------ | -------------------------------------------- |
+| 核心          | `Config.cloud` 从单份变多份，每个空间独立 `server_key` / 开关 / 方向 / 自动同步策略 | 一个空间多成员，各有独立凭据与权限                            |
+| 服务器改动       | **零**                                                        | 成员表 + Bearer 鉴权 + 空间元数据                      |
+| 加密改动        | **零**                                                        | 三层密钥（DEK + 每成员**公钥**封装；对称 KEK 为降级变体，见 §16.4） |
+| packet 改动   | **零**                                                        | v3（per-item 时间戳 + 墓碑）                        |
+| 能否撤销单人      | ❌ 换 key = 全员重配                                               | ✅ 重包 DEK                                     |
+| 能否区分身份 / 审计 | ❌                                                            | ✅                                            |
+| 前置依赖        | 无                                                            | §14-7、§14-8                                  |
+| 改动面         | 配置层 + 设置页（约一屏 UI + 配置迁移）                                     | 服务端 + 加密 + 合并算法，跨三层                          |
 
 **建议先做 L。** 理由：
 
@@ -640,11 +639,11 @@ spaces/{space_id}/
 - `member_token` 走 `Authorization: Bearer`，**不再出现在 URL 路径**，顺带修掉 §11.3 的反代日志泄漏问题。
 - ⚠️ **泄漏面增量**（团队化不可避免，需在 UI 里向用户说明）：
 
-| 服务器现在能知道 | 仍然不知道 |
-| --- | --- |
-| 成员数量、加入 / 离开时间 | 主机、账号、密码、私钥、配置的任何内容 |
-| 每人的上传 / 下载频率、blob 大小与版本号 | 条目数量、分组、标签、会话内容 |
-| 空间创建时间、最后活跃时间 | —— |
+| 服务器现在能知道                 | 仍然不知道               |
+| ------------------------ | ------------------- |
+| 成员数量、加入 / 离开时间           | 主机、账号、密码、私钥、配置的任何内容 |
+| 每人的上传 / 下载频率、blob 大小与版本号 | 条目数量、分组、标签、会话内容     |
+| 空间创建时间、最后活跃时间            | ——                  |
 
 对多数自建场景可接受。若要隐藏「成员数」，服务器就只能存一串 token 哈希而不存 member_id——但审计能力随之消失，二者不可兼得。
 
@@ -652,16 +651,16 @@ spaces/{space_id}/
 
 > **本节只给形状；完整契约（15 个端点的请求/响应/状态码、角色矩阵、邀请与 rekey 时序、错误码、迁移步骤、验收用例）见 §16。**
 
-| 端点 | 方法 | 用途 | 鉴权 |
-| --- | --- | --- | --- |
-| `/spaces` | POST | 创建空间（首个成员即 owner） | 🔓 + `SPACE_CREATE_TOKEN` |
-| `/spaces/{spaceId}` | GET / HEAD / PUT / DELETE | blob 读写；PUT 需 `If-Match: <etag>` | Bearer（DELETE 仅 owner） |
-| `/spaces/{spaceId}/me` | GET | 一次取全：自己的 `wrappedDek`(±上一个 epoch) / `epoch` / `role` / `etag` | Bearer |
-| `/spaces/{spaceId}/members[/{memberId}]` | GET / PUT / DELETE | 列成员、写入包裹、撤销 | Bearer（PUT/DELETE 仅 owner） |
-| `/spaces/{spaceId}/invites` · `/join` · `/pending` | POST / GET | 邀请登记、新人加入、owner 取待处理申请 | 混合，见 §16.5 |
-| `/spaces/{spaceId}/rekey` | POST | 原子替换全部 `wrappedDek` 并递增 `epoch` | 仅 owner |
-| `/spaces/{spaceId}/meta` · `/versions*` · `/rollback` | GET / POST | 元信息与版本历史（复用 v2） | Bearer |
-| `/healthz` · `/` | GET | 探活与服务描述（免鉴权） | 无 |
+| 端点                                                    | 方法                        | 用途                                                            | 鉴权                         |
+| ----------------------------------------------------- | ------------------------- | ------------------------------------------------------------- | -------------------------- |
+| `/spaces`                                             | POST                      | 创建空间（首个成员即 owner）                                             | 🔓 + `SPACE_CREATE_TOKEN`  |
+| `/spaces/{spaceId}`                                   | GET / HEAD / PUT / DELETE | blob 读写；PUT 需 `If-Match: <etag>`                              | Bearer（DELETE 仅 owner）     |
+| `/spaces/{spaceId}/me`                                | GET                       | 一次取全：自己的 `wrappedDek`(±上一个 epoch) / `epoch` / `role` / `etag` | Bearer                     |
+| `/spaces/{spaceId}/members[/{memberId}]`              | GET / PUT / DELETE        | 列成员、写入包裹、撤销                                                   | Bearer（PUT/DELETE 仅 owner） |
+| `/spaces/{spaceId}/invites` · `/join` · `/pending`    | POST / GET                | 邀请登记、新人加入、owner 取待处理申请                                        | 混合，见 §16.5                 |
+| `/spaces/{spaceId}/rekey`                             | POST                      | 原子替换全部 `wrappedDek` 并递增 `epoch`                               | 仅 owner                    |
+| `/spaces/{spaceId}/meta` · `/versions*` · `/rollback` | GET / POST                | 元信息与版本历史（复用 v2）                                               | Bearer                     |
+| `/healthz` · `/`                                      | GET                       | 探活与服务描述（免鉴权）                                                  | 无                          |
 
 ⚠️ **零知识下的权限是「协议级」而非「密码学级」**：服务器能按 role 拒绝 `viewer` 的 PUT，但无法阻止他解密后另存他处。角色只能约束行为，不能约束认知。
 
@@ -669,20 +668,20 @@ spaces/{space_id}/
 
 复用现有的 `Host.group` / `Host.tags`（`models/data.rs:41`、`:43`）：
 
-| 范围 | 实现 | 说明 |
-| --- | --- | --- |
-| 空间级 | 默认，全部类目 | 等于现状语义 + 多成员 |
-| 分组级 | `collect_packet` 增加 group 白名单过滤 | 只把命中分组的主机放进包——「前端组给你、生产组给他」 |
-| 条目级 | 每条带 `owner_member_id`（packet v3 新字段） | 实为「空间内的私人分区」，只在自己设备间同步 |
+| 范围  | 实现                                   | 说明                          |
+| --- | ------------------------------------ | --------------------------- |
+| 空间级 | 默认，全部类目                              | 等于现状语义 + 多成员                |
+| 分组级 | `collect_packet` 增加 group 白名单过滤      | 只把命中分组的主机放进包——「前端组给你、生产组给他」 |
+| 条目级 | 每条带 `owner_member_id`（packet v3 新字段） | 实为「空间内的私人分区」，只在自己设备间同步      |
 
 ⚠️ **凭据才是团队化的真正难点**：现状 `Host.password` 是明文进包（§4.2），共享主机就等于**共享密码**。建议把凭据拆成独立开关，默认**不随主机共享**——组员看到主机条目，但密码栏需自填（keyring 里带 `owner_member_id` 作用域）。这比「全员共用一个 sudo 密码」安全得多。
 
 角色只需最小三档：
 
-| 角色 | 权限 |
-| --- | --- |
-| owner | 增删成员、调整共享范围、读写 |
-| editor | 读写业务数据 |
+| 角色     | 权限                     |
+| ------ | ---------------------- |
+| owner  | 增删成员、调整共享范围、读写         |
+| editor | 读写业务数据                 |
 | viewer | 只读（服务器拒绝 PUT；客户端隐藏写入口） |
 
 ### 15.7 并发、迁移与兼容
@@ -707,41 +706,41 @@ spaces/{space_id}/
 
 ### 15.9 风险小结
 
-| 风险 | 等级 | 缓解 |
-| --- | --- | --- |
-| 密钥层数从 1 变 3，用户配错 | 高 | UI 把复杂度藏起来：创建空间一键生成（自动生成密钥对）、加入 = 粘贴邀请码 + owner 审批；`server_key` 这个用户概念在迁移后保留为兼容材料（§16.10） |
-| 撤销语义被误解为「远程擦除」 | 中 | UI 明示「已同步过的数据无法回收」 |
-| 重加密全量 blob 的窗口期 | 中 | 双 DEK 过渡（读旧写新），或大空间上做「撤销后首次写入时惰性重加密」 |
-| 服务器元数据泄漏成员信息 | 中 | 文档化可见面；提供「单成员空间」等价现状模式 |
-| 加密 + 合并 + 服务器 + UI 交叉改动 | 高 | 严格按 15.2 的两条路线分段，每段独立可用 |
+| 风险                      | 等级  | 缓解                                                                                        |
+| ----------------------- | --- | ----------------------------------------------------------------------------------------- |
+| 密钥层数从 1 变 3，用户配错        | 高   | UI 把复杂度藏起来：创建空间一键生成（自动生成密钥对）、加入 = 粘贴邀请码 + owner 审批；`server_key` 这个用户概念在迁移后保留为兼容材料（§16.10） |
+| 撤销语义被误解为「远程擦除」          | 中   | UI 明示「已同步过的数据无法回收」                                                                        |
+| 重加密全量 blob 的窗口期         | 中   | 双 DEK 过渡（读旧写新），或大空间上做「撤销后首次写入时惰性重加密」                                                      |
+| 服务器元数据泄漏成员信息            | 中   | 文档化可见面；提供「单成员空间」等价现状模式                                                                    |
+| 加密 + 合并 + 服务器 + UI 交叉改动 | 高   | 严格按 15.2 的两条路线分段，每段独立可用                                                                   |
 
 ---
 
 ## 16. 服务端协议规格：成员制空间（可实施）
 
 > 定位：§15 讲「为什么这么做、代价是什么」，本节讲「具体怎么做」。这是**待实现的规格**，不是现状——`cloud-server/server.cjs` v2 目前只实现了 `/{server_key}` 单密钥模型。
->
+> 
 > 与服务端 v2 的关系：v2 已经具备本规格依赖的两块地基——**Bearer 鉴权**（`REQUIRE_TOKEN`）与 **ETag + 版本历史**（并发裁决、rekey 后回滚）。本节是在其上扩展，不是重写。
 
 ### 16.1 设计约束
 
-| 约束 | 说明 |
-| --- | --- |
-| 零依赖（服务端） | 服务器只能用 Node 内置 `http`/`https`/`fs`/`crypto`/`path`。**这决定了 token 哈希算法**（见 §16.3）。注意：服务器**不参与任何密码学操作**——所有封装/解封都在客户端，服务器只是字节搬运工 |
-| 零知识不退化 | 服务器新增的全是元数据与「包裹后的密钥」。绝不出现 `DEK`、任何私钥、任何能直接解密的对称秘密 |
-| 路径不使用凭据 | 空间寻址用随机 `spaceId`，**凭据走 `Authorization: Bearer`**——顺带修掉 §11.3 的反代日志泄漏 |
-| 与 v2 端点共存 | `/spaces/...` 是新增前缀；老的 `/{serverKey}` 原样保留（迁移见 §16.10） |
-| 算法复用现有依赖 | 对称部分沿用 `utils/crypto.rs` 的 PBKDF2-SHA256(100k) + AES-256-GCM；**成员密钥的包裹改用非对称方案**：`x25519-dalek` + `hkdf` + `aes-gcm`，三者**都已在 `Cargo.lock` 解析树中**（russh 链路拉入，见 §16.4 注 1） |
-| 带外只传非秘密 | §16.7 的邀请流程中，任何带外传输的内容（`inviteId`、公钥）**都不是秘密**。这是相对早期方案的硬性改进目标 |
+| 约束        | 说明                                                                                                                                                                      |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 零依赖（服务端）  | 服务器只能用 Node 内置 `http`/`https`/`fs`/`crypto`/`path`。**这决定了 token 哈希算法**（见 §16.3）。注意：服务器**不参与任何密码学操作**——所有封装/解封都在客户端，服务器只是字节搬运工                                           |
+| 零知识不退化    | 服务器新增的全是元数据与「包裹后的密钥」。绝不出现 `DEK`、任何私钥、任何能直接解密的对称秘密                                                                                                                       |
+| 路径不使用凭据   | 空间寻址用随机 `spaceId`，**凭据走 `Authorization: Bearer`**——顺带修掉 §11.3 的反代日志泄漏                                                                                                   |
+| 与 v2 端点共存 | `/spaces/...` 是新增前缀；老的 `/{serverKey}` 原样保留（迁移见 §16.10）                                                                                                                  |
+| 算法复用现有依赖  | 对称部分沿用 `utils/crypto.rs` 的 PBKDF2-SHA256(100k) + AES-256-GCM；**成员密钥的包裹改用非对称方案**：`x25519-dalek` + `hkdf` + `aes-gcm`，三者**都已在 `Cargo.lock` 解析树中**（russh 链路拉入，见 §16.4 注 1） |
+| 带外只传非秘密   | §16.7 的邀请流程中，任何带外传输的内容（`inviteId`、公钥）**都不是秘密**。这是相对早期方案的硬性改进目标                                                                                                          |
 
 ### 16.2 标识与命名
 
-| 标识 | 生成方 | 格式 | 说明 |
-| --- | --- | --- | --- |
-| `spaceId` | 客户端（创建者） | base64url(16B)，22 字符，`[A-Za-z0-9_-]` | 服务器不生成，避免引入随机数质量与碰撞责任；**必须校验格式**，这是防路径穿越的第一道闸 |
-| `memberId` | 客户端（本人） | 同上 | 每成员一个，创建者即 owner 的 memberId |
-| `inviteId` | 客户端（owner） | 同上 | 一次性邀请的登记标识 |
-| `memberToken` | 客户端（本人） | base64url(32B)，43 字符 | 只在上报时明文传输一次（TLS），服务器存哈希 |
+| 标识            | 生成方        | 格式                                   | 说明                                            |
+| ------------- | ---------- | ------------------------------------ | --------------------------------------------- |
+| `spaceId`     | 客户端（创建者）   | base64url(16B)，22 字符，`[A-Za-z0-9_-]` | 服务器不生成，避免引入随机数质量与碰撞责任；**必须校验格式**，这是防路径穿越的第一道闸 |
+| `memberId`    | 客户端（本人）    | 同上                                   | 每成员一个，创建者即 owner 的 memberId                   |
+| `inviteId`    | 客户端（owner） | 同上                                   | 一次性邀请的登记标识                                    |
+| `memberToken` | 客户端（本人）    | base64url(32B)，43 字符                 | 只在上报时明文传输一次（TLS），服务器存哈希                       |
 
 - **保留首段**：服务器必须拒绝把 `spaces` / `healthz` / `index` 之外的任何**保留字**当作 legacy `server_key`，同时在创建空间时拒绝与保留字同名的 `spaceId`。老 `server_key` 侧也要拒绝 `spaces`（否则路由歧义）。
 - 路径语法：`/spaces/{spaceId}[...]`、legacy `/…`。二者**逐段解码**（同 v2 的 `%2F` 处理），`blobPath` 式的 `path.dirname` 校验在空间目录上照做一遍。
@@ -783,10 +782,10 @@ k      = HKDF-SHA256(ss, salt = eph_pk, info = "swallow-dek-v1") → 32B
 
 **三代信封格式并存**（迁移的关键，见 §16.10）：
 
-| 格式 | 密钥来源 | 用途 |
-| --- | --- | --- |
-| `v1.{salt}.{nonce}.{cipher}` | `PBKDF2(passphrase, salt, 100k)` | **现状**：legacy 单密钥 blob；迁移后**只在读取旧 blob 时出现** |
-| `v2.{nonce}.{cipher}` | 直接是 32B 密钥（DEK） | **新增**：blob 本体。不再需要 salt，因为 blob 层没有 KDF |
+| 格式                                 | 密钥来源                              | 用途                                            |
+| ---------------------------------- | --------------------------------- | --------------------------------------------- |
+| `v1.{salt}.{nonce}.{cipher}`       | `PBKDF2(passphrase, salt, 100k)`  | **现状**：legacy 单密钥 blob；迁移后**只在读取旧 blob 时出现**  |
+| `v2.{nonce}.{cipher}`              | 直接是 32B 密钥（DEK）                   | **新增**：blob 本体。不再需要 salt，因为 blob 层没有 KDF      |
 | `sealed.{eph_pk}.{nonce}.{cipher}` | `ECDH(eph_sk, pk_i)` → HKDF → 32B | **新增**：`wrapped_dek`。自描述，独立前缀，不与 `v1`/`v2` 混淆 |
 
 - ⚠️ 客户端 `crypto.rs::decrypt` 目前硬校验 `parts.len() == 4 && parts[0] == "v1"`（`crypto.rs:58`），**必须改成按首段分派**。这是客户端接线工作的一部分。
@@ -797,12 +796,12 @@ k      = HKDF-SHA256(ss, salt = eph_pk, info = "swallow-dek-v1") → 32B
 
 **注 1：依赖可用性（已核实 `Cargo.lock`）**
 
-| crate | 锁文件中版本 | 来源 | 用途 |
-| --- | --- | --- | --- |
-| `x25519-dalek` | `3.0.0-rc.1` | russh 链路间接引入 | ECDH |
-| `hkdf` | `0.12.4` | 已在解析树 | 共享秘密 → AEAD 密钥 |
-| `aes-gcm` | `0.10.3` | 项目直接依赖 | AEAD |
-| `ed25519-dalek` | `3.0.0-rc.1` | russh 链路间接引入 | §17 的签名认证 |
+| crate           | 锁文件中版本       | 来源           | 用途             |
+| --------------- | ------------ | ------------ | -------------- |
+| `x25519-dalek`  | `3.0.0-rc.1` | russh 链路间接引入 | ECDH           |
+| `hkdf`          | `0.12.4`     | 已在解析树        | 共享秘密 → AEAD 密钥 |
+| `aes-gcm`       | `0.10.3`     | 项目直接依赖       | AEAD           |
+| `ed25519-dalek` | `3.0.0-rc.1` | russh 链路间接引入 | §17 的签名认证      |
 
 ⚠️ **两个必须先处理掉的坑**：
 
@@ -819,29 +818,30 @@ k      = HKDF-SHA256(ss, salt = eph_pk, info = "swallow-dek-v1") → 32B
 
 **创建与成员**
 
-| # | 端点 | 鉴权 | 请求体 | 成功响应 |
-| --- | --- | --- | --- | --- |
-| 1 | `POST /spaces` | 🔓（见下注） | `{ spaceId, member: { memberId, memberToken, role:"owner", publicKey, wrappedDek }, meta:{ name? } }` | `201 { spaceId, memberId, role, etag, epoch }` |
-| 2 | `POST /spaces/{id}/invites` | 👑 | `{ inviteId, expiresAt }` | `201 { inviteId, expiresAt }` |
-| 3 | `POST /spaces/{id}/join` | 🔓（凭 `inviteId`） | `{ inviteId, memberId, memberToken, publicKey }` | `202 { status:"pending", memberId }` |
-| 4 | `GET /spaces/{id}/pending` | 👑 | — | `200 { pending:[ { memberId, publicKey, requestedAt } ] }` |
-| 5 | `PUT /spaces/{id}/members/{memberId}` | 👑 | `{ publicKey, wrappedDek, epoch }` | `200 { memberId, epoch }` |
-| 6 | `GET /spaces/{id}/members` | 🔑 | — | `200 { members:[ { memberId, role, publicKey, addedAt, revokedAt } ], ownerMemberId }` |
-| 7 | `DELETE /spaces/{id}/members/{memberId}` | 👑 | — | `200 { memberId, revokedAt }` |
-| 8 | `POST /spaces/{id}/rekey` | 👑 | `{ epoch, wrappers:[ { memberId, wrappedDek } ] }` | `200 { epoch, etag }` |
-| 9 | `GET /spaces/{id}/me` | 🔑 | — | `200 { memberId, role, epoch, wrappedDek, wrappedDekPrev?, publicKey, etag, blobVersion, deleted, pendingRekey? }` |
+| #   | 端点                                       | 鉴权               | 请求体                                                                                                   | 成功响应                                                                                                               |
+| --- | ---------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| 1   | `POST /spaces`                           | 🔓（见下注）          | `{ spaceId, member: { memberId, memberToken, role:"owner", publicKey, wrappedDek }, meta:{ name? } }` | `201 { spaceId, memberId, role, etag, epoch }`                                                                     |
+| 2   | `POST /spaces/{id}/invites`              | 👑               | `{ inviteId, expiresAt }`                                                                             | `201 { inviteId, expiresAt }`                                                                                      |
+| 3   | `POST /spaces/{id}/join`                 | 🔓（凭 `inviteId`） | `{ inviteId, memberId, memberToken, publicKey }`                                                      | `202 { status:"pending", memberId }`                                                                               |
+| 4   | `GET /spaces/{id}/pending`               | 👑               | —                                                                                                     | `200 { pending:[ { memberId, publicKey, requestedAt } ] }`                                                         |
+| 5   | `PUT /spaces/{id}/members/{memberId}`    | 👑               | `{ publicKey, wrappedDek, epoch }`                                                                    | `200 { memberId, epoch }`                                                                                          |
+| 6   | `GET /spaces/{id}/members`               | 🔑               | —                                                                                                     | `200 { members:[ { memberId, role, publicKey, addedAt, revokedAt } ], ownerMemberId }`                             |
+| 7   | `DELETE /spaces/{id}/members/{memberId}` | 👑               | —                                                                                                     | `200 { memberId, revokedAt }`                                                                                      |
+| 8   | `POST /spaces/{id}/rekey`                | 👑               | `{ epoch, wrappers:[ { memberId, wrappedDek } ] }`                                                    | `200 { epoch, etag }`                                                                                              |
+| 9   | `GET /spaces/{id}/me`                    | 🔑               | —                                                                                                     | `200 { memberId, role, epoch, wrappedDek, wrappedDekPrev?, publicKey, etag, blobVersion, deleted, pendingRekey? }` |
 
 **Blob 与版本**（语义与 v2 一致，只换寻址与鉴权）
 
-| # | 端点 | 鉴权 | 说明 |
-| --- | --- | --- | --- |
-| 10 | `GET` / `HEAD` `{spaceId}` | 🔑 | 下载 / 取元信息响应头；`If-None-Match` 命中 → `304` |
-| 11 | `PUT {spaceId}` | 🔑 + role ∈ {owner, editor} | 上传密文；**要求 `If-Match: "<etag>"`**，不匹配 → `412`；可用 `If-None-Match: *` 表示首写 |
-| 12 | `DELETE {spaceId}` | 👑 | 软删除（先归档，可回滚） |
-| 13 | `GET {spaceId}/meta` | 🔑 | `{ epoch, blobVersion, etag, size, createdAt, updatedAt, history:{…} }` |
-| 14 | `GET {spaceId}/versions` · `/versions/{n}` · `POST /rollback` | 🔑（rollback 需 editor+） | 版本历史，复用 v2 实现 |
+| #   | 端点                                                            | 鉴权                          | 说明                                                                      |
+| --- | ------------------------------------------------------------- | --------------------------- | ----------------------------------------------------------------------- |
+| 10  | `GET` / `HEAD` `{spaceId}`                                    | 🔑                          | 下载 / 取元信息响应头；`If-None-Match` 命中 → `304`                                 |
+| 11  | `PUT {spaceId}`                                               | 🔑 + role ∈ {owner, editor} | 上传密文；**要求 `If-Match: "<etag>"`**，不匹配 → `412`；可用 `If-None-Match: *` 表示首写 |
+| 12  | `DELETE {spaceId}`                                            | 👑                          | 软删除（先归档，可回滚）                                                            |
+| 13  | `GET {spaceId}/meta`                                          | 🔑                          | `{ epoch, blobVersion, etag, size, createdAt, updatedAt, history:{…} }` |
+| 14  | `GET {spaceId}/versions` · `/versions/{n}` · `POST /rollback` | 🔑（rollback 需 editor+）      | 版本历史，复用 v2 实现                                                           |
 
 **注 1（`POST /spaces` 防护）**：该端点无法用 `memberToken` 鉴权（此时还没登记），否则就成了「任何人都能无限建空间」。部署侧二选一：
+
 - `SPACE_CREATE_TOKEN=…` —— 创建时额外校验此部署级口令（推荐，与 `REQUIRE_TOKEN` 独立）；
 - 或依赖内网 + `RATE_LIMIT`（保持零配置，但不防风控）。
 
@@ -849,14 +849,14 @@ k      = HKDF-SHA256(ss, salt = eph_pk, info = "swallow-dek-v1") → 32B
 
 ### 16.6 角色判定矩阵
 
-| 操作 | owner | editor | viewer |
-| --- | --- | --- | --- |
-| 读 blob / meta / versions | ✅ | ✅ | ✅ |
-| 写 blob（PUT） | ✅ | ✅ | ❌ `403` |
-| 回滚 | ✅ | ✅ | ❌ `403` |
-| 列成员 | ✅ | ✅ | ✅ |
-| 增删成员 / 创建邀请 / rekey | ✅ | ❌ `403` | ❌ `403` |
-| 删除空间 | ✅ | ❌ `403` | ❌ `403` |
+| 操作                       | owner | editor  | viewer  |
+| ------------------------ | ----- | ------- | ------- |
+| 读 blob / meta / versions | ✅     | ✅       | ✅       |
+| 写 blob（PUT）              | ✅     | ✅       | ❌ `403` |
+| 回滚                       | ✅     | ✅       | ❌ `403` |
+| 列成员                      | ✅     | ✅       | ✅       |
+| 增删成员 / 创建邀请 / rekey      | ✅     | ❌ `403` | ❌ `403` |
+| 删除空间                     | ✅     | ❌ `403` | ❌ `403` |
 
 - 判定顺序：**401**（无/坏 token）→ **403**（token 有效但角色不足）→ **404**（空间不存在）。顺序不能反：先 403 后 404 会泄漏"这个空间存在"。
 - ⚠️ 重申 §15.5 的边界：这是**协议级**权限。服务器能拒绝 viewer 的 PUT，但拦不住他把解密后的内容另存或转发。
@@ -870,22 +870,22 @@ inviteCode = base64url({ v:1, spaceId, inviteId, inviteSecret, expiresAt })
              └── inviteSecret 只用于「让服务器接受你的加入申请」，与解密无关 ──┘
 ```
 
-| 步骤 | 谁 | 动作 |
-| --- | --- | --- |
-| 1 | owner | `POST /spaces/{id}/invites { inviteId, inviteSecretHash, expiresAt }` —— 服务器只登记**哈希**（§16.5 #2） |
-| 2 | owner → 新人 | 发出 `inviteCode`（IM / 邮件 / 面对面皆可） |
-| 3 | 新人 | 本地生成：X25519 密钥对 `(sk, pk)`、`memberId`、`memberToken`，**均为随机**，私钥不出本机 |
-| 4 | 新人 | `POST /spaces/{id}/join { inviteId, inviteSecret, memberId, memberToken, publicKey }` → `202` |
-| 5 | owner | `GET /spaces/{id}/pending` → 看到申请（`publicKey` 指纹、`requestedAt`）→ **人工核对身份** |
-| 6 | owner | 本地 `wrappedDek = seal(pk, DEK_current)` → `PUT /spaces/{id}/members/{memberId} { publicKey, wrappedDek, epoch }` |
-| 7 | 新人 | `GET /me` → 用 `sk` 解封 → 拿到 DEK → 完成 |
+| 步骤  | 谁          | 动作                                                                                                               |
+| --- | ---------- | ---------------------------------------------------------------------------------------------------------------- |
+| 1   | owner      | `POST /spaces/{id}/invites { inviteId, inviteSecretHash, expiresAt }` —— 服务器只登记**哈希**（§16.5 #2）                  |
+| 2   | owner → 新人 | 发出 `inviteCode`（IM / 邮件 / 面对面皆可）                                                                                 |
+| 3   | 新人         | 本地生成：X25519 密钥对 `(sk, pk)`、`memberId`、`memberToken`，**均为随机**，私钥不出本机                                              |
+| 4   | 新人         | `POST /spaces/{id}/join { inviteId, inviteSecret, memberId, memberToken, publicKey }` → `202`                    |
+| 5   | owner      | `GET /spaces/{id}/pending` → 看到申请（`publicKey` 指纹、`requestedAt`）→ **人工核对身份**                                      |
+| 6   | owner      | 本地 `wrappedDek = seal(pk, DEK_current)` → `PUT /spaces/{id}/members/{memberId} { publicKey, wrappedDek, epoch }` |
+| 7   | 新人         | `GET /me` → 用 `sk` 解封 → 拿到 DEK → 完成                                                                              |
 
 **两把锁，缺一不可**——这是相对上一版设计的关键改进：
 
-| 锁 | 拦住什么 | 单独被突破的后果 |
-| --- | --- | --- |
+| 锁                     | 拦住什么                          | 单独被突破的后果                        |
+| --------------------- | ----------------------------- | ------------------------------- |
 | 第 4 步的 `inviteSecret` | 防止拿到 `spaceId` 的人随手产生 join 申请 | 攻击者能产生一条 pending（**但仍拿不到 DEK**） |
-| 第 5 步的 **owner 人工审批** | 防止捡到邀请码的人混进来 | 需要 owner 看走眼才会放行 |
+| 第 5 步的 **owner 人工审批** | 防止捡到邀请码的人混进来                  | 需要 owner 看走眼才会放行                |
 
 所以即使 `inviteCode` 被第三方看到，攻击者能拿到的也只是「让 owner 看到一条陌生公钥的申请」。**这与原设计的本质区别是：`inviteSecret` 不再参与任何密钥派生**，泄漏它的损失从「能解密全部数据」降为「能提交一条申请」。
 
@@ -903,12 +903,12 @@ inviteCode = base64url({ v:1, spaceId, inviteId, inviteSecret, expiresAt })
 
 撤销**必须与 rekey 成对执行**，否则被撤销者手上的 DEK 仍能解开后续所有 blob。
 
-| 序 | 动作 | 原子性要求 |
-| --- | --- | --- |
-| 1 | `DELETE /members/{id}`：置 `revokedAt`，**立即**从鉴权生效（下次请求 401） | 单文件原子写 |
-| 2 | owner 本地：新 `DEK'` = 随机 32B；对所有**未撤销**成员重包（含 owner 自己），写新 epoch | — |
-| 3 | `POST /rekey`：一次性替换 `keys.json` 并递增 `meta.epoch` | ⚠️ **必须原子**：写临时文件 + `rename`。中途失败会出现「一部分人能解、一部分人不能」 |
-| 4 | owner 用 `DEK'` 重加密当前 blob → `PUT`（带 `If-Match`） | 走正常 412 冲突流程 |
+| 序   | 动作                                                             | 原子性要求                                               |
+| --- | -------------------------------------------------------------- | --------------------------------------------------- |
+| 1   | `DELETE /members/{id}`：置 `revokedAt`，**立即**从鉴权生效（下次请求 401）     | 单文件原子写                                              |
+| 2   | owner 本地：新 `DEK'` = 随机 32B；对所有**未撤销**成员重包（含 owner 自己），写新 epoch | —                                                   |
+| 3   | `POST /rekey`：一次性替换 `keys.json` 并递增 `meta.epoch`               | ⚠️ **必须原子**：写临时文件 + `rename`。中途失败会出现「一部分人能解、一部分人不能」 |
+| 4   | owner 用 `DEK'` 重加密当前 blob → `PUT`（带 `If-Match`）                | 走正常 412 冲突流程                                        |
 
 - 第 3 步之后、第 4 步之前，blob 仍是旧 DEK 加密的 —— 这正是 §16.4 的 `epoch-1` 回退要解决的窗口。
 - 第 3 步会把被撤销者的包裹**整体丢弃**（不留任何 epoch），这是「撤销在协议层生效」的实际动作。
@@ -954,17 +954,17 @@ DATA_DIR/
 
 ### 16.11 错误码与语义
 
-| 状态 | 何时 | 响应体 |
-| --- | --- | --- |
-| `400` | 标识格式非法（非 22 字符 base64url）、缺字段、`If-Match` 格式错 | `{ error, field? }` |
-| `401` | 无/坏 `memberToken`，或成员已 `revokedAt` | `{ error:"unauthorized" }` |
-| `403` | token 有效但角色不足 | `{ error:"forbidden", need:"owner" \| "editor" }` |
-| `404` | 空间/版本/成员不存在 | `{ error, available? }` |
-| `409` | `inviteId` 已被使用（§16.5 #3 重放） | `{ error:"invite used" }` |
-| `410` | 邀请码已过期 | `{ error:"invite expired" }` |
-| `412` | `If-Match` 不匹配（并发写） | `{ error:"precondition failed", etag, epoch }` |
-| `413` | 超过 `MAX_BODY_MB` | `{ error }` |
-| `429` | 超过 `RATE_LIMIT` | `{ error, retryAfter }` |
+| 状态    | 何时                                           | 响应体                                               |
+| ----- | -------------------------------------------- | ------------------------------------------------- |
+| `400` | 标识格式非法（非 22 字符 base64url）、缺字段、`If-Match` 格式错 | `{ error, field? }`                               |
+| `401` | 无/坏 `memberToken`，或成员已 `revokedAt`           | `{ error:"unauthorized" }`                        |
+| `403` | token 有效但角色不足                                | `{ error:"forbidden", need:"owner" \| "editor" }` |
+| `404` | 空间/版本/成员不存在                                  | `{ error, available? }`                           |
+| `409` | `inviteId` 已被使用（§16.5 #3 重放）                 | `{ error:"invite used" }`                         |
+| `410` | 邀请码已过期                                       | `{ error:"invite expired" }`                      |
+| `412` | `If-Match` 不匹配（并发写）                          | `{ error:"precondition failed", etag, epoch }`    |
+| `413` | 超过 `MAX_BODY_MB`                             | `{ error }`                                       |
+| `429` | 超过 `RATE_LIMIT`                              | `{ error, retryAfter }`                           |
 
 `412` 的响应**要带上当前 `etag` 与 `epoch`**——客户端需要它做三方合并（§15.7(1)），少一次往返。
 
@@ -1035,11 +1035,11 @@ DATA_DIR/
 
 §16 落地后仍然别扭的地方，几乎都源于「服务器不知道你是谁」：
 
-| 缺口 | §16 落地后的现状 | 身份体系能提供的 |
-| --- | --- | --- |
-| 多空间各记一套凭据 | 每个空间一份 `memberToken`，用户要在 N 个空间各配一次 | 一次登录，客户端自动列出「你在哪些空间、什么角色」 |
-| 邀请靠人传 | 邀请码要发出去，owner 还要在 `/pending` 里人工核对公钥指纹 | 按身份投递：owner 选中「某人」，对方登录即收到申请 |
-| 设备不可见 | 每台设备一个密钥对，服务器不知道它们属于谁 | 设备列表、用已有设备授权新设备、单设备撤销 |
+| 缺口        | §16 落地后的现状                             | 身份体系能提供的                     |
+| --------- | -------------------------------------- | ---------------------------- |
+| 多空间各记一套凭据 | 每个空间一份 `memberToken`，用户要在 N 个空间各配一次    | 一次登录，客户端自动列出「你在哪些空间、什么角色」    |
+| 邀请靠人传     | 邀请码要发出去，owner 还要在 `/pending` 里人工核对公钥指纹 | 按身份投递：owner 选中「某人」，对方登录即收到申请 |
+| 设备不可见     | 每台设备一个密钥对，服务器不知道它们属于谁                  | 设备列表、用已有设备授权新设备、单设备撤销        |
 
 ⚠️ **反向也要说清**：身份体系**不解决**「邀请码要带外」——那个已由 §16.7 的公钥方案解决。它解决的是**发现与组织**。
 
@@ -1063,11 +1063,11 @@ DATA_DIR/
 
 ### 17.3 三层身份模型
 
-| 层 | 标识 | 密钥 | 私钥位置 | 作用 |
-| --- | --- | --- | --- | --- |
-| 身份 | `identityId` + 显示名 | ed25519（签名） | 本机 keyring | 「一个人」：投递邀请、列空间、目录搜索 |
-| 设备 | `deviceId` | 各自一对 ed25519 | 本机 keyring | 登录与签名；一台设备一把，可单独撤销 |
-| 成员 | `memberId` | X25519（封装 DEK） | 本机 keyring | 某空间里的成员身份，用于解封 DEK（§16.4） |
+| 层   | 标识                 | 密钥             | 私钥位置       | 作用                        |
+| --- | ------------------ | -------------- | ---------- | ------------------------- |
+| 身份  | `identityId` + 显示名 | ed25519（签名）    | 本机 keyring | 「一个人」：投递邀请、列空间、目录搜索       |
+| 设备  | `deviceId`         | 各自一对 ed25519   | 本机 keyring | 登录与签名；一台设备一把，可单独撤销        |
+| 成员  | `memberId`         | X25519（封装 DEK） | 本机 keyring | 某空间里的成员身份，用于解封 DEK（§16.4） |
 
 关键约束：**`memberId` 与 `identityId` 不必一一对应**。同一身份在不同空间可以是不同 `memberId`（切断跨空间关联），也可以复用——这是 §17.9 要权衡的取舍。
 
@@ -1075,27 +1075,27 @@ DATA_DIR/
 
 私钥**只存本机 keyring**（`utils/secrets.rs`，service 名 `swallow`，与现有 6 类凭据一致）。随之而来的是「新设备怎么拿到身份」：
 
-| 方案 | 做法 | 取舍 |
-| --- | --- | --- |
-| **已有设备授权**（推荐默认） | 新设备生成自己的密钥对 → 显示配对码（含其公钥）→ 在已登录设备上确认 → 老设备为「新设备加入身份」签名 | ✅ 服务器上没有任何可爆破材料；❌ 需要一台已有设备在线 |
-| **恢复码** | 注册时本地生成高熵恢复码（24 词 / 长 base32），抄写或打印保存；新设备输入后重建身份密钥 | ✅ 不需要其他设备；❌ 恢复码 ≈ 一份私钥备份，必须物理保管 |
-| ❌ 服务器托管私钥 | 私钥用账号密码加密后上传 | **不做**——正是 17.2 要避开的：服务器持有可爆破的密钥材料 |
-| ❌ 邮箱找回 | 靠邮箱验证重置身份 | **不做**——等于第三方能接管你的身份，零知识模型下不可接受 |
+| 方案               | 做法                                                     | 取舍                                 |
+| ---------------- | ------------------------------------------------------ | ---------------------------------- |
+| **已有设备授权**（推荐默认） | 新设备生成自己的密钥对 → 显示配对码（含其公钥）→ 在已登录设备上确认 → 老设备为「新设备加入身份」签名 | ✅ 服务器上没有任何可爆破材料；❌ 需要一台已有设备在线       |
+| **恢复码**          | 注册时本地生成高熵恢复码（24 词 / 长 base32），抄写或打印保存；新设备输入后重建身份密钥     | ✅ 不需要其他设备；❌ 恢复码 ≈ 一份私钥备份，必须物理保管    |
+| ❌ 服务器托管私钥        | 私钥用账号密码加密后上传                                           | **不做**——正是 17.2 要避开的：服务器持有可爆破的密钥材料 |
+| ❌ 邮箱找回           | 靠邮箱验证重置身份                                              | **不做**——等于第三方能接管你的身份，零知识模型下不可接受    |
 
 默认走「已有设备授权」；「恢复码」作为可选备份在注册后提示一次，并明确告知**它等同于你的身份**。
 
 ### 17.5 端点演进（叠加在 §16 之上）
 
-| 端点 | 方法 | 用途 |
-| --- | --- | --- |
-| `/identities` | POST | 注册：`identityId` + 设备公钥 + 显示名（与 `SPACE_CREATE_TOKEN` 同级防护） |
-| `/identities/{id}/challenge` | POST | 取登录 challenge（随机数 + 有效期） |
-| `/identities/{id}/session` | POST | 提交签名，换短期会话 token |
-| `/identities/{id}/devices` · `/devices/{deviceId}` | GET / DELETE | 列设备、撤销单设备（需另一台设备或恢复码签名） |
-| `/identities/{id}/spaces` | GET | 列出「我在哪些空间、什么角色、`epoch`、是否需要重新封装」 |
-| `/identities/{id}/invitations` | GET | 待我处理的邀请（替代 §16.7 的手工传码路径） |
-| `/directory?q=` | GET | 按显示名搜索身份（**默认关闭**，见 §17.6） |
-| `/spaces/{id}/invites` | POST | 扩展：`{ …, inviteeIdentityId? }` —— 带此字段时走身份投递 |
+| 端点                                                 | 方法           | 用途                                                        |
+| -------------------------------------------------- | ------------ | --------------------------------------------------------- |
+| `/identities`                                      | POST         | 注册：`identityId` + 设备公钥 + 显示名（与 `SPACE_CREATE_TOKEN` 同级防护） |
+| `/identities/{id}/challenge`                       | POST         | 取登录 challenge（随机数 + 有效期）                                  |
+| `/identities/{id}/session`                         | POST         | 提交签名，换短期会话 token                                          |
+| `/identities/{id}/devices` · `/devices/{deviceId}` | GET / DELETE | 列设备、撤销单设备（需另一台设备或恢复码签名）                                   |
+| `/identities/{id}/spaces`                          | GET          | 列出「我在哪些空间、什么角色、`epoch`、是否需要重新封装」                          |
+| `/identities/{id}/invitations`                     | GET          | 待我处理的邀请（替代 §16.7 的手工传码路径）                                 |
+| `/directory?q=`                                    | GET          | 按显示名搜索身份（**默认关闭**，见 §17.6）                                |
+| `/spaces/{id}/invites`                             | POST         | 扩展：`{ …, inviteeIdentityId? }` —— 带此字段时走身份投递              |
 
 ⚠️ **会话 token 与 §16 的 `memberToken` 是两套东西**：前者证明「你是某身份」，后者证明「你是某空间的某成员」。**不要**在 §16 的鉴权里直接接受身份会话——否则一次身份登录就等价于所有空间的访问权。空间访问必须仍由空间成员身份判定（§16.6）。
 
@@ -1113,12 +1113,12 @@ DATA_DIR/
 
 ⚠️ **`账号` 在本项目已被占用**，指的是 SSH 登录账号：
 
-| 现有占用 | 位置 |
-| --- | --- |
-| `menu.account: '账号'` | `src/i18n/locales/zh-CN.ts:94` |
+| 现有占用                                        | 位置                               |
+| ------------------------------------------- | -------------------------------- |
+| `menu.account: '账号'`                        | `src/i18n/locales/zh-CN.ts:94`   |
 | `account.title: 'Account Management'`（账户管理） | `src/i18n/locales/en-US.ts:1048` |
-| `cloudCategory_accounts: '账号'` | `src/i18n/locales/zh-CN.ts:384` |
-| `Account` 模型与 `accounts` 表 | `src-tauri/src/models/data.rs` |
+| `cloudCategory_accounts: '账号'`              | `src/i18n/locales/zh-CN.ts:384`  |
+| `Account` 模型与 `accounts` 表                  | `src-tauri/src/models/data.rs`   |
 
 所以云侧身份**必须另起名字**：中文**「身份」**（或「云身份」），英文 **`identity`**，i18n key 用 `identity.*` 前缀。§16 里「成员」已经指「空间里的成员」，第三个概念再叫「账号」会直接毁掉文案可读性。同理 `member` / `device` 也各有独立中文词（成员 / 设备）。
 
@@ -1150,14 +1150,14 @@ DATA_DIR/
           └─▶ §17（身份：多空间登录、邀请投递、设备管理）
 ```
 
-| 风险 | 等级 | 缓解 |
-| --- | --- | --- |
-| 私钥丢失 = 该设备不再能解数据 | 高 | 「已有设备授权」+「恢复码」双路径；注册后强制提示备份 |
-| 用户把「身份」误解为「权限」 | 中 | 文案明确区分「身份（你是谁）」与「成员角色（你能做什么）」 |
-| 组织架构图泄漏 | 中 | §17.6 三条缓解；目录搜索默认关闭 |
-| 与既有「账号」文案混淆 | 中 | §17.7 命名约定，落到 i18n 前缀 `identity.*` |
-| 跨空间可关联性被利用 | 低–中 | 允许每空间独立 `memberId`（§17.3 的取舍） |
-| 复杂度第三次翻倍 | 高 | 身份层必须**可缺席**：不注册身份时 §16 全部路径照旧可用 |
+| 风险               | 等级  | 缓解                                 |
+| ---------------- | --- | ---------------------------------- |
+| 私钥丢失 = 该设备不再能解数据 | 高   | 「已有设备授权」+「恢复码」双路径；注册后强制提示备份        |
+| 用户把「身份」误解为「权限」   | 中   | 文案明确区分「身份（你是谁）」与「成员角色（你能做什么）」      |
+| 组织架构图泄漏          | 中   | §17.6 三条缓解；目录搜索默认关闭                |
+| 与既有「账号」文案混淆      | 中   | §17.7 命名约定，落到 i18n 前缀 `identity.*` |
+| 跨空间可关联性被利用       | 低–中 | 允许每空间独立 `memberId`（§17.3 的取舍）      |
+| 复杂度第三次翻倍         | 高   | 身份层必须**可缺席**：不注册身份时 §16 全部路径照旧可用   |
 
 ⚠️ 最后一条是本节最重要的工程约束：**身份层只能是可选的叠加，不能是 §16 的前置**。任何「不注册身份就不能协作」的设计都应被拒绝——那会让这个功能变成所有单机 / 小团队用户的门槛。
 
@@ -1165,17 +1165,17 @@ DATA_DIR/
 
 ## 18. 附录：关键函数索引（`services/cloud_sync.rs`）
 
-| 关心… | 看这里 |
-| --- | --- |
-| 常量 / 版本 | `PACKET_VERSION` :26、`MIN_READABLE_VERSION` :28 |
-| 返回结构 | `SyncReport` :33、`SyncSkipped` :48 |
-| packet 结构 | `CloudPacket` :127、`SyncedSettings` :93、`SyncedKnownHost` :115、`SyncedKey` :57、`SyncedCert` :81 |
-| 采集 | `collect_packet` :312、`collect_keys` :171、`collect_certificates` :207、`collect_port_forwardings` :223、`collect_settings` :264、`collect_known_hosts` :285 |
-| 恢复 | `apply_packet` :853、`restore_hosts` :436、`restore_accounts` :514、`restore_sftp_connections` :554、`restore_port_forwardings` :600、`restore_snippets` :652、`restore_remote_conns` :682、`restore_keys` :359、`restore_certificates` :392、`restore_known_hosts` :721、`restore_monitor_state` :770、`restore_settings` :799 |
-| 合并（仅新增） | `merge_packet_new_only` :1264、`existing_ids` :1305、各 `merge_*_new_only` :1315-1441 |
-| URL / 传输 | `build_base_url` :912、`host_has_explicit_port` :933、`url_encode_path_segment` :951、`upload_packet` :968、`download_packet` :994、`fetch_meta` :1040 |
-| 命令 | `cloud_sync_now` :1127、`cloud_sync_state` :1118、`cloud_test_connection` :1054 |
-| 状态文件 | `SyncStateFile` :1094、`read_sync_state` :1101、`write_sync_state` :1109 |
-| 加密 | `utils/crypto.rs`：`encrypt` :29、`decrypt` :57、`derive_key` :17 |
-| 服务端 | `cloud-server/server.cjs`（665 行，v2）、`cloud-server/README.md` |
-| 前端 | `pages/settingsComponents/CloudSettings.tsx`、`services/dataService.ts:512-560`、`App.tsx:141-150` |
+| 关心…       | 看这里                                                                                                                                                                                                                                                                                                                  |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 常量 / 版本   | `PACKET_VERSION` :26、`MIN_READABLE_VERSION` :28                                                                                                                                                                                                                                                                      |
+| 返回结构      | `SyncReport` :33、`SyncSkipped` :48                                                                                                                                                                                                                                                                                   |
+| packet 结构 | `CloudPacket` :127、`SyncedSettings` :93、`SyncedKnownHost` :115、`SyncedKey` :57、`SyncedCert` :81                                                                                                                                                                                                                      |
+| 采集        | `collect_packet` :312、`collect_keys` :171、`collect_certificates` :207、`collect_port_forwardings` :223、`collect_settings` :264、`collect_known_hosts` :285                                                                                                                                                             |
+| 恢复        | `apply_packet` :853、`restore_hosts` :436、`restore_accounts` :514、`restore_sftp_connections` :554、`restore_port_forwardings` :600、`restore_snippets` :652、`restore_remote_conns` :682、`restore_keys` :359、`restore_certificates` :392、`restore_known_hosts` :721、`restore_monitor_state` :770、`restore_settings` :799 |
+| 合并（仅新增）   | `merge_packet_new_only` :1264、`existing_ids` :1305、各 `merge_*_new_only` :1315-1441                                                                                                                                                                                                                                   |
+| URL / 传输  | `build_base_url` :912、`host_has_explicit_port` :933、`url_encode_path_segment` :951、`upload_packet` :968、`download_packet` :994、`fetch_meta` :1040                                                                                                                                                                    |
+| 命令        | `cloud_sync_now` :1127、`cloud_sync_state` :1118、`cloud_test_connection` :1054                                                                                                                                                                                                                                        |
+| 状态文件      | `SyncStateFile` :1094、`read_sync_state` :1101、`write_sync_state` :1109                                                                                                                                                                                                                                               |
+| 加密        | `utils/crypto.rs`：`encrypt` :29、`decrypt` :57、`derive_key` :17                                                                                                                                                                                                                                                       |
+| 服务端       | `cloud-server/server.cjs`（665 行，v2）、`cloud-server/README.md`                                                                                                                                                                                                                                                         |
+| 前端        | `pages/settingsComponents/CloudSettings.tsx`、`services/dataService.ts:512-560`、`App.tsx:141-150`                                                                                                                                                                                                                     |

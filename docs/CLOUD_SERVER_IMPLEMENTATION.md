@@ -1,9 +1,9 @@
 # Swallow 云同步服务端实现技术文档
 
 > 对象：`cloud-server/server.cjs`——Swallow 云同步的**自建参考服务器**。
->
+> 
 > 本文档是**实现对照说明**（读代码用），不是使用手册。使用与部署请看 [`cloud-server/README.md`](../cloud-server/README.md)；客户端侧的详细设计与后续路线（§16 成员制空间规格、§17 身份体系）看 [`docs/CLOUD_SYNC_DESIGN.md`](./CLOUD_SYNC_DESIGN.md)。
->
+> 
 > 文档版本：v1.0（对应服务端 `SERVER_VERSION = 2`，665 行）
 > 更新时间：2026-09-17
 > 运行环境：Node.js ≥ 18，**零第三方依赖**（只用 `http`/`https`/`fs`/`path`/`crypto`）
@@ -16,12 +16,12 @@
 
 一个**盲存储**：只按 `server_key` 寻址、原样收发明文字符串（内容是客户端加密后的密文），并提供版本历史与条件请求。
 
-| 属性 | 值 |
-| --- | --- |
-| 职责 | 按 key 存一份 blob + 元信息 + 历史版本 |
-| 密码学参与度 | **零**。不派生密钥、不解密、不校验密文格式 |
-| 信任假设 | 服务器可能被入侵/拖库 → 因此它手上只有密文 |
-| 体积 | 665 行，单文件，零依赖 |
+| 属性     | 值                           |
+| ------ | --------------------------- |
+| 职责     | 按 key 存一份 blob + 元信息 + 历史版本 |
+| 密码学参与度 | **零**。不派生密钥、不解密、不校验密文格式     |
+| 信任假设   | 服务器可能被入侵/拖库 → 因此它手上只有密文     |
+| 体积     | 665 行，单文件，零依赖               |
 
 ### 1.2 它不是什么
 
@@ -42,23 +42,23 @@
 
 单文件按「基础设施 → 领域逻辑 → HTTP → 路由 → 启动」排列，段落之间用 `// ----` 分隔。
 
-| 行号 | 段落 | 职责 |
-| --- | --- | --- |
-| 1–44 | 文件头注释 | 协议约定、目录布局、环境变量、安全提示（**改行为先改这里**） |
-| 46–68 | 依赖与配置 | 5 个内置模块 + `envInt()` 解析环境变量 |
-| 70–113 | 路径与指纹 | `safeName` / `blobPath` / `metaPath` / `historyDir` / `historyPath` / `fingerprint` / `etagOf` / `statOrNull` |
-| 115–159 | 元信息读写 | `readSidecar` / `currentMeta` / `writeSidecar`（原子写） |
-| 161–238 | 历史版本 | `listHistory` / `versionInfo` / `archiveCurrent` / `pruneHistory` / `writeBlob` / `rollbackTo` |
-| 240–315 | HTTP 小工具 | 条件请求解析、响应头、日志、统一出口 `reply()`、`readBody()` |
-| 317–335 | 限流与鉴权 | `hits` Map / `rateLimited` / `checkAuth` |
-| 337–412 | `handleBlob` | GET/HEAD/POST/PUT/DELETE 五分支 |
-| 414–435 | `handleMeta` | 元信息 + 历史概况 |
-| 437–460 | `handleVersionList` | 版本列表 |
-| 462–482 | `handleVersionFetch` | 取指定版本 |
-| 484–525 | `handleRollback` | 回滚（追加语义） |
-| 527–544 | `serviceDescriptor` | `GET /` 的响应体 |
-| 546–634 | `route` / `handler` | 逐段解码 → 分派；最外层 catch 兜 500 |
-| 636–663 | `start` | 建目录 → 选 http/https → 设超时 → listen + 启动横幅 |
+| 行号      | 段落                   | 职责                                                                                                            |
+| ------- | -------------------- | ------------------------------------------------------------------------------------------------------------- |
+| 1–44    | 文件头注释                | 协议约定、目录布局、环境变量、安全提示（**改行为先改这里**）                                                                              |
+| 46–68   | 依赖与配置                | 5 个内置模块 + `envInt()` 解析环境变量                                                                                   |
+| 70–113  | 路径与指纹                | `safeName` / `blobPath` / `metaPath` / `historyDir` / `historyPath` / `fingerprint` / `etagOf` / `statOrNull` |
+| 115–159 | 元信息读写                | `readSidecar` / `currentMeta` / `writeSidecar`（原子写）                                                           |
+| 161–238 | 历史版本                 | `listHistory` / `versionInfo` / `archiveCurrent` / `pruneHistory` / `writeBlob` / `rollbackTo`                |
+| 240–315 | HTTP 小工具             | 条件请求解析、响应头、日志、统一出口 `reply()`、`readBody()`                                                                     |
+| 317–335 | 限流与鉴权                | `hits` Map / `rateLimited` / `checkAuth`                                                                      |
+| 337–412 | `handleBlob`         | GET/HEAD/POST/PUT/DELETE 五分支                                                                                  |
+| 414–435 | `handleMeta`         | 元信息 + 历史概况                                                                                                    |
+| 437–460 | `handleVersionList`  | 版本列表                                                                                                          |
+| 462–482 | `handleVersionFetch` | 取指定版本                                                                                                         |
+| 484–525 | `handleRollback`     | 回滚（追加语义）                                                                                                      |
+| 527–544 | `serviceDescriptor`  | `GET /` 的响应体                                                                                                  |
+| 546–634 | `route` / `handler`  | 逐段解码 → 分派；最外层 catch 兜 500                                                                                     |
+| 636–663 | `start`              | 建目录 → 选 http/https → 设超时 → listen + 启动横幅                                                                      |
 
 ---
 
@@ -66,17 +66,17 @@
 
 全部通过环境变量，解析集中在 `envInt(name, fallback, min)`（:54）：非有限数回落默认值，否则 `Math.max(min, trunc)` 做下限钳制。
 
-| 变量 | 默认 | 钳制 | 语义 | 实现要点 |
-| --- | --- | --- | --- | --- |
-| `PORT` | `8787` | ≥0 | 监听端口 | — |
-| `HOST` | `0.0.0.0` | — | 监听地址 | 本机测试用 `127.0.0.1` |
-| `DATA_DIR` | `./data` | — | 密文根目录 | `path.resolve` 归一化（:63） |
-| `MAX_BODY_MB` | `50` | ≥1 | 单次上传上限 | 乘 1024² 后存为 `MAX_BODY` |
-| `HISTORY_KEEP` | `20` | ≥0 | 历史保留份数 | `0` = 关闭归档与裁剪 |
-| `RATE_LIMIT` | `0` | ≥0 | 每 IP 每分钟**写**次数 | `0` = 关闭；只作用于 POST/PUT |
-| `REQUIRE_TOKEN` | 空 | — | 启用 Bearer 鉴权 | `.trim()` 后判空 |
-| `LOG_REQUESTS` | 开 | — | 逐请求日志 | 判据是 `!== '0'`，**只有显式设 0 才关** |
-| `HTTPS_KEY` / `HTTPS_CERT` | 空 | — | TLS | 两者**同时**提供才启用（:639） |
+| 变量                         | 默认        | 钳制  | 语义              | 实现要点                         |
+| -------------------------- | --------- | --- | --------------- | ---------------------------- |
+| `PORT`                     | `8787`    | ≥0  | 监听端口            | —                            |
+| `HOST`                     | `0.0.0.0` | —   | 监听地址            | 本机测试用 `127.0.0.1`            |
+| `DATA_DIR`                 | `./data`  | —   | 密文根目录           | `path.resolve` 归一化（:63）      |
+| `MAX_BODY_MB`              | `50`      | ≥1  | 单次上传上限          | 乘 1024² 后存为 `MAX_BODY`       |
+| `HISTORY_KEEP`             | `20`      | ≥0  | 历史保留份数          | `0` = 关闭归档与裁剪                |
+| `RATE_LIMIT`               | `0`       | ≥0  | 每 IP 每分钟**写**次数 | `0` = 关闭；只作用于 POST/PUT       |
+| `REQUIRE_TOKEN`            | 空         | —   | 启用 Bearer 鉴权    | `.trim()` 后判空                |
+| `LOG_REQUESTS`             | 开         | —   | 逐请求日志           | 判据是 `!== '0'`，**只有显式设 0 才关** |
+| `HTTPS_KEY` / `HTTPS_CERT` | 空         | —   | TLS             | 两者**同时**提供才启用（:639）          |
 
 ---
 
@@ -96,12 +96,12 @@ DATA_DIR/
 
 `currentMeta(key)`（:134）是**唯一的元信息真源**，两条路径：
 
-| 情况 | 结果 |
-| --- | --- |
-| blob 存在 + sidecar 存在 | `version` 取 sidecar；`createdAt`/`updatedAt` 缺失时回落 mtime；`size` 一律取**真实 `stat().size`** |
-| blob 存在 + **无 sidecar**（历史数据） | 视为 `version = 1`，时间取 `mtime` |
-| blob 不存在 + sidecar 有 `version>0` 或 `deletedAt` | 返回 `{ ...sidecar, exists: false }`——**用于 DELETE 后保留版本号连续** |
-| blob 不存在 + sidecar 也无意义 | 返回 `null`（当作「无数据」→ 404） |
+| 情况                                             | 结果                                                                                     |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------- |
+| blob 存在 + sidecar 存在                           | `version` 取 sidecar；`createdAt`/`updatedAt` 缺失时回落 mtime；`size` 一律取**真实 `stat().size`** |
+| blob 存在 + **无 sidecar**（历史数据）                  | 视为 `version = 1`，时间取 `mtime`                                                           |
+| blob 不存在 + sidecar 有 `version>0` 或 `deletedAt` | 返回 `{ ...sidecar, exists: false }`——**用于 DELETE 后保留版本号连续**                             |
+| blob 不存在 + sidecar 也无意义                        | 返回 `null`（当作「无数据」→ 404）                                                                |
 
 ⚠️ 这条降级路径是**兼容 2026-09 之前无 sidecar 的老数据**的关键（冒烟测试第 33–36 项专门覆盖）：老文件能被正常读出、能被后续写入归档，版本从 1 递增。
 
@@ -124,13 +124,13 @@ DATA_DIR/
 
 ### 4.4 版本号推进规则
 
-| 操作 | 版本变化 |
-| --- | --- |
-| 首次写入 | `0 → 1` |
-| 普通上传 | `+1`，旧版本归档为 `v{旧版本}` |
-| DELETE | **不变**，sidecar 记 `deletedAt` |
-| DELETE 后再上传 | `+1`（承接 sidecar 的版本号，不重置） |
-| 回滚到 `vN` | `+1`（新版本内容 = `vN` 的内容） |
+| 操作          | 版本变化                         |
+| ----------- | ---------------------------- |
+| 首次写入        | `0 → 1`                      |
+| 普通上传        | `+1`，旧版本归档为 `v{旧版本}`         |
+| DELETE      | **不变**，sidecar 记 `deletedAt` |
+| DELETE 后再上传 | `+1`（承接 sidecar 的版本号，不重置）    |
+| 回滚到 `vN`    | `+1`（新版本内容 = `vN` 的内容）       |
 
 ---
 
@@ -187,14 +187,14 @@ blobPath(key)  = path.resolve(DATA_DIR, safeName(key))          // :78
 
 ### 6.3 `/{server_key}` —— blob 本体
 
-| 方法 | 前置条件 | 成功 | 失败 |
-| --- | --- | --- | --- |
-| `GET` | 有数据 | `200` + 密文文本 | `404 no data` |
-| `GET` | `If-None-Match` 命中 | **`304`**（无 body，带 blob 头） | — |
-| `HEAD` | 同 GET | `200` + 头、**无 body** | `404` |
-| `POST` / `PUT` | 通过条件检查、body 非空 | `200 "ok"` + blob 头 + `x-blob-archived` | `400` / `412` / `413` / `429` |
-| `DELETE` | 有数据 | `200 { ok, archived, version, note }` | `404` |
-| 其他方法 | — | — | `405 method not allowed` |
+| 方法             | 前置条件               | 成功                                      | 失败                            |
+| -------------- | ------------------ | --------------------------------------- | ----------------------------- |
+| `GET`          | 有数据                | `200` + 密文文本                            | `404 no data`                 |
+| `GET`          | `If-None-Match` 命中 | **`304`**（无 body，带 blob 头）              | —                             |
+| `HEAD`         | 同 GET              | `200` + 头、**无 body**                    | `404`                         |
+| `POST` / `PUT` | 通过条件检查、body 非空     | `200 "ok"` + blob 头 + `x-blob-archived` | `400` / `412` / `413` / `429` |
+| `DELETE`       | 有数据                | `200 { ok, archived, version, note }`   | `404`                         |
+| 其他方法           | —                  | —                                       | `405 method not allowed`      |
 
 **写路径的三道闸门**（顺序固定，:355–374）：
 
@@ -258,12 +258,12 @@ cache-control: no-store
 
 目标版本从**查询参数** `?version=N` 取；没有则尝试从 JSON body 的 `version` 字段取（:486–495）。
 
-| 情况 | 响应 |
-| --- | --- |
-| 目标 == 当前版本 | `200 { ok:true, noop:true, version, etag }` |
-| 目标在历史中 | `200 { ok:true, noop:false, rolledBackTo, version, etag, updatedAt }` |
-| 目标不在历史中 | `404 { error:"version not found", version, available:[…] }` |
-| 版本号非法 | `400 { error:"invalid version" }` |
+| 情况         | 响应                                                                    |
+| ---------- | --------------------------------------------------------------------- |
+| 目标 == 当前版本 | `200 { ok:true, noop:true, version, etag }`                           |
+| 目标在历史中     | `200 { ok:true, noop:false, rolledBackTo, version, etag, updatedAt }` |
+| 目标不在历史中    | `404 { error:"version not found", version, available:[…] }`           |
+| 版本号非法      | `400 { error:"invalid version" }`                                     |
 
 ⚠️ **回滚是「追加」不是「倒带」**：它把 `vN` 的内容作为**新版本**写入（走同一套 `writeBlob`），因此**历史只增不减**。这是有意设计——否则回滚本身不可逆。
 
@@ -276,11 +276,11 @@ cache-control: no-store
 - ETag 就是版本号：`etagOf(v) = "v{n}"`（:103），强 ETag 形式（带引号）。
 - `parseEtagList`（:242）支持逗号分隔列表，并剥掉弱 ETag 前缀 `W/`。
 
-| 请求头 | 判定函数 | 语义 | 失败响应 |
-| --- | --- | --- | --- |
-| `If-Match` | `ifMatchSatisfied`（:248） | 未提供 → 放行；`*` → 要求云端已有数据；否则要求列表含当前 etag | `412 precondition failed` |
-| `If-None-Match`（写） | `ifNoneMatchHit`（:255） | 未提供或云端无数据 → 放行；`*` 或含当前 etag → 拒绝 | `412 already exists` |
-| `If-None-Match`（读） | 同上 | 命中 → 不传 body | `304 Not Modified` |
+| 请求头                | 判定函数                     | 语义                                     | 失败响应                      |
+| ------------------ | ------------------------ | -------------------------------------- | ------------------------- |
+| `If-Match`         | `ifMatchSatisfied`（:248） | 未提供 → 放行；`*` → 要求云端已有数据；否则要求列表含当前 etag | `412 precondition failed` |
+| `If-None-Match`（写） | `ifNoneMatchHit`（:255）   | 未提供或云端无数据 → 放行；`*` 或含当前 etag → 拒绝      | `412 already exists`      |
+| `If-None-Match`（读） | 同上                       | 命中 → 不传 body                           | `304 Not Modified`        |
 
 ### 7.2 这套机制能防什么、不能防什么
 
@@ -372,27 +372,27 @@ server.keepAliveTimeout = 5_000   连接复用
 
 ### 10.1 零知识边界
 
-| 服务器**能**知道 | 服务器**不能**知道 |
-| --- | --- |
-| 有多少个 key（及其指纹）、各自大小与版本号 | 主机、账号、密码、私钥、配置的任何内容 |
-| 上传 / 下载的时间与频率 | 条目数量、分组、标签、会话内容 |
-| 启用鉴权时：有人拿到了部署口令 | `server_key` 本身（它只在 URL 里出现，服务端不落盘） |
-| 历史保留了几份 | 密文的明文含义 |
+| 服务器**能**知道              | 服务器**不能**知道                         |
+| ----------------------- | ----------------------------------- |
+| 有多少个 key（及其指纹）、各自大小与版本号 | 主机、账号、密码、私钥、配置的任何内容                 |
+| 上传 / 下载的时间与频率           | 条目数量、分组、标签、会话内容                     |
+| 启用鉴权时：有人拿到了部署口令         | `server_key` 本身（它只在 URL 里出现，服务端不落盘） |
+| 历史保留了几份                 | 密文的明文含义                             |
 
 ### 10.2 缺口清单
 
-| # | 缺口 | 影响 | 建议 |
-| --- | --- | --- | --- |
-| 1 | 文件名是 key 的**可逆编码** | 读 `DATA_DIR` 即可还原 key → 解密全部数据与历史 | 文件系统权限隔离；或改哈希（破坏兼容，需迁移脚本） |
-| 2 | ETag 是版本号、**非内容哈希** | 防不了同版本号下的换包 | 改为密文哈希（需客户端一起改） |
-| 3 | 无 per-key 写互斥 | 并发上传可能撞同名归档 | per-key 队列或文件锁 |
-| 4 | blob 与 sidecar **非同一事务** | 崩溃窗口内 version 与内容不自洽 | 并入 blob 或 WAL |
-| 5 | 限流按 IP、不读 `X-Forwarded-For` | 反代后退化为全局限流 | 支持可信代理头，或在反代层限流 |
-| 6 | 限流/计数为**单进程内存态** | 多实例部署失效 | 外置或反代层 |
-| 7 | `GET /` 免鉴权并披露版本/鉴权模式/历史上限 | 轻度信息泄露 | 可接受（排障价值更高）；介意则加鉴权 |
-| 8 | 无成员、角色、邀请、撤销 | 无法安全地多人协作 | 见 `CLOUD_SYNC_DESIGN.md` §16 |
-| 9 | 无身份概念 | 多空间登录需各配一份凭据 | 见 §17 |
-| 10 | 无操作审计（谁在何时改了哪份） | 出事无法追责 | 与成员制一起做（届时「谁」才有意义） |
+| #   | 缺口                          | 影响                                | 建议                           |
+| --- | --------------------------- | --------------------------------- | ---------------------------- |
+| 1   | 文件名是 key 的**可逆编码**          | 读 `DATA_DIR` 即可还原 key → 解密全部数据与历史 | 文件系统权限隔离；或改哈希（破坏兼容，需迁移脚本）    |
+| 2   | ETag 是版本号、**非内容哈希**         | 防不了同版本号下的换包                       | 改为密文哈希（需客户端一起改）              |
+| 3   | 无 per-key 写互斥               | 并发上传可能撞同名归档                       | per-key 队列或文件锁               |
+| 4   | blob 与 sidecar **非同一事务**    | 崩溃窗口内 version 与内容不自洽              | 并入 blob 或 WAL                |
+| 5   | 限流按 IP、不读 `X-Forwarded-For` | 反代后退化为全局限流                        | 支持可信代理头，或在反代层限流              |
+| 6   | 限流/计数为**单进程内存态**            | 多实例部署失效                           | 外置或反代层                       |
+| 7   | `GET /` 免鉴权并披露版本/鉴权模式/历史上限  | 轻度信息泄露                            | 可接受（排障价值更高）；介意则加鉴权           |
+| 8   | 无成员、角色、邀请、撤销                | 无法安全地多人协作                         | 见 `CLOUD_SYNC_DESIGN.md` §16 |
+| 9   | 无身份概念                       | 多空间登录需各配一份凭据                      | 见 §17                        |
+| 10  | 无操作审计（谁在何时改了哪份）             | 出事无法追责                            | 与成员制一起做（届时「谁」才有意义）           |
 
 ---
 
@@ -452,20 +452,20 @@ Swallow 云同步服务器已启动：http://127.0.0.1:8787
 
 用两个实例覆盖（基础实例 + 鉴权/限流实例），双花括号与路径穿越另测。覆盖清单：
 
-| 组 | 用例 |
-| --- | --- |
-| 探活 | `GET /`、`GET /healthz` → 200 |
-| 基本读写 | 空库 `meta` → 404；上传 → 下载；字节一致；`HEAD` 只回头 |
-| 版本 | 第二次上传归档 v1、版本递增；`meta` 双拼写；`versions` 列表；取 v1 → 200；取 v99 → 404 |
-| 条件请求 | `If-Match` 过期 → 412 / 正确 → 200；`If-None-Match: *` 已有数据 → 412；`If-None-Match` 命中 → 304 |
-| 输入校验 | 空 body → 400；非法版本号 → 400；未知端点 → 404；不支持的方法 → 405 |
-| 回滚 | 回滚到 v1 → 内容恢复；回滚到当前版本 → noop；回滚到不存在版本 → 404 |
-| 删除 | DELETE → 200；之后 GET → 404；**但回滚仍成功**（软删除语义） |
-| 鉴权 | 无 token → 401；带 token → 200；`healthz` 免鉴权 |
-| 限流 | 阈值 3 时第 4 次写 → 429 |
-| 历史裁剪 | `HISTORY_KEEP=2` 时 `.history/` 只剩 v1、v2 |
-| 老数据降级 | 手工造无 sidecar 的文件 → `meta` 显示 version=1 + mtime；可继续上传并正常归档 |
-| 路径加固 | `//..`、`%2E%2E`、`team%2Falpha` 均未写出 `DATA_DIR` |
+| 组     | 用例                                                                                    |
+| ----- | ------------------------------------------------------------------------------------- |
+| 探活    | `GET /`、`GET /healthz` → 200                                                          |
+| 基本读写  | 空库 `meta` → 404；上传 → 下载；字节一致；`HEAD` 只回头                                               |
+| 版本    | 第二次上传归档 v1、版本递增；`meta` 双拼写；`versions` 列表；取 v1 → 200；取 v99 → 404                       |
+| 条件请求  | `If-Match` 过期 → 412 / 正确 → 200；`If-None-Match: *` 已有数据 → 412；`If-None-Match` 命中 → 304 |
+| 输入校验  | 空 body → 400；非法版本号 → 400；未知端点 → 404；不支持的方法 → 405                                      |
+| 回滚    | 回滚到 v1 → 内容恢复；回滚到当前版本 → noop；回滚到不存在版本 → 404                                           |
+| 删除    | DELETE → 200；之后 GET → 404；**但回滚仍成功**（软删除语义）                                           |
+| 鉴权    | 无 token → 401；带 token → 200；`healthz` 免鉴权                                             |
+| 限流    | 阈值 3 时第 4 次写 → 429                                                                    |
+| 历史裁剪  | `HISTORY_KEEP=2` 时 `.history/` 只剩 v1、v2                                               |
+| 老数据降级 | 手工造无 sidecar 的文件 → `meta` 显示 version=1 + mtime；可继续上传并正常归档                             |
+| 路径加固  | `//..`、`%2E%2E`、`team%2Falpha` 均未写出 `DATA_DIR`                                        |
 
 ### 12.2 缺口（重要）
 
@@ -489,14 +489,14 @@ const { spawn } = require('node:child_process');
 
 从 119 行两端点扩到 665 行。新增：
 
-| 类别 | 内容 |
-| --- | --- |
-| 补缺口 | `GET /healthz`、`GET /{key}/meta`（双拼写）、`GET /` 服务描述 |
-| 版本历史 | `versions` 列表 / 取版本 / `rollback`；上传前归档；`HISTORY_KEEP` 裁剪 |
-| 并发 | `ETag` + `If-Match` / `If-None-Match`；读路径 `304` |
-| 方法 | `HEAD`、`DELETE`（软删除，可回滚） |
-| 运维 | `REQUIRE_TOKEN`、`RATE_LIMIT`、`LOG_REQUESTS`、`MAX_BODY_MB`、启动横幅、请求超时 |
-| 加固 | `safeName` + `blobPath` 双重穿越防护、`writeSidecar` 原子写、空 body 拒绝、日志只记 key 指纹 |
+| 类别   | 内容                                                                      |
+| ---- | ----------------------------------------------------------------------- |
+| 补缺口  | `GET /healthz`、`GET /{key}/meta`（双拼写）、`GET /` 服务描述                      |
+| 版本历史 | `versions` 列表 / 取版本 / `rollback`；上传前归档；`HISTORY_KEEP` 裁剪                |
+| 并发   | `ETag` + `If-Match` / `If-None-Match`；读路径 `304`                         |
+| 方法   | `HEAD`、`DELETE`（软删除，可回滚）                                                |
+| 运维   | `REQUIRE_TOKEN`、`RATE_LIMIT`、`LOG_REQUESTS`、`MAX_BODY_MB`、启动横幅、请求超时     |
+| 加固   | `safeName` + `blobPath` 双重穿越防护、`writeSidecar` 原子写、空 body 拒绝、日志只记 key 指纹 |
 
 **为什么加版本历史**：客户端现有的三个同步方向里有两个是**覆盖型**（`download` 覆盖本地；`bidirectional` 的 settings 段整段互覆），而全量快照的最大风险就是「一次误同步把本地配置全冲掉」。有了历史，误操作从灾难降级为一次回滚。服务器全程只搬运密文，**零知识一点不破**。
 
@@ -510,10 +510,10 @@ const { spawn } = require('node:child_process');
 
 服务端下一步（**均未实现**）在 `CLOUD_SYNC_DESIGN.md`：
 
-| 文档 | 内容 | 需要在 `server.cjs` 上做什么 |
-| --- | --- | --- |
+| 文档  | 内容                                                             | 需要在 `server.cjs` 上做什么                                                                                                                                                                                                                                                                           |
+| --- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | §16 | 成员制空间（空间 / 成员 / 角色 / 公钥封装 DEK / 邀请与 rekey / 老 `server_key` 迁移） | 新增 `/spaces/...` 前缀路由与 15 个端点；成员鉴权层（`memberToken` + 角色 + 撤销判定，**与部署级 `REQUIRE_TOKEN` 并存**）；per-space 原子写与进程内锁。**可复用**：`safeName`/`blobPath` 思路、`etagOf`、`writeSidecar`、`listHistory`/`archiveCurrent`/`pruneHistory`、`blobHeaders`、`reply`/`readBody`、`rateLimited`、`fingerprint`（§16.14 有完整清单） |
-| §17 | 身份 / 账户体系（密钥对签名认证、设备管理、邀请投递） | 在 §16 之上再加 `/identities/...`；**空间访问仍必须由成员身份判定**，不得让身份会话直接授予空间权限 |
+| §17 | 身份 / 账户体系（密钥对签名认证、设备管理、邀请投递）                                   | 在 §16 之上再加 `/identities/...`；**空间访问仍必须由成员身份判定**，不得让身份会话直接授予空间权限                                                                                                                                                                                                                                 |
 
 ⚠️ 落地 §16 时 `SERVER_VERSION` 需递增（v2 → v3），并在 `GET /` 的 `endpoints` 里列出空间端点，保持「排障页能看到全部能力」这个约定。
 
@@ -521,36 +521,36 @@ const { spawn } = require('node:child_process');
 
 ## 15. 设计取舍速查
 
-| 取舍 | 选择 | 理由 |
-| --- | --- | --- |
-| 零依赖 vs 用框架 | 零依赖 | 降低自建门槛（`node server.cjs` 即跑）；也让审计成本可控 |
-| sidecar vs 嵌进 blob | sidecar + 文件系统兜底 | 保持 blob 纯净（可被任意工具搬运）；老数据能降级读取 |
-| 归档 copy vs rename | **copy** | 复制失败时现有数据完好 |
-| 删除 硬 vs 软 | **软删除** | 与版本历史一致；代价是"删除"不等于"擦除"，需在 UI 说明 |
-| ETag 用版本号 vs 内容哈希 | 版本号 | 便宜、能防盲覆盖；换包防护留给后续（缺口 #2） |
-| 限流内存态 vs 外置 | 内存态 | 参考实现不求完备；缺口 #6 已记录 |
-| 空包 接受 vs 拒绝 | **拒绝** | 空包只可能是客户端 bug，接受等于把云端抹成空 |
-| 回滚 覆盖 vs 追加 | **追加** | 使回滚本身可逆——否则一次误回滚就再也回不去 |
+| 取舍                 | 选择               | 理由                                    |
+| ------------------ | ---------------- | ------------------------------------- |
+| 零依赖 vs 用框架         | 零依赖              | 降低自建门槛（`node server.cjs` 即跑）；也让审计成本可控 |
+| sidecar vs 嵌进 blob | sidecar + 文件系统兜底 | 保持 blob 纯净（可被任意工具搬运）；老数据能降级读取         |
+| 归档 copy vs rename  | **copy**         | 复制失败时现有数据完好                           |
+| 删除 硬 vs 软          | **软删除**          | 与版本历史一致；代价是"删除"不等于"擦除"，需在 UI 说明       |
+| ETag 用版本号 vs 内容哈希  | 版本号              | 便宜、能防盲覆盖；换包防护留给后续（缺口 #2）              |
+| 限流内存态 vs 外置        | 内存态              | 参考实现不求完备；缺口 #6 已记录                    |
+| 空包 接受 vs 拒绝        | **拒绝**           | 空包只可能是客户端 bug，接受等于把云端抹成空              |
+| 回滚 覆盖 vs 追加        | **追加**           | 使回滚本身可逆——否则一次误回滚就再也回不去                |
 
 ---
 
 ## 附录：关键符号索引
 
-| 符号 | 行号 | 说明 |
-| --- | --- | --- |
-| `SERVER_VERSION` | 52 | 服务端版本，出现在 `GET /` 与 `/healthz` |
-| `envInt` | 54 | 环境变量解析 + 下限钳制 |
-| `safeName` / `blobPath` | 73 / 78 | 文件名编码 + 穿越校验 |
-| `fingerprint` | 99 | 日志用的 key 指纹 |
-| `etagOf` | 103 | `"v{n}"` |
-| `readSidecar` / `currentMeta` / `writeSidecar` | 117 / 134 / 154 | 元信息读写（含老数据降级） |
-| `listHistory` / `archiveCurrent` / `pruneHistory` | 163 / 185 / 193 | 历史管理 |
-| `writeBlob` | 203 | 唯一的落盘入口 |
-| `rollbackTo` | 232 | 回滚（追加语义） |
-| `ifMatchSatisfied` / `ifNoneMatchHit` | 248 / 255 | 条件请求判定 |
-| `blobHeaders` | 261 | 统一响应头 |
-| `reply` / `readBody` | 280 / 294 | 响应出口 / 边收边限 |
-| `rateLimited` / `checkAuth` | 321 / 332 | 限流 / 鉴权 |
-| `handleBlob` | 339 | blob 五方法分派 |
-| `serviceDescriptor` | 527 | `GET /` 响应 |
-| `route` / `handler` / `start` | 546 / 624 / 636 | 路由 / 兜底 / 启动 |
+| 符号                                                | 行号              | 说明                             |
+| ------------------------------------------------- | --------------- | ------------------------------ |
+| `SERVER_VERSION`                                  | 52              | 服务端版本，出现在 `GET /` 与 `/healthz` |
+| `envInt`                                          | 54              | 环境变量解析 + 下限钳制                  |
+| `safeName` / `blobPath`                           | 73 / 78         | 文件名编码 + 穿越校验                   |
+| `fingerprint`                                     | 99              | 日志用的 key 指纹                    |
+| `etagOf`                                          | 103             | `"v{n}"`                       |
+| `readSidecar` / `currentMeta` / `writeSidecar`    | 117 / 134 / 154 | 元信息读写（含老数据降级）                  |
+| `listHistory` / `archiveCurrent` / `pruneHistory` | 163 / 185 / 193 | 历史管理                           |
+| `writeBlob`                                       | 203             | 唯一的落盘入口                        |
+| `rollbackTo`                                      | 232             | 回滚（追加语义）                       |
+| `ifMatchSatisfied` / `ifNoneMatchHit`             | 248 / 255       | 条件请求判定                         |
+| `blobHeaders`                                     | 261             | 统一响应头                          |
+| `reply` / `readBody`                              | 280 / 294       | 响应出口 / 边收边限                    |
+| `rateLimited` / `checkAuth`                       | 321 / 332       | 限流 / 鉴权                        |
+| `handleBlob`                                      | 339             | blob 五方法分派                     |
+| `serviceDescriptor`                               | 527             | `GET /` 响应                     |
+| `route` / `handler` / `start`                     | 546 / 624 / 636 | 路由 / 兜底 / 启动                   |
