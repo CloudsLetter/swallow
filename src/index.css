@@ -1249,3 +1249,48 @@ a:focus-visible,
 .terminal-view .xterm-selection div {
   opacity: var(--xterm-selection-opacity, 0.4);
 }
+
+/* ============================================================
+   全局交互约束（桌面壳层不是文档）
+
+   1) 全局禁选：界面文字不该被选中（误点即高亮，还会牵出原生拖拽）。
+      ⚠️ 例外必须保留，否则直接坏功能：
+        - input / textarea / contenteditable：编辑与选中文本是刚需；
+        - .xterm / .xterm *：xterm 的拖选走**浏览器原生选择**
+          （见 components/terminalPool.ts 的 hasSelection / getSelection /
+          copySessionSelection），禁掉就选不中终端内容、复制也废；
+        - pre / code：证书、公钥等区块没有复制按钮，禁选等于不可复制。
+   2) 根层不可滚：html/body 不滚 + overscroll-behavior:none。页面滚动全部
+      发生在内部容器（全仓 35 处 flex-1 overflow-auto / .overlay-scrollbar），
+      双指滚动不再把整个布局推动位移。
+   3) 内部滚动容器 overscroll-behavior:contain，阻断滚动链式传导
+      （滚到底不会再把父层带一下）。
+   ============================================================ */
+
+html,
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
+
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#root {
+  overscroll-behavior: none;
+}
+
+input,
+textarea,
+[contenteditable]:not([contenteditable="false"]),
+.xterm,
+.xterm *,
+pre,
+code {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.overlay-scrollbar {
+  overscroll-behavior: contain;
+}
