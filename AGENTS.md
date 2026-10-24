@@ -202,7 +202,7 @@ Channel / Stream 的 `flush` 语义是「**丢弃接收缓冲**」而非刷出 �
 `.github/workflows/release.yml` 由 tag `v*` 触发，在 Windows 上打包 exe / NSIS / MSI 并自动上传 GitHub Release，版本号取自 `package.json`。
 
 发版前必跑：`CODEBUDDY_SAFE_DELETE_ENABLED=0 pnpm build` + `cargo check`（CI 还会跑 `tsc --noEmit`）。
-发版提交（`release: vX.Y.Z`）是**独立提交、只动 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` / `src-tauri/Cargo.lock` 这 4 个文件**，不要混入功能改动。
+发版提交（`release: vX.Y.Z`）是**独立提交、只动 6 个版本相关文件**：`package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` / `src-tauri/Cargo.lock`，**以及两个 README 的版本徽章**（`README.md` / `README.en.md` 里的 `badge/Version-…`）。徽章是手写的常量、不会跟随 `package.json`，漏改就会烂掉（0.5.4 就发生过一次）。不要混入功能改动。
 
 ---
 
