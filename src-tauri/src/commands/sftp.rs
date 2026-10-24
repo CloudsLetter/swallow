@@ -76,6 +76,15 @@ pub async fn sftp_connect(
                     approval.token.clone(),
                 ));
             }
+            if let Some(challenge) = e.downcast_ref::<crate::ssh::interactive::AuthChallengeRequired>() {
+                return Ok(ConnectResult::needs_auth_interaction(
+                    challenge.host.clone(),
+                    challenge.port,
+                    challenge.user.clone(),
+                    challenge.instructions.clone(),
+                    challenge.prompts.clone(),
+                ));
+            }
             let _ = write_log(
                 "error",
                 &format!(

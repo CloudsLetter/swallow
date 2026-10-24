@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use crate::session_events::{emit_session_event, SessionEvent};
 use crate::ssh::host_keys::{require_approval, verify_host_key, HostKeyCheck};
+use crate::ssh::interactive;
 
 /// 连接超时兜底值（秒），配置缺失或锁中毒时使用。
 pub(crate) const DEFAULT_CONNECTION_TIMEOUT_SECS: u32 = 30;
@@ -456,6 +457,27 @@ impl SshSession {
                         "Certificate authentication requires certificate content and private key"
                     );
                 }
+            }
+            // keyboard-interactive（RFC 4256）：跳板机 / 云主机的动态口令（OTP / MFA）。
+            // libssh2 的回调是同步的、拿不到前端输入 → 答案由 interactive 中转表提供；
+            // 答案不足则转成 AuthChallengeRequired 抛给上层，前端弹框收集后重连。
+            "keyboard-interactive" => {
+                let mut prompter = interactive::ScriptedPrompter::new(interactive::take_answers(
+                    &config.username,
+                    &config.host,
+                    config.port,
+                ));
+                let result = session.userauth_keyboard_interactive(&config.username, &mut prompter);
+                if let Some((instructions, prompts)) = prompter.into_challenge() {
+                    return Err(interactive::require_challenge(
+                        &config.username,
+                        &config.host,
+                        config.port,
+                        &instructions,
+                        prompts,
+                    ));
+                }
+                result?;
             }
             _ => anyhow::bail!("Unsupported authentication type: {}", config.auth_type),
         }

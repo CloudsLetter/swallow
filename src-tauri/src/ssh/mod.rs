@@ -7,6 +7,7 @@ pub mod russh_tunnel;
 pub mod host_keys;
 pub mod auth;
 pub mod errors;
+pub mod interactive;
 #[cfg(test)]
 mod integration_tests;
 

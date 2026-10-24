@@ -4,6 +4,7 @@ import { focusTerminal } from './terminalPool';
 import { useTranslation } from 'react-i18next';
 import { save } from '@tauri-apps/plugin-dialog';
 import { confirmDialog } from './ui/confirmDialog';
+import { promptForAnswers } from './ui/authPromptDialog';
 import { dedupeHostKeyConfirm } from '../lib/hostKeyConfirm';
 import {
   Activity as IconActivity,
@@ -27,6 +28,7 @@ import { useConfigStore } from '../store/config';
 import type { SshTabConfig } from '../store/tabStore';
 import {
   acceptHostKey,
+  submitAuthAnswers,
   sftpConnect,
   sftpDisconnect,
   sftpListDir,
@@ -255,6 +257,7 @@ const AUTH_LABEL_KEY: Record<string, string> = {
   key: 'hosts.authTypeKey',
   certificate: 'hosts.authTypeCertificate',
   agent: 'hosts.authTypeAgent',
+  'keyboard-interactive': 'hosts.authTypeKeyboardInteractive',
   none: 'hosts.authTypeNone',
 };
 
@@ -356,7 +359,26 @@ function StatusSection({ sshConfig, active, tabActive, autoConnect }: StatusSect
       try {
         let result = await monitorStart(hostId);
         let rounds = 0;
-        while (result.status === 'needsHostKeyApproval' && result.hostKeyToken && rounds < 2) {
+        // keyboard-interactive 的答案按轮累积提交
+        let authAnswers: string[] = [];
+        while (
+          (result.status === 'needsHostKeyApproval' && result.hostKeyToken && rounds < 2) ||
+          result.status === 'needsAuthInteraction'
+        ) {
+          if (result.status === 'needsAuthInteraction') {
+            const answers = await promptForAnswers({
+              instructions: result.authInstructions,
+              prompts: result.authPrompts ?? [],
+            });
+            if (!answers) throw new Error(t('connection.authPromptDeclined'));
+            authAnswers = [...authAnswers, ...answers];
+            if (!result.authUser) {
+              throw new Error(t('connection.connectionFailedStatus', { status: result.status }));
+            }
+            await submitAuthAnswers(result.authUser, result.host, result.port, authAnswers);
+            result = await monitorStart(hostId);
+            continue;
+          }
           rounds += 1;
           const fingerprint = result.fingerprint ?? '';
           const accepted = await dedupeHostKeyConfirm(
@@ -380,7 +402,8 @@ function StatusSection({ sshConfig, active, tabActive, autoConnect }: StatusSect
             approvalDeclinedRef.current = true;
             throw new Error(t('connection.declinedHostKey'));
           }
-          await acceptHostKey(result.hostKeyToken, fingerprint);
+          // 循环条件已含 `&& result.hostKeyToken`；`||` 需要 auth 分支后 TS 不再收窄，这里显式断言
+          await acceptHostKey(result.hostKeyToken!, fingerprint);
           result = await monitorStart(hostId);
         }
         if (result.status !== 'connected' || !result.sessionId) {
@@ -750,7 +773,26 @@ function FilesSection({ sessionId, sshConfig, active, autoConnect }: FilesSectio
     try {
       let result = await sftpConnect(panelSessionId, cfg);
       let rounds = 0;
-      while (result.status === 'needsHostKeyApproval' && result.hostKeyToken && rounds < 2) {
+      // keyboard-interactive 的答案按轮累积提交
+      let authAnswers: string[] = [];
+      while (
+        (result.status === 'needsHostKeyApproval' && result.hostKeyToken && rounds < 2) ||
+        result.status === 'needsAuthInteraction'
+      ) {
+        if (result.status === 'needsAuthInteraction') {
+          const answers = await promptForAnswers({
+            instructions: result.authInstructions,
+            prompts: result.authPrompts ?? [],
+          });
+          if (!answers) throw new Error(t('connection.authPromptDeclined'));
+          authAnswers = [...authAnswers, ...answers];
+          if (!result.authUser) {
+            throw new Error(t('connection.connectionFailedStatus', { status: result.status }));
+          }
+          await submitAuthAnswers(result.authUser, result.host, result.port, authAnswers);
+          result = await sftpConnect(panelSessionId, cfg);
+          continue;
+        }
         rounds += 1;
         const fingerprint = result.fingerprint ?? '';
         const accepted = await dedupeHostKeyConfirm(
@@ -774,7 +816,7 @@ function FilesSection({ sessionId, sshConfig, active, autoConnect }: FilesSectio
           approvalDeclinedRef.current = true;
           throw new Error(t('connection.declinedHostKey'));
         }
-        await acceptHostKey(result.hostKeyToken, fingerprint);
+        await acceptHostKey(result.hostKeyToken!, fingerprint);
         result = await sftpConnect(panelSessionId, cfg);
       }
       if (result.status !== 'connected') {

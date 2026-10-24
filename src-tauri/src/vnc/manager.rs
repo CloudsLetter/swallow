@@ -151,6 +151,9 @@ impl VncManager {
             port: None,
             fingerprint: None,
             host_key_token: None,
+            auth_prompts: None,
+            auth_instructions: None,
+            auth_user: None,
         })
     }
 

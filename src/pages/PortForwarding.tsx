@@ -13,7 +13,7 @@ import {
   type PortForwarding,
   type Host,
 } from '../services/dataService';
-import { acceptHostKey } from '../services/sessionService';
+import { acceptHostKey, submitAuthAnswers } from '../services/sessionService';
 import { listen } from '@tauri-apps/api/event';
 import {
   Cable as IconCable,
@@ -50,6 +50,7 @@ import {
 } from '../components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { confirmDialog } from '../components/ui/confirmDialog';
+import { promptForAnswers } from '../components/ui/authPromptDialog';
 import { dedupeHostKeyConfirm } from '../lib/hostKeyConfirm';
 import { toast } from 'sonner';
 import {
@@ -459,7 +460,24 @@ export function PortForwarding() {
     markBusy(rule.id);
     try {
       let result = await startPortForward(rule.id);
-      while (result.status === 'needsHostKeyApproval') {
+      // keyboard-interactive 的答案按轮累积提交（与终端同一条「中断 → 收集 → 重连」范式）
+      let authAnswers: string[] = [];
+      while (result.status === 'needsHostKeyApproval' || result.status === 'needsAuthInteraction') {
+        if (result.status === 'needsAuthInteraction') {
+          const answers = await promptForAnswers({
+            instructions: result.authInstructions,
+            prompts: result.authPrompts ?? [],
+          });
+          if (!answers) return;
+          authAnswers = [...authAnswers, ...answers];
+          // authUser 是后端给的权威值（经跳板机时可能与主机档案不同），缺失即视为异常
+          if (!result.authUser) {
+            throw new Error(t('connection.connectionFailedStatus', { status: result.status }));
+          }
+          await submitAuthAnswers(result.authUser, result.host, result.port, authAnswers);
+          result = await startPortForward(rule.id);
+          continue;
+        }
         const fingerprint = result.fingerprint ?? '';
         const accepted = await dedupeHostKeyConfirm(
           `${result.host}:${result.port}:${fingerprint}`,

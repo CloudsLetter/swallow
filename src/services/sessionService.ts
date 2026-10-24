@@ -71,9 +71,15 @@ export const SSH_ERROR_CODES = {
   unknown: 'unknown',
 } as const;
 
-/** 连接命令返回结果：connected 或需要主机密钥确认。 */
+/** 一条 SSH keyboard-interactive 提示（`echo === false` 表示敏感输入，用密码框渲染）。 */
+export interface AuthPrompt {
+  prompt: string;
+  echo: boolean;
+}
+
+/** 连接命令返回结果：connected / 需要主机密钥确认 / 需要键盘交互（验证码）。 */
 export interface ConnectResult {
-  status: 'connected' | 'needsHostKeyApproval';
+  status: 'connected' | 'needsHostKeyApproval' | 'needsAuthInteraction';
   fingerprint?: string;
   host: string;
   port: number;
@@ -81,6 +87,12 @@ export interface ConnectResult {
   hostKeyToken?: string;
   /** 后端自建会话时返回的会话 id（监控等）；前端传 id 的命令为 undefined */
   sessionId?: string;
+  /** keyboard-interactive 本轮待回答的提示（status === 'needsAuthInteraction' 时非空） */
+  authPrompts?: AuthPrompt[];
+  /** 服务器附带的说明文字（验证码上文，可能为空） */
+  authInstructions?: string;
+  /** 认证用户名：提交答案时必须原样回传（后端按 user@host:port 命中答案表） */
+  authUser?: string;
 }
 
 /** 建立 SSH 终端会话。onOutputData：输出二进制 IPC 通道回调（Raw 字节 → ArrayBuffer，
@@ -112,6 +124,21 @@ export function acceptHostKey(
 /** 向 SSH 会话写入输入。 */
 export function sshWrite(sessionId: string, data: string): Promise<void> {
   return invoke<void>('ssh_write', { sessionId, data });
+}
+
+/**
+ * 提交 SSH keyboard-interactive 的答案（**累积**列表，含前几轮已答过的）。
+ *
+ * 提交后请重连同一条连接——后端认证时按序取用（取用即删除）。
+ * 恢复方式与 acceptHostKey 一致：重连，而不是在后端续跑握手。
+ */
+export function submitAuthAnswers(
+  user: string,
+  host: string,
+  port: number,
+  answers: string[],
+): Promise<void> {
+  return invoke<void>('submit_ssh_auth_answers', { user, host, port, answers });
 }
 
 /** 调整 SSH PTY 尺寸。 */
@@ -425,6 +452,12 @@ export interface VncConnectResult {
   port?: number;
   fingerprint?: string;
   hostKeyToken?: string;
+  /** keyboard-interactive 本轮待回答的提示（wsUrl 为空且 hostKeyToken 为空时非空） */
+  authPrompts?: AuthPrompt[];
+  /** 服务器附带的说明文字 */
+  authInstructions?: string;
+  /** 认证用户名：提交答案时原样回传 */
+  authUser?: string;
 }
 
 /** 建立 VNC 会话：Rust 侧起本地 loopback WebSocket<->TCP 桥，返回 ws 地址。 */
@@ -498,12 +531,18 @@ export function rdpListSessions(): Promise<string[]> {
 
 /** MOSH 连接结果（引导走 SSH，主机密钥确认语义与 ssh_connect 一致）。 */
 export interface MoshConnectResult {
-  status: 'connected' | 'needsHostKeyApproval';
+  status: 'connected' | 'needsHostKeyApproval' | 'needsAuthInteraction';
   fingerprint?: string | null;
   host: string;
   port: number;
   hostKeyToken?: string | null;
   sessionId?: string | null;
+  /** keyboard-interactive 本轮待回答的提示（status === 'needsAuthInteraction' 时非空） */
+  authPrompts?: AuthPrompt[];
+  /** 服务器附带的说明文字 */
+  authInstructions?: string;
+  /** 认证用户名：提交答案时原样回传 */
+  authUser?: string;
 }
 
 /**

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { confirmDialog } from '../components/ui/confirmDialog';
+import { promptForAnswers } from '../components/ui/authPromptDialog';
 import { dedupeHostKeyConfirm } from '../lib/hostKeyConfirm';
 import {
   Activity,
@@ -17,7 +18,7 @@ import {
 } from 'lucide-react';
 import { getHosts, getAccounts, getKeys, getCertificates, type Host, type Account, type Key, type Certificate } from '../services/dataService';
 import { resolveHostSshAuth } from '../services/sshAuthResolver';
-import { acceptHostKey } from '../services/sessionService';
+import { acceptHostKey, submitAuthAnswers } from '../services/sessionService';
 import { useConfigStore } from '../store/config';
 import { monitorStart, monitorCollect, monitorStop, monitorGetState, monitorSaveState, type MonitorSnapshot, type TopProcess } from '../services/monitorService';
 import { Button } from '../components/ui/button';
@@ -625,7 +626,25 @@ export function Monitor() {
       setConnectingId(host.id);
       try {
         let result = await monitorStart(host.id);
-        while (result.status === 'needsHostKeyApproval') {
+        // keyboard-interactive 的答案按轮累积提交（与终端同一条「中断 → 收集 → 重连」范式）
+        let authAnswers: string[] = [];
+        while (result.status === 'needsHostKeyApproval' || result.status === 'needsAuthInteraction') {
+          if (result.status === 'needsAuthInteraction') {
+            const answers = await promptForAnswers({
+              instructions: result.authInstructions,
+              prompts: result.authPrompts ?? [],
+            });
+            if (!answers) return false;
+            authAnswers = [...authAnswers, ...answers];
+            await submitAuthAnswers(
+              result.authUser ?? auth.username,
+              result.host,
+              result.port,
+              authAnswers,
+            );
+            result = await monitorStart(host.id);
+            continue;
+          }
           const fingerprint = result.fingerprint ?? '';
           const accepted = await dedupeHostKeyConfirm(
             `${result.host}:${result.port}:${fingerprint}`,

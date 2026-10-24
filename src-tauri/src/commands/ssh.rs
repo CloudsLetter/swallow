@@ -113,6 +113,17 @@ pub async fn ssh_connect(
                         approval.token.clone(),
                     ));
                 }
+                if let Some(challenge) =
+                    e.downcast_ref::<crate::ssh::interactive::AuthChallengeRequired>()
+                {
+                    return Ok(ConnectResult::needs_auth_interaction(
+                        challenge.host.clone(),
+                        challenge.port,
+                        challenge.user.clone(),
+                        challenge.instructions.clone(),
+                        challenge.prompts.clone(),
+                    ));
+                }
                 if is_ssh2_fallback_eligible(&e) && ssh_backend_effective != "russh" {
                     let _ = write_log(
                         "info",
@@ -176,6 +187,17 @@ pub async fn ssh_connect(
                     approval.port,
                     approval.fingerprint.clone(),
                     approval.token.clone(),
+                ));
+            }
+            if let Some(challenge) =
+                e.downcast_ref::<crate::ssh::interactive::AuthChallengeRequired>()
+            {
+                return Ok(ConnectResult::needs_auth_interaction(
+                    challenge.host.clone(),
+                    challenge.port,
+                    challenge.user.clone(),
+                    challenge.instructions.clone(),
+                    challenge.prompts.clone(),
                 ));
             }
             {
@@ -323,6 +345,16 @@ pub fn accept_host_key(
     let timeout_secs = read_connection_timeout(&config_state);
     crate::ssh::host_keys::accept_host_key(&token, &expected_fingerprint, timeout_secs)
         .map_err(|e| format!("Failed to accept host key: {}", e))
+}
+
+/// 提交 keyboard-interactive 的答案。
+///
+/// `answers` 是**累积**列表（含前几轮已答过的），按提问顺序排列；纯内存写入，
+/// 下一次连接尝试会按序取用（取用即删除）。恢复方式与 `accept_host_key` 一致：
+/// 前端提交后重连，而不是在后端续跑握手。
+#[tauri::command]
+pub fn submit_ssh_auth_answers(user: String, host: String, port: u16, answers: Vec<String>) {
+    crate::ssh::interactive::stash_answers(&user, &host, port, answers);
 }
 
 /// 终端输出流控开关：前端 write 缓冲积压超水位时暂停后端读取、低于水位恢复。

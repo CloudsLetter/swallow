@@ -5,10 +5,12 @@
 import type { MutableRefObject } from 'react';
 import type { TFunction } from 'i18next';
 import { confirmDialog } from '../components/ui/confirmDialog';
+import { promptForAnswers } from '../components/ui/authPromptDialog';
 import {
   acceptHostKey,
   disconnectSsh,
   sshConnect,
+  submitAuthAnswers,
   localShellConnect,
   localShellDisconnect,
   moshConnect,
@@ -118,7 +120,8 @@ export async function resetAutoOsIconAfterTrust(host?: string, port?: number) {
   }
 }
 
-/** SSH 建连 + 主机密钥确认循环：首次遇到未信任主机密钥时弹确认，用户 trust 后重试连接。 */
+/** SSH 建连 + 中断-恢复循环：主机密钥确认与 keyboard-interactive（验证码 / OTP / MFA）都在这里收口。
+ *  两者恢复方式一致——后端存状态，前端收集后**重连整条连接**（不在后端续跑握手）。 */
 async function connectSshWithHostKeyApproval(
   sessionId: string,
   sshConfig: TerminalSshConfig,
@@ -128,7 +131,30 @@ async function connectSshWithHostKeyApproval(
   onOutputData?: (chunk: ArrayBuffer) => void,
 ) {
   let result = await sshConnect(sessionId, sshConfig, cols, rows, onOutputData);
-  while (result.status === 'needsHostKeyApproval') {
+  // keyboard-interactive 的答案按轮**累积**提交：后端按提问顺序逐条取用，
+  // 多轮提问时前几轮已答过的也必须一并带上（否则第二轮对不上位）。
+  let authAnswers: string[] = [];
+  while (result.status === 'needsHostKeyApproval' || result.status === 'needsAuthInteraction') {
+    if (result.status === 'needsAuthInteraction') {
+      const answers = await promptForAnswers({
+        instructions: result.authInstructions,
+        prompts: result.authPrompts ?? [],
+      });
+      if (!answers) {
+        throw new Error(t('connection.authPromptDeclined'));
+      }
+      authAnswers = [...authAnswers, ...answers];
+      // user/host/port 原样回传后端给的值：后端按 `user@host:port` 命中答案表，
+      // 经跳板机时该 user 可能与前端传入的不同。
+      await submitAuthAnswers(
+        result.authUser ?? sshConfig.username,
+        result.host,
+        result.port,
+        authAnswers,
+      );
+      result = await sshConnect(sessionId, sshConfig, cols, rows, onOutputData);
+      continue;
+    }
     const fingerprint = result.fingerprint ?? '';
     const accepted = await dedupeHostKeyConfirm(
       `${result.host}:${result.port}:${fingerprint}`,
@@ -163,7 +189,27 @@ async function connectMoshWithHostKeyApproval(
   t: TFunction,
 ) {
   let result = await moshConnect(sessionId, moshConfig, cols, rows);
-  while (result.status === 'needsHostKeyApproval') {
+  // 与 SSH 同链路：keyboard-interactive 的答案按轮累积提交
+  let authAnswers: string[] = [];
+  while (result.status === 'needsHostKeyApproval' || result.status === 'needsAuthInteraction') {
+    if (result.status === 'needsAuthInteraction') {
+      const answers = await promptForAnswers({
+        instructions: result.authInstructions,
+        prompts: result.authPrompts ?? [],
+      });
+      if (!answers) {
+        throw new Error(t('connection.authPromptDeclined'));
+      }
+      authAnswers = [...authAnswers, ...answers];
+      await submitAuthAnswers(
+        result.authUser ?? moshConfig.username,
+        result.host,
+        result.port,
+        authAnswers,
+      );
+      result = await moshConnect(sessionId, moshConfig, cols, rows);
+      continue;
+    }
     const fingerprint = result.fingerprint ?? '';
     const accepted = await dedupeHostKeyConfirm(
       `${result.host}:${result.port}:${fingerprint}`,

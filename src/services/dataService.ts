@@ -11,7 +11,7 @@ export interface Host {
   /** 主机图标：undefined 无；`os:ubuntu` 内置；`data:image/...;base64,` 自定义；`file:路径` 本地图 */
   icon?: string;
   lastConnected?: string;
-  authType?: 'password' | 'key' | 'certificate' | 'agent' | 'none';
+  authType?: 'password' | 'key' | 'certificate' | 'agent' | 'keyboard-interactive' | 'none';
   password?: string;
   keyId?: string;
   certificateId?: string;
@@ -23,7 +23,7 @@ export interface Host {
   favorite?: boolean;
   useProxy?: boolean;
   proxyHostId?: string;
-  proxyAuthType?: 'password' | 'key' | 'certificate' | 'agent' | 'none';
+  proxyAuthType?: 'password' | 'key' | 'certificate' | 'agent' | 'keyboard-interactive' | 'none';
   proxyKeyId?: string;
   proxyCertId?: string;
   proxyHost?: string;
@@ -42,7 +42,7 @@ export interface Account {
   id: string;
   name: string;
   username: string;
-  authType: 'password' | 'key' | 'certificate' | 'agent';
+  authType: 'password' | 'key' | 'certificate' | 'agent' | 'keyboard-interactive';
   password?: string;
   keyId?: string;
   certificateId?: string;
@@ -475,12 +475,18 @@ export async function testPortForwardTarget(
 
 /** 建立/断开端口转发隧道命令的返回结果。 */
 export interface PortForwardConnectResult {
-  status: 'connected' | 'needsHostKeyApproval';
+  status: 'connected' | 'needsHostKeyApproval' | 'needsAuthInteraction';
   fingerprint?: string;
   host: string;
   port: number;
   /** 待确认主机密钥 token：确认时回传给 acceptHostKey */
   hostKeyToken?: string;
+  /** keyboard-interactive 本轮待回答的提示（status === 'needsAuthInteraction' 时非空） */
+  authPrompts?: { prompt: string; echo: boolean }[];
+  /** 服务器附带的说明文字 */
+  authInstructions?: string;
+  /** 认证用户名：提交答案时原样回传（后端按 user@host:port 命中答案表） */
+  authUser?: string;
 }
 
 /** 建立端口转发隧道（按规则关联的 SSH 主机连接并启动转发）。 */

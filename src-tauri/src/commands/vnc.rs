@@ -68,6 +68,25 @@ pub async fn vnc_connect(
                         port: Some(approval.port),
                         fingerprint: Some(approval.fingerprint.clone()),
                         host_key_token: Some(approval.token.clone()),
+                        auth_prompts: None,
+                        auth_instructions: None,
+                        auth_user: None,
+                    });
+                }
+                // keyboard-interactive（验证码 / OTP）：同上，前端收集答案后重试本命令
+                if let Some(challenge) =
+                    e.downcast_ref::<crate::ssh::interactive::AuthChallengeRequired>()
+                {
+                    return Ok(VncConnectResult {
+                        session_id: request.session_id.clone(),
+                        ws_url: None,
+                        host: Some(challenge.host.clone()),
+                        port: Some(challenge.port),
+                        fingerprint: None,
+                        host_key_token: None,
+                        auth_prompts: Some(challenge.prompts.clone()),
+                        auth_instructions: Some(challenge.instructions.clone()),
+                        auth_user: Some(challenge.user.clone()),
                     });
                 }
                 return Err(format!("SSH 隧道连接失败: {e}"));

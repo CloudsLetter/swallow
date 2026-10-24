@@ -1,4 +1,4 @@
-import { Lock, KeyRound, ShieldCheck } from 'lucide-react';
+import { Lock, KeyRound, ShieldCheck, Smartphone } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /** 认证方式小图标（Hosts/Account/Keys/Certificates 卡片共用，比徽章轻量）：
@@ -7,6 +7,7 @@ const map: Record<string, { Icon: typeof Lock; cls: string }> = {
   password: { Icon: Lock, cls: 'text-info' },
   key: { Icon: KeyRound, cls: 'text-violet-600 dark:text-violet-400' },
   certificate: { Icon: ShieldCheck, cls: 'text-teal-600 dark:text-teal-400' },
+  'keyboard-interactive': { Icon: Smartphone, cls: 'text-rose-600 dark:text-rose-400' },
   none: { Icon: Lock, cls: 'text-muted-foreground' },
 };
 

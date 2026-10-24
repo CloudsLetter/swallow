@@ -76,6 +76,15 @@ pub async fn mosh_connect(
                     approval.token.clone(),
                 ));
             }
+            if let Some(challenge) = e.downcast_ref::<crate::ssh::interactive::AuthChallengeRequired>() {
+                return Ok(ConnectResult::needs_auth_interaction(
+                    challenge.host.clone(),
+                    challenge.port,
+                    challenge.user.clone(),
+                    challenge.instructions.clone(),
+                    challenge.prompts.clone(),
+                ));
+            }
             return Err(format!("MOSH 连接失败: {e}"));
         }
     };

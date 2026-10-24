@@ -53,6 +53,7 @@ import {
   sftpUploadLocal,
   sftpStreamCopy,
   localFileSize,
+  submitAuthAnswers,
 } from '../services/sessionService';
 import {
   createOrGetSftpSession,
@@ -94,6 +95,7 @@ import {
 } from './ui/context-menu';
 import { save, open } from '@tauri-apps/plugin-dialog';
 import { confirmDialog } from './ui/confirmDialog';
+import { promptForAnswers } from './ui/authPromptDialog';
 import { dedupeHostKeyConfirm } from '../lib/hostKeyConfirm';
 import { toast } from 'sonner';
 import { useTransferStore, isCancelRequested } from '../store/transferStore';
@@ -319,7 +321,13 @@ const SftpPane = forwardRef<SftpPaneHandle, SftpPaneProps>(function SftpPane(
           port: sftpConfig.port,
           username: sftpConfig.username,
           protocol: sftpConfig.protocol || 'sftp',
-          auth_type: sftpConfig.authType || 'password',
+          // keyboard-interactive 原样透传给后端；其余沿用旧映射（key → publickey）
+          auth_type:
+            sftpConfig.authType === 'keyboard-interactive'
+              ? 'keyboard-interactive'
+              : sftpConfig.authType === 'key'
+                ? 'publickey'
+                : 'password',
           password: sftpConfig.password,
           key_path: sftpConfig.keyPath,
           key_id: sftpConfig.keyId,
@@ -327,7 +335,30 @@ const SftpPane = forwardRef<SftpPaneHandle, SftpPaneProps>(function SftpPane(
         };
         try {
           let connectResult = await sftpConnect(sessionId, sessionConfig);
-          while (connectResult.status === 'needsHostKeyApproval') {
+          // keyboard-interactive 的答案按轮累积提交（与终端同一条「中断 → 收集 → 重连」范式）
+          let authAnswers: string[] = [];
+          while (
+            connectResult.status === 'needsHostKeyApproval' ||
+            connectResult.status === 'needsAuthInteraction'
+          ) {
+            if (connectResult.status === 'needsAuthInteraction') {
+              const answers = await promptForAnswers({
+                instructions: connectResult.authInstructions,
+                prompts: connectResult.authPrompts ?? [],
+              });
+              if (!answers) {
+                throw new Error(t('connection.authPromptDeclined'));
+              }
+              authAnswers = [...authAnswers, ...answers];
+              await submitAuthAnswers(
+                connectResult.authUser ?? sessionConfig.username,
+                connectResult.host,
+                connectResult.port,
+                authAnswers,
+              );
+              connectResult = await sftpConnect(sessionId, sessionConfig);
+              continue;
+            }
             const fingerprint = connectResult.fingerprint ?? '';
             const accepted = await dedupeHostKeyConfirm(
               `${connectResult.host}:${connectResult.port}:${fingerprint}`,
@@ -1564,7 +1595,13 @@ export function SftpView({ sessionId, isActive = true, sftpConfig }: SftpViewPro
           port: host.port,
           username: auth.username,
           protocol: 'sftp',
-          authType: auth.authType === 'key' ? 'publickey' : 'password',
+          // keyboard-interactive 原样透传；key 走 SFTP 的 publickey 命名；其余按密码
+          authType:
+            auth.authType === 'keyboard-interactive'
+              ? 'keyboard-interactive'
+              : auth.authType === 'key'
+                ? 'publickey'
+                : 'password',
           password: auth.password,
           keyId: auth.authType === 'key' ? auth.keyId : undefined,
           remotePath: '/',

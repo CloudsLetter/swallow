@@ -9,6 +9,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::ssh::host_keys::{require_approval_typed, verify_host_key, HostKeyCheck};
+use crate::ssh::interactive;
 use crate::ssh::session::{SshConfig, userauth_pubkey_from_content};
 use crate::utils::net::enable_tcp_keepalive;
 
@@ -549,6 +550,29 @@ impl SftpSession {
                 } else {
                     return Err("Key path required for public key authentication".into());
                 }
+            }
+            // keyboard-interactive（RFC 4256）：与 ssh/session.rs 同一套中转机制。
+            // ⚠️ 本函数返回 Box<dyn Error>，challenge 必须 Box 具体类型（同上方主机密钥注释）
+            "keyboard-interactive" => {
+                let mut prompter = interactive::ScriptedPrompter::new(interactive::take_answers(
+                    &config.username,
+                    &config.host,
+                    config.port,
+                ));
+                let result = session.userauth_keyboard_interactive(&config.username, &mut prompter);
+                if let Some((instructions, prompts)) = prompter.into_challenge() {
+                    let challenge: Box<dyn std::error::Error + Send + Sync> = Box::new(
+                        interactive::require_challenge_typed(
+                            &config.username,
+                            &config.host,
+                            config.port,
+                            &instructions,
+                            prompts,
+                        ),
+                    );
+                    return Err(challenge);
+                }
+                result?;
             }
             _ => return Err("Unsupported authentication type".into()),
         }

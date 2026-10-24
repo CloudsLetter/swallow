@@ -4,8 +4,9 @@ import { useTranslation } from 'react-i18next';
 import { readText } from '@tauri-apps/plugin-clipboard-manager';
 import { copyText } from '../lib/clipboard';
 import { confirmDialog } from './ui/confirmDialog';
+import { promptForAnswers } from './ui/authPromptDialog';
 import { dedupeHostKeyConfirm } from '../lib/hostKeyConfirm';
-import { acceptHostKey, vncConnect, vncDisconnect } from '../services/sessionService';
+import { acceptHostKey, submitAuthAnswers, vncConnect, vncDisconnect } from '../services/sessionService';
 import type { VncTabConfig } from '../store/tabStore';
 import { useVncKeyboard } from '../store/vncKeyboard';
 import { Button } from './ui/button';
@@ -45,6 +46,8 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
   // 连接配置在连接开始时固定；vncConfig 对象身份变化不触发自动重连
   const configRef = useRef<VncTabConfig | undefined>(vncConfig);
   configRef.current = vncConfig;
+  // keyboard-interactive 的答案按轮累积（跨 generation 重连仍保留）
+  const authAnswersRef = useRef<string[]>([]);
 
   const [status, setStatus] = useState<VncStatus>('idle');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -108,6 +111,38 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
         return;
       }
       // SSH 隧道首次遇到未知主机密钥：确认指纹后（写入 known_hosts）重试连接
+      // keyboard-interactive（验证码 / OTP）：SSH 隧道引导被挑战时，收集答案后
+      // 用新 generation 重试整条连接（与主机密钥确认同一套「中断 → 收集 → 重连」范式）。
+      if (!result.wsUrl && result.authPrompts && result.authPrompts.length > 0) {
+        const answers = await promptForAnswers({
+          instructions: result.authInstructions,
+          prompts: result.authPrompts,
+        });
+        if (gen !== genRef.current) return;
+        if (!answers) {
+          authAnswersRef.current = [];
+          setStatus('disconnected');
+          return;
+        }
+        if (!result.authUser || !result.host || result.port === undefined) {
+          setStatus('error');
+          setErrorMsg(t('connection.connectionFailedStatus', { status: 'needsAuthInteraction' }));
+          return;
+        }
+        authAnswersRef.current = [...authAnswersRef.current, ...answers];
+        try {
+          await submitAuthAnswers(result.authUser, result.host, result.port, authAnswersRef.current);
+        } catch (err) {
+          if (gen !== genRef.current) return;
+          setStatus('error');
+          setErrorMsg(String(err));
+          return;
+        }
+        if (gen !== genRef.current) return;
+        // 答案已存进后端中转表；重连即新一代
+        void startConnect();
+        return;
+      }
       if (!result.wsUrl && result.hostKeyToken) {
         const confirmed = await dedupeHostKeyConfirm(
           `${result.host ?? ''}:${result.port ?? ''}:${result.fingerprint || ''}`,
@@ -141,6 +176,8 @@ export function VncView({ sessionId, vncConfig, skipAutoConnect }: VncViewProps)
         return;
       }
       wsUrl = result.wsUrl;
+      // 连接成功：清空本轮累积的验证码答案，避免串到下一次连接
+      authAnswersRef.current = [];
     } catch (err) {
       // 过期代失败静默（后端可能已由新代接管，无需提示）
       if (gen !== genRef.current) return;

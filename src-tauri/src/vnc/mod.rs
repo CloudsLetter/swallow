@@ -59,6 +59,8 @@ pub struct VncConnectRequest {
 /// - 直连/隧道成功：`ws_url` 为 Some（本地 WebSocket 地址），其余字段 None；
 /// - SSH 主机密钥待确认：`ws_url` 为 None，`host_key_token`/`fingerprint`/`host`/`port`
 ///   携带确认信息——前端确认后调 `accept_host_key(token, fingerprint)` 再重试本命令。
+/// - keyboard-interactive（验证码 / OTP）：`ws_url` 为 None，`auth_prompts` 非空——
+///   前端收集答案后调 `submit_ssh_auth_answers` 再重试本命令。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VncConnectResult {
@@ -73,6 +75,12 @@ pub struct VncConnectResult {
     pub fingerprint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub host_key_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_prompts: Option<Vec<crate::ssh::interactive::AuthPrompt>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_instructions: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_user: Option<String>,
 }
 
 /// 直连 VNC 建立 TCP 的超时（秒），文档建议 10~30s。

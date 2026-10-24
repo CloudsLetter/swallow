@@ -7,6 +7,7 @@ import {
   Lock as IconLock,
   KeyRound as IconKeyRound,
   ShieldCheck as IconShieldCheck,
+  Smartphone as IconSmartphone,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { Account, Host } from '../../services/dataService';
@@ -15,7 +16,9 @@ export type ViewMode = 'grid' | 'list';
 export type AuthFilter = 'all' | 'password' | 'key' | 'certificate' | 'proxy';
 export type ProxyMode = 'existing' | 'manual';
 export type AuthSource = 'account' | 'manual';
-export type SupportedAccount = Account & { authType: 'password' | 'key' | 'certificate' | 'agent' };
+export type SupportedAccount = Account & {
+  authType: 'password' | 'key' | 'certificate' | 'agent' | 'keyboard-interactive';
+};
 
 export const sectionClass = 'flex flex-col gap-3 rounded-lg bg-muted/40 p-4';
 export const noticeWarningClass =
@@ -27,6 +30,8 @@ export function getAuthTypeText(authType?: Host['authType'] | Account['authType'
       return i18n.t('hosts.authTypeKey');
     case 'certificate':
       return i18n.t('hosts.authTypeCertificate');
+    case 'keyboard-interactive':
+      return i18n.t('hosts.authTypeKeyboardInteractive');
     case 'none':
       return i18n.t('hosts.authNone');
     default:
@@ -39,7 +44,8 @@ export function isSupportedHostAccount(account: Account): account is SupportedAc
     account.authType === 'password' ||
     account.authType === 'key' ||
     account.authType === 'certificate' ||
-    account.authType === 'agent'
+    account.authType === 'agent' ||
+    account.authType === 'keyboard-interactive'
   );
 }
 
@@ -65,15 +71,22 @@ export function findHostAccount(host: Host, accounts: SupportedAccount[]): Suppo
   return accounts.find((account) => account.id === host.accountId);
 }
 
-export const authBadge = (authType: 'password' | 'key' | 'certificate' | 'agent' | 'none') => {
+export const authBadge = (
+  authType: 'password' | 'key' | 'certificate' | 'agent' | 'keyboard-interactive' | 'none',
+) => {
   const map = {
     password: { label: i18n.t('hosts.authTypePassword'), cls: 'bg-info/10 text-info' },
     key: { label: i18n.t('hosts.authTypeKey'), cls: 'bg-violet-500/10 text-violet-600 dark:text-violet-400' },
     certificate: { label: i18n.t('hosts.authTypeCertificate'), cls: 'bg-teal-500/10 text-teal-600 dark:text-teal-400' },
     agent: { label: i18n.t('hosts.authTypeAgent'), cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
+    'keyboard-interactive': {
+      label: i18n.t('hosts.authTypeKeyboardInteractive'),
+      cls: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
+    },
     none: { label: i18n.t('hosts.authNone'), cls: 'bg-muted text-muted-foreground' },
   } as const;
-  const item = map[authType];
+  // 未知 authType（如旧库数据）回落到 none，避免 map[authType] 取到 undefined 后崩溃
+  const item = map[authType] ?? map.none;
   return <Badge variant="outline" className={cn('font-normal', item.cls)}>{item.label}</Badge>;
 };
 
@@ -127,15 +140,23 @@ export const statusCornerBadge = (status: Host['status']) => {
 };
 
 /** 认证方式小图标（卡片/列表信息补充，比徽章轻量）：密码=锁 / 密钥=钥匙 / 证书=盾牌。 */
-export const authIcon = (authType: 'password' | 'key' | 'certificate' | 'agent' | 'none') => {
+export const authIcon = (
+  authType: 'password' | 'key' | 'certificate' | 'agent' | 'keyboard-interactive' | 'none',
+) => {
   const map = {
     password: { Icon: IconLock, cls: 'text-info', label: i18n.t('hosts.authTypePassword') },
     key: { Icon: IconKeyRound, cls: 'text-violet-600 dark:text-violet-400', label: i18n.t('hosts.authTypeKey') },
     certificate: { Icon: IconShieldCheck, cls: 'text-teal-600 dark:text-teal-400', label: i18n.t('hosts.authTypeCertificate') },
     agent: { Icon: IconKeyRound, cls: 'text-amber-600 dark:text-amber-400', label: i18n.t('hosts.authTypeAgent') },
+    'keyboard-interactive': {
+      Icon: IconSmartphone,
+      cls: 'text-rose-600 dark:text-rose-400',
+      label: i18n.t('hosts.authTypeKeyboardInteractive'),
+    },
     none: { Icon: IconLock, cls: 'text-muted-foreground', label: i18n.t('hosts.authNone') },
   } as const;
-  const { Icon, cls, label } = map[authType];
+  // 未知 authType（如旧库数据）回落到 none，避免 map[authType] 取到 undefined 后崩溃
+  const { Icon, cls, label } = map[authType] ?? map.none;
   return (
     <span className="shrink-0" title={label} aria-label={label}>
       <Icon size={12} strokeWidth={2} className={cls} />

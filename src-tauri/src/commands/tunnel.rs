@@ -134,6 +134,15 @@ pub async fn start_port_forward(
                     approval.token.clone(),
                 ));
             }
+            if let Some(challenge) = e.downcast_ref::<crate::ssh::interactive::AuthChallengeRequired>() {
+                return Ok(ConnectResult::needs_auth_interaction(
+                    challenge.host.clone(),
+                    challenge.port,
+                    challenge.user.clone(),
+                    challenge.instructions.clone(),
+                    challenge.prompts.clone(),
+                ));
+            }
             // DSA/传统 PEM 兼容回退：russh 不支持 ssh-dss 主机密钥与 DSA/传统 PEM
             // 客户端私钥，这类算法协商/私钥解析失败自动回退 ssh2 后端（备份路径）。
             // 主机密钥安全类错误（Mismatch/KeyChanged）与待确认流程不回退。
@@ -172,6 +181,17 @@ pub async fn start_port_forward(
                                 approval.port,
                                 approval.fingerprint.clone(),
                                 approval.token.clone(),
+                            ));
+                        }
+                        if let Some(challenge) =
+                            e.downcast_ref::<crate::ssh::interactive::AuthChallengeRequired>()
+                        {
+                            return Ok(ConnectResult::needs_auth_interaction(
+                                challenge.host.clone(),
+                                challenge.port,
+                                challenge.user.clone(),
+                                challenge.instructions.clone(),
+                                challenge.prompts.clone(),
                             ));
                         }
                         return Err(SshError::classify(&e));

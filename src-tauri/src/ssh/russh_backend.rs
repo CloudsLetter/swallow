@@ -28,6 +28,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use crate::ssh::host_keys::{
     check_known_host_entry, fingerprint_from_blob, require_approval_russh, HostKeyCheck,
 };
+use crate::ssh::interactive;
 use crate::ssh::session::SshConfig;
 
 /// Handler 自定义错误：russh 要求 `Handler::Error: From<russh::Error> + Send + Debug`，
@@ -527,9 +528,64 @@ async fn authenticate_inner(
             }
         }
         "agent" => authenticate_with_agent(handle, config.username.clone()).await?,
+        "keyboard-interactive" => authenticate_keyboard_interactive(handle, config).await?,
         other => bail!("Unsupported authentication type: {other}"),
     }
     Ok(())
+}
+
+/// keyboard-interactive（RFC 4256）：服务器逐条下发提示，按前端已收集的答案逐条应答。
+///
+/// 答案来自 `ssh::interactive` 的中转表（前端上一轮弹框提交、随后重连）；
+/// 答案不足时返回 `AuthChallengeRequired`，由前端弹框收集后重连——
+/// 与主机密钥确认同一条「中断 → 收集 → 重连」范式（russh 侧无需改 Handler trait，
+/// 挑战-应答走 `Handle` 上的 start/respond 循环）。
+async fn authenticate_keyboard_interactive(
+    handle: &mut Handle<ClientHandler>,
+    config: &SshConfig,
+) -> Result<()> {
+    let mut scripted =
+        interactive::take_answers(&config.username, &config.host, config.port);
+    let mut response = handle
+        .authenticate_keyboard_interactive_start(&config.username, None::<String>)
+        .await?;
+    loop {
+        match response {
+            client::KeyboardInteractiveAuthResponse::Success => return Ok(()),
+            client::KeyboardInteractiveAuthResponse::Failure { .. } => {
+                bail!("Authentication failed")
+            }
+            client::KeyboardInteractiveAuthResponse::InfoRequest {
+                instructions,
+                prompts,
+                ..
+            } => {
+                let answers = match interactive::take_scripted(&mut scripted, prompts.len()) {
+                    Some(answers) => answers,
+                    None => {
+                        // 答案不够：这是连续端要问的内容，交给前端收集
+                        let pending: Vec<interactive::AuthPrompt> = prompts
+                            .into_iter()
+                            .map(|p| interactive::AuthPrompt {
+                                prompt: p.prompt,
+                                echo: p.echo,
+                            })
+                            .collect();
+                        return Err(interactive::require_challenge(
+                            &config.username,
+                            &config.host,
+                            config.port,
+                            &instructions,
+                            pending,
+                        ));
+                    }
+                };
+                response = handle
+                    .authenticate_keyboard_interactive_respond(answers)
+                    .await?;
+            }
+        }
+    }
 }
 
 /// SSH Agent 认证：枚举 agent 中的全部身份逐一尝试（签名由 agent 完成，

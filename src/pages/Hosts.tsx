@@ -112,7 +112,7 @@ export function Hosts() {  const { t } = useTranslation();
   const [port, setPort] = useState(() => useConfigStore.getState().config?.ssh?.default_port ?? 22);
   const [authSource, setAuthSource] = useState<AuthSource>('account');
   const [selectedAccountId, setSelectedAccountId] = useState('');
-  const [manualAuthType, setManualAuthType] = useState<'password' | 'key' | 'certificate' | 'agent' | 'none'>('password');
+  const [manualAuthType, setManualAuthType] = useState<'password' | 'key' | 'certificate' | 'agent' | 'keyboard-interactive' | 'none'>('password');
   const [manualUsername, setManualUsername] = useState('');
   const [manualPassword, setManualPassword] = useState('');
   const [manualKeyId, setManualKeyId] = useState('');
@@ -1497,7 +1497,20 @@ export function Hosts() {  const { t } = useTranslation();
 
                   <div>
                     {fieldLabel(t('account.authType'))}
-                    <Select value={manualAuthType} onValueChange={(v) => setManualAuthType(v as 'password' | 'key' | 'certificate' | 'none')}>
+                    <Select
+                      value={manualAuthType}
+                      onValueChange={(v) =>
+                        setManualAuthType(
+                          v as
+                            | 'password'
+                            | 'key'
+                            | 'certificate'
+                            | 'agent'
+                            | 'keyboard-interactive'
+                            | 'none',
+                        )
+                      }
+                    >
                       <SelectTrigger className="w-full">
                         <SelectValue />
                       </SelectTrigger>
@@ -1506,6 +1519,9 @@ export function Hosts() {  const { t } = useTranslation();
                         <SelectItem value="key">{t('hosts.authTypeKeyOption')}</SelectItem>
                         <SelectItem value="certificate">{t('hosts.authTypeCertOption')}</SelectItem>
                         <SelectItem value="agent">{t('hosts.authTypeAgentOption')}</SelectItem>
+                        <SelectItem value="keyboard-interactive">
+                          {t('hosts.authTypeKeyboardInteractiveOption')}
+                        </SelectItem>
                         <SelectItem value="none">{t('hosts.authTypeNoneDesc')}</SelectItem>
                       </SelectContent>
                     </Select>

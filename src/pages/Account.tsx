@@ -62,6 +62,8 @@ function getAuthTypeText(authType: Account['authType']) {
       return i18n.t('account.authTypeKey');
     case 'certificate':
       return i18n.t('account.authTypeCertificate');
+    case 'keyboard-interactive':
+      return i18n.t('account.authTypeKeyboardInteractive');
     default:
       return i18n.t('account.authTypePassword');
   }
@@ -73,8 +75,13 @@ const authBadge = (authType: Account['authType']) => {
     key: { label: i18n.t('account.authTypeKey'), cls: 'bg-violet-500/10 text-violet-600 dark:text-violet-400' },
     certificate: { label: i18n.t('account.authTypeCertificate'), cls: 'bg-teal-500/10 text-teal-600 dark:text-teal-400' },
     agent: { label: i18n.t('account.authTypeAgent'), cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
+    'keyboard-interactive': {
+      label: i18n.t('account.authTypeKeyboardInteractive'),
+      cls: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
+    },
   } as const;
-  const item = map[authType];
+  // 未知 authType 回落到 password，避免 map[authType] 取到 undefined 后崩溃
+  const item = map[authType] ?? map.password;
   return <Badge variant="outline" className={cn('font-normal', item.cls)}>{item.label}</Badge>;
 };
 
@@ -544,6 +551,9 @@ export function AccountPage() {
                     <SelectItem value="key">{t('account.authTypeKeyOption')}</SelectItem>
                     <SelectItem value="certificate">{t('account.authTypeCertOption')}</SelectItem>
                     <SelectItem value="agent">{t('account.authTypeAgentOption')}</SelectItem>
+                    <SelectItem value="keyboard-interactive">
+                      {t('account.authTypeKeyboardInteractiveOption')}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>

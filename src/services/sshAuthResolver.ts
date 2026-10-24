@@ -1,7 +1,13 @@
 import type { Host, Account, Key, Certificate } from './dataService';
 import i18n from '../i18n/i18n';
 
-export type SshAuthType = 'password' | 'key' | 'certificate' | 'agent' | 'none';
+export type SshAuthType =
+  | 'password'
+  | 'key'
+  | 'certificate'
+  | 'agent'
+  | 'keyboard-interactive'
+  | 'none';
 
 export interface HostSshAuth {
   authType: SshAuthType;
@@ -65,6 +71,12 @@ export function resolveHostSshAuth(
   // SSH Agent：签名由 agent 完成，本地无需密钥材料；agent 可用性在连接时检查
   if (rawAuthType === 'agent') {
     return { authType: 'agent', username };
+  }
+
+  // keyboard-interactive（RFC 4256）：密码/验证码由服务器逐条提问，本地不需要凭据材料。
+  // 跳板机与云主机的动态口令（OTP / MFA）走这条。
+  if (rawAuthType === 'keyboard-interactive') {
+    return { authType: 'keyboard-interactive', username };
   }
 
   return {

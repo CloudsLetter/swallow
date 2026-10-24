@@ -10,6 +10,7 @@ import { Home } from './pages/Home';
 import { focusTerminal, isConnected, listPool } from './components/terminalPool';
 import { Toaster } from './components/ui/sonner';
 import { ConfirmDialogHost, confirmDialog } from './components/ui/confirmDialog';
+import { AuthPromptHost } from './components/ui/authPromptDialog';
 import { OnboardingDialog } from './components/OnboardingDialog';
 import { SessionNotifications } from './components/SessionNotifications';
 import { DebugConsole } from './components/DebugConsole';
@@ -123,11 +124,25 @@ function App() {
         k === 'f12' ||
         (e.ctrlKey && e.shiftKey && (k === 'i' || k === 'c' || k === 'j')) ||
         (e.ctrlKey && k === 'u');
+      // 整页缩放（WebView2 原生行为）：Ctrl/Cmd + '+' / '-' / '0'。
+      // 缩放一旦生效，终端 fit 算出的行列与像素尺寸全失真，且没有 UI 可复位。
+      const zoom = (e.ctrlKey || e.metaKey) && ['+', '=', '-', '_', '0'].includes(e.key);
       const reserved = (e.ctrlKey && (k === 'p' || k === 's')) || k === 'f11';
-      if (refresh || (!import.meta.env.DEV && devtools) || reserved) e.preventDefault();
+      if (refresh || zoom || (!import.meta.env.DEV && devtools) || reserved) e.preventDefault();
     };
     document.addEventListener('keydown', blockNativeKeys, true);
     return () => document.removeEventListener('keydown', blockNativeKeys, true);
+  }, []);
+
+  // 拦截 Ctrl/Cmd + 滚轮缩放（WebView2 原生缩放的另一条入口）。
+  // 只 preventDefault、不 stopPropagation：终端/画布自己的滚轮逻辑照常收到事件。
+  // ⚠️ wheel 默认是 passive，必须显式 { passive: false }，否则 preventDefault 无效。
+  useEffect(() => {
+    const blockZoomWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) e.preventDefault();
+    };
+    window.addEventListener('wheel', blockZoomWheel, { passive: false });
+    return () => window.removeEventListener('wheel', blockZoomWheel);
   }, []);
 
   // 语言设置响应式生效：启动加载与设置修改都会触发切换。
@@ -302,6 +317,7 @@ function App() {
         </Layout>
         <Toaster position="top-center" />
         <ConfirmDialogHost />
+        <AuthPromptHost />
         <SessionNotifications />
         <OnboardingDialog
           open={showOnboarding}
