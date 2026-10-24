@@ -2,7 +2,7 @@
 
 Cross-platform terminal client: **SSH / SFTP / Telnet / local shell / VNC / RDP remote desktop / MOSH / Serial** with server monitoring, key & certificate management, ProxyJump and port forwarding.
 
-![Version](https://img.shields.io/badge/Version-0.5.3-58A6FF?style=flat-square)
+![Version](https://img.shields.io/badge/Version-0.5.5-58A6FF?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
 ![Platform](https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat-square)
 ![Framework](https://img.shields.io/badge/Tauri%202%20%2B%20React%2019-2f81f7?style=flat-square)
