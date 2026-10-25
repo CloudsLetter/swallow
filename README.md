@@ -2,7 +2,7 @@
 
 跨平台终端客户端：**SSH / SFTP / Telnet / 本地 shell / VNC / RDP 远程桌面 / MOSH / 串口**，内置服务器监控、密钥 / 证书管理、ProxyJump 与端口转发。
 
-![Version](https://img.shields.io/badge/Version-0.5.6-58A6FF?style=flat-square)
+![Version](https://img.shields.io/badge/Version-0.5.7-58A6FF?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
 ![Platform](https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat-square)
 ![Framework](https://img.shields.io/badge/Tauri%202%20%2B%20React%2019-2f81f7?style=flat-square)
