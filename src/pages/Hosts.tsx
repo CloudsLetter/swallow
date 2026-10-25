@@ -800,24 +800,36 @@ export function Hosts() {  const { t } = useTranslation();
             {authIcon(resolveHostAuthType(host))}
             {host.useProxy && <IconServer size={12} className="shrink-0 text-warning" />}
           </div>
-          <div className="mt-0.5 flex items-center gap-1 truncate font-mono text-xs text-muted-foreground">
-            <IconGlobe size={10} className="shrink-0 opacity-60" />
-            {resolveHostUsername(host)}@{host.host}:{host.port}
+          {/* 地址 + 分组/标签同排。
+              ⚠️ 标签**不能单独占一行**：本页是 CSS Grid（minmax(264px,1fr)），同一行里
+              只要有一张卡片多出一行，整行都会被对齐拉高 —— 实测「有标签的卡片把整排撑大」。
+              地址负责收缩（truncate），标签簇 max-w-[45%] 且 overflow-hidden，
+              保证标签再宽也挤不掉地址的可读空间。 */}
+          <div className="mt-0.5 flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
+            <span className="flex min-w-0 items-center gap-1">
+              <IconGlobe size={10} className="shrink-0 opacity-60" />
+              <span className="truncate">
+                {resolveHostUsername(host)}@{host.host}:{host.port}
+              </span>
+            </span>
+            {(host.group || (host.tags && host.tags.length > 0)) && (
+              <span className="flex max-w-[45%] shrink-0 items-center gap-1 overflow-hidden">
+                {host.group && (
+                  <Badge variant="outline" className="h-4 shrink-0 px-1 text-[10px] font-normal">
+                    {host.group}
+                  </Badge>
+                )}
+                {(host.tags || []).slice(0, 2).map((tag) => (
+                  <span
+                    key={tag}
+                    className="shrink-0 rounded bg-muted px-1 py-px text-[10px] text-muted-foreground"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </span>
+            )}
           </div>
-          {(host.group || (host.tags && host.tags.length > 0)) && (
-            <div className="mt-1 flex flex-wrap items-center gap-1">
-              {host.group && (
-                <Badge variant="outline" className="h-5 px-1.5 text-[10px] font-normal">
-                  {host.group}
-                </Badge>
-              )}
-              {(host.tags || []).slice(0, 3).map((tag) => (
-                <span key={tag} className="rounded bg-muted px-1.5 py-px text-[10px] text-muted-foreground">
-                  {tag}
-                </span>
-              ))}
-            </div>
-          )}
         </div>
 
         {/* 右侧操作：连接 + 更多菜单（SFTP/编辑/复制/删除收纳） */}
