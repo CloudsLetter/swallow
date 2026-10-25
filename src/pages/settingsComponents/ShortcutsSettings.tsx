@@ -19,8 +19,11 @@ export function ShortcutsSettings() {
   const DEFAULT_SHORTCUTS: Record<string, string | boolean> = {
     new_tab: 'Ctrl+T',
     close_tab: 'Ctrl+W',
-    next_tab: 'Ctrl+Shift+→',
-    prev_tab: 'Ctrl+Shift+←',
+    // Ctrl+Tab / Ctrl+Shift+Tab 是终端与编辑器的通行习惯（Termius / Warp / 终端模拟器）。
+    // ⚠️ WebView2 的浏览器加速键清单里**不含** Ctrl+Tab（含 Ctrl+T/W），所以它能送达页面；
+    // Ctrl+Shift+←/→ 与方向键冲突且不易发现，故不再作为默认。
+    next_tab: 'Ctrl+Tab',
+    prev_tab: 'Ctrl+Shift+Tab',
     copy: 'Ctrl+C',
     paste: 'Ctrl+V',
     find: 'Ctrl+F',
@@ -34,10 +37,8 @@ export function ShortcutsSettings() {
   /** 快捷键预设（覆盖常用键，应用后仍可逐项重绑）。 */
   const PRESETS: Record<string, Record<string, string | boolean>> = {
     default: DEFAULT_SHORTCUTS,
-    // Termius 桌面端：新建标签 Ctrl+Alt+T，Ctrl+Tab / Ctrl+Shift+Tab 循环标签
-    termius: { ...DEFAULT_SHORTCUTS, new_tab: 'Ctrl+Alt+T', next_tab: 'Ctrl+Tab', prev_tab: 'Ctrl+Shift+Tab' },
-    // Warp（Windows）：Ctrl+Tab / Ctrl+Shift+Tab 循环标签，其余同默认
-    warp: { ...DEFAULT_SHORTCUTS, next_tab: 'Ctrl+Tab', prev_tab: 'Ctrl+Shift+Tab' },
+    // Termius 桌面端：新建标签 Ctrl+Alt+T（Ctrl+T 会被 WebView2 当浏览器加速键吃掉）
+    termius: { ...DEFAULT_SHORTCUTS, new_tab: 'Ctrl+Alt+T' },
   };
 
   // 与默认值合并：老 config 未存 terminal_* 时也显示并可用（保存后落盘）

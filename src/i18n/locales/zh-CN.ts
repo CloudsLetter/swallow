@@ -341,10 +341,8 @@ export default {
     shortcutPresetsDesc: '一键套用主流客户端的键位布局（不会自动保存，应用后仍可逐项重绑）',
     shortcutPreset_default: '默认',
     shortcutPreset_termius: 'Termius',
-    shortcutPreset_warp: 'Warp',
-    shortcutPresetDesc_default: '当前默认布局：Ctrl+T 新建 / Ctrl+W 关闭 / Ctrl+Shift+←→ 切换标签',
-    shortcutPresetDesc_termius: 'Termius 风格：Ctrl+Alt+T 新建标签，Ctrl+Tab / Ctrl+Shift+Tab 循环切换',
-    shortcutPresetDesc_warp: 'Warp（Windows）风格：Ctrl+Tab / Ctrl+Shift+Tab 循环切换标签，其余同默认',
+    shortcutPresetDesc_default: '当前默认布局：Ctrl+T 新建 / Ctrl+W 关闭 / Ctrl+Tab · Ctrl+Shift+Tab 切换标签',
+    shortcutPresetDesc_termius: 'Termius 风格：Ctrl+Alt+T 新建标签（Ctrl+T 会被 WebView2 当浏览器加速键吃掉）',
 
     // 云同步设置
     cloudSyncDesc: '云同步功能可以让你在多台设备间同步配置、连接信息和密钥。数据使用端到端加密传输。',

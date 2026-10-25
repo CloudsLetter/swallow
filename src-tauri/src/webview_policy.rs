@@ -9,9 +9,11 @@
 //! 1. `SetIsGeneralAutofillEnabled(false)` —— 关掉输入框的自动填充建议下拉。
 //! 2. `SetIsPasswordAutosaveEnabled(false)` —— 关掉「保存密码？」的原生弹窗。
 //!    （本应用的密码存系统钥匙串，浏览器存一份只会泄密。）
-//! 3. `SetIsZoomControlEnabled(false)` + `SetIsPinchZoomEnabled(false)` ——
-//!    关掉 Ctrl+滚轮与触控板捏合缩放，与前端的 wheel 拦截双保险：缩放后
-//!    终端 fit 算出的行列与像素尺寸会失真且无 UI 可复位。
+//! 3. 缩放：Windows 侧的滚轮缩放由窗口配置 `zoomHotkeysEnabled: false`
+//!    控制（Tauri 会据此关掉 WebView2 的 `IsZoomControlEnabled`，并覆盖
+//!    macOS/Linux 的缩放注入）；这里只补窗口配置覆盖不到的**触控板捏合**
+//!    （Settings5 的 `IsPinchZoomEnabled`）。缩放后终端 fit 算出的行列会失真
+//!    且无 UI 可复位，所以两路都要关。
 //! 4. `SetAreDefaultScriptDialogsEnabled(false)` —— 关掉 `window.alert` / `confirm`
 //!    / `prompt` 的原生弹窗。仓库内这三者已零使用（确认框全部走 shadcn）。
 //! 5. `SetAreDevToolsEnabled(dev)` —— 生产禁 DevTools；debug 构建保留（dev 要用 F12）。
@@ -67,8 +69,8 @@ pub(crate) fn attach(app: &AppHandle) {
         if let Ok(s5) = settings.cast::<ICoreWebView2Settings5>() {
             let _ = unsafe { s5.SetIsPinchZoomEnabled(false) };
         }
-        // 基础 Settings：滚轮缩放 / 脚本弹窗 / DevTools
-        let _ = unsafe { settings.SetIsZoomControlEnabled(false) };
+        // 基础 Settings：脚本弹窗 / DevTools
+        //（滚轮缩放由窗口配置 zoomHotkeysEnabled 负责，这里不再重复设置）
         let _ = unsafe { settings.SetAreDefaultScriptDialogsEnabled(false) };
         let _ = unsafe { settings.SetAreDevToolsEnabled(dev) };
     }

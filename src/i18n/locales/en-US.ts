@@ -343,10 +343,8 @@ export default {
     shortcutPresetsDesc: 'Apply a mainstream keymap in one click (not saved automatically; fine-tune rows after applying)',
     shortcutPreset_default: 'Default',
     shortcutPreset_termius: 'Termius',
-    shortcutPreset_warp: 'Warp',
-    shortcutPresetDesc_default: 'Current default: Ctrl+T new tab / Ctrl+W close / Ctrl+Shift+←→ switch tabs',
-    shortcutPresetDesc_termius: 'Termius style: Ctrl+Alt+T new tab, Ctrl+Tab / Ctrl+Shift+Tab to cycle',
-    shortcutPresetDesc_warp: 'Warp (Windows) style: Ctrl+Tab / Ctrl+Shift+Tab to cycle tabs, rest unchanged',
+    shortcutPresetDesc_default: 'Current default: Ctrl+T new tab / Ctrl+W close / Ctrl+Tab + Ctrl+Shift+Tab to cycle',
+    shortcutPresetDesc_termius: 'Termius style: Ctrl+Alt+T new tab (WebView2 swallows Ctrl+T as a browser accelerator)',
 
     // Cloud Sync
     cloudSyncDesc: 'Cloud sync allows you to synchronize configurations, connection information, and keys across multiple devices. Data is transmitted using end-to-end encryption.',
