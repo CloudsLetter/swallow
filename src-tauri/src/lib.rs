@@ -14,6 +14,7 @@ mod rdp;
 mod mosh;
 #[cfg(target_os = "windows")]
 mod os_drop_paths;
+mod webview_policy;
 
 use ssh::{SshManager, TunnelManager};
 use ssh::russh_shell::ShellSession;
@@ -334,6 +335,8 @@ pub fn run() {
                 // 正式桥：WebView2 WebMessageReceived → AdditionalObjects → CoreWebView2File.Path
                 // （拖拽上传的 DOM File 无 JS 路径，此桥在原生层取真实路径 emit 回前端直读满速）
                 os_drop_paths::attach(_app.handle());
+                // 关掉 WebView2 的自动填充建议 / 密码保存提示 / 缩放 / 脚本弹窗（详见模块注释）
+                webview_policy::attach(_app.handle());
             }
             let app_handle = _app.handle().clone();
             
