@@ -147,10 +147,12 @@ fn normalize_key_type(algo: &str) -> String {
 
 /// 用 ssh-keygen -L 解析 OpenSSH 证书，提取类型、指纹、有效期与 principals。
 fn inspect_certificate(cert_path: &Path) -> Result<CertMeta, String> {
-    let output = Command::new("ssh-keygen")
-        .arg("-L")
-        .arg("-f")
-        .arg(cert_path.to_string_lossy().as_ref())
+    let mut cmd = Command::new("ssh-keygen");
+    cmd.arg("-L");
+    cmd.arg("-f");
+    cmd.arg(cert_path.to_string_lossy().as_ref());
+    crate::utils::process::hide_console(&mut cmd);
+    let output = cmd
         .output()
         .map_err(|e| format!("ssh-keygen not available: {e}"))?;
 

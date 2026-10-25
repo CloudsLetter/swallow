@@ -164,6 +164,8 @@ fn list_shell_profiles_windows() -> Vec<LocalShellProfile> {
 #[cfg(target_os = "windows")]
 fn run_with_timeout(mut cmd: std::process::Command, timeout: std::time::Duration) -> Option<std::process::Output> {
     use std::io::Read;
+    // 不加这条的话，QuickConnect 每次挂载探测 Git Bash / WSL 都会闪一个 cmd 窗口
+    crate::utils::process::hide_console(&mut cmd);
     let mut child = cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null()).spawn().ok()?;
     let deadline = std::time::Instant::now() + timeout;
     let status = loop {

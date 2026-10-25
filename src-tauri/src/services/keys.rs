@@ -155,8 +155,10 @@ fn normalize_key_type(raw: &str) -> String {
 
 
 fn run_ssh_keygen(args: &[&str]) -> Result<(), String> {
-    let output = Command::new("ssh-keygen")
-        .args(args)
+    let mut cmd = Command::new("ssh-keygen");
+    cmd.args(args);
+    crate::utils::process::hide_console(&mut cmd);
+    let output = cmd
         .output()
         .map_err(|e| format!("ssh-keygen not available: {e}"))?;
 
@@ -169,8 +171,10 @@ fn run_ssh_keygen(args: &[&str]) -> Result<(), String> {
 
 
 fn derive_public_key(private_key_path: &str) -> Result<String, String> {
-    let output = Command::new("ssh-keygen")
-        .args(["-y", "-f", private_key_path])
+    let mut cmd = Command::new("ssh-keygen");
+    cmd.args(["-y", "-f", private_key_path]);
+    crate::utils::process::hide_console(&mut cmd);
+    let output = cmd
         .output()
         .map_err(|e| format!("ssh-keygen not available: {e}"))?;
 
@@ -184,10 +188,10 @@ fn derive_public_key(private_key_path: &str) -> Result<String, String> {
 /// 通过 `ssh-keygen -l -f <pub>` 解析公钥真实位数（输出首段即 bits），
 /// 失败时回退到 4096，避免导入密钥时位数硬编码导致显示不准确。
 fn derive_key_size(public_key_path: &str) -> u32 {
-    let Ok(output) = Command::new("ssh-keygen")
-        .args(["-l", "-f", public_key_path])
-        .output()
-    else {
+    let mut cmd = Command::new("ssh-keygen");
+    cmd.args(["-l", "-f", public_key_path]);
+    crate::utils::process::hide_console(&mut cmd);
+    let Ok(output) = cmd.output() else {
         return 4096;
     };
     if !output.status.success() {
