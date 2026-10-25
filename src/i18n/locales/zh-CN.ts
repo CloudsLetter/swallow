@@ -340,9 +340,7 @@ export default {
     shortcutPresets: '快捷键预设',
     shortcutPresetsDesc: '一键套用主流客户端的键位布局（不会自动保存，应用后仍可逐项重绑）',
     shortcutPreset_default: '默认',
-    shortcutPreset_termius: 'Termius',
-    shortcutPresetDesc_default: '当前默认布局：Ctrl+T 新建 / Ctrl+W 关闭 / Ctrl+Tab · Ctrl+Shift+Tab 切换标签',
-    shortcutPresetDesc_termius: 'Termius 风格：Ctrl+Alt+T 新建标签（Ctrl+T 会被 WebView2 当浏览器加速键吃掉）',
+    shortcutPresetDesc_default: '恢复默认布局：Ctrl+Alt+T 新建 / Ctrl+Alt+W 关闭 / Ctrl+Tab · Ctrl+Shift+Tab 切换标签',
 
     // 云同步设置
     cloudSyncDesc: '云同步功能可以让你在多台设备间同步配置、连接信息和密钥。数据使用端到端加密传输。',

@@ -17,11 +17,16 @@ export function ShortcutsSettings() {
   const updateConfig = useConfigStore((state) => state.updateConfig);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const DEFAULT_SHORTCUTS: Record<string, string | boolean> = {
-    new_tab: 'Ctrl+T',
-    close_tab: 'Ctrl+W',
+    // ⚠️ Ctrl+T / Ctrl+W 在 WebView2 的浏览器加速键清单里：浏览器会在按键送达
+    // 页面之前就把它们吃掉，所以这两个键在 Windows 上从来没生效过。
+    // 改用 Ctrl+Alt 组合（该清单不含 Ctrl+Alt+T / Ctrl+Alt+W）。
+    // 旧配置里存过 Ctrl+T/W 的用户不受影响（配置按 key 覆盖默认值），
+    // 需要的话在设置页用「默认」一键换到可用键位。
+    new_tab: 'Ctrl+Alt+T',
+    close_tab: 'Ctrl+Alt+W',
     // Ctrl+Tab / Ctrl+Shift+Tab 是终端与编辑器的通行习惯（Termius / Warp / 终端模拟器）。
-    // ⚠️ WebView2 的浏览器加速键清单里**不含** Ctrl+Tab（含 Ctrl+T/W），所以它能送达页面；
-    // Ctrl+Shift+←/→ 与方向键冲突且不易发现，故不再作为默认。
+    // 它们不在 WebView2 的浏览器加速键清单里，所以能送达页面；
+    // 旧默认 Ctrl+Shift+←/→ 与方向键冲突且不易发现，已废弃。
     next_tab: 'Ctrl+Tab',
     prev_tab: 'Ctrl+Shift+Tab',
     copy: 'Ctrl+C',
@@ -34,11 +39,10 @@ export function ShortcutsSettings() {
     enabled: true,
   };
 
-  /** 快捷键预设（覆盖常用键，应用后仍可逐项重绑）。 */
+  /** 快捷键预设（覆盖常用键，应用后仍可逐项重绑）。目前只剩「恢复默认」：
+   *  Termius 预设曾提供 Ctrl+Alt+T，现已是默认值，无需再单列。 */
   const PRESETS: Record<string, Record<string, string | boolean>> = {
     default: DEFAULT_SHORTCUTS,
-    // Termius 桌面端：新建标签 Ctrl+Alt+T（Ctrl+T 会被 WebView2 当浏览器加速键吃掉）
-    termius: { ...DEFAULT_SHORTCUTS, new_tab: 'Ctrl+Alt+T' },
   };
 
   // 与默认值合并：老 config 未存 terminal_* 时也显示并可用（保存后落盘）
